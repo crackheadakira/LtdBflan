@@ -2,6 +2,7 @@ use std::{collections::HashSet, path::PathBuf};
 
 use egui::Ui;
 use nnbfl::{
+    bflan::{anim_info::AnimInfo, curves::Curve, targets::TargetIndex},
     bflyt::{
         file::BflytSection,
         list::{BflytLayout, BflytMaterialList, MaterialBlendMode},
@@ -473,23 +474,75 @@ pub fn draw_ui(
                                         anim.playing = true;
                                     }
                                 });
+
+                                ui.add_space(8.0);
+                                ui.separator();
+                                ui.heading("Animation Details");
+
+                                egui::ScrollArea::vertical()
+                                    .id_salt("anim_debug_scroll")
+                                    .auto_shrink(false)
+                                    .show(ui, |ui| {
+                                        for content in &anim.bflan.anim_info.contents {
+                                            let target_name = &content.name;
+
+                                            egui::CollapsingHeader::new(target_name)
+                                                .id_salt(format!("col_target_{}", target_name))
+                                                .default_open(true)
+                                                .show(ui, |ui| {
+                                                    for (info_idx, info) in
+                                                        content.infos.iter().enumerate()
+                                                    {
+                                                        match info {
+                                                            AnimInfo::Standard {
+                                                                anim_type,
+                                                                targets,
+                                                            } => {
+                                                                let info_id = format!(
+                                                                    "{target_name}_{anim_type:?}_{info_idx}"
+                                                                );
+
+                                                                for (target_idx, anim_target) in
+                                                                    targets.iter().enumerate()
+                                                                {
+                                                                    let channel_label =
+                                                                        get_target_index_label(
+                                                                            &anim_target.target,
+                                                                            anim_target.layer,
+                                                                        );
+
+                                                                    let curve_id = format!(
+                                                                        "{info_id}_{target_idx}"
+                                                                    );
+
+                                                                    ui.collapsing(
+                                                                        channel_label,
+                                                                        |ui| {
+                                                                            draw_keyframe_inspector(
+                                                                                ui,
+                                                                                &anim_target.curve,
+                                                                                anim.frame,
+                                                                                &curve_id,
+                                                                            );
+                                                                        },
+                                                                    );
+                                                                }
+                                                            }
+
+                                                            AnimInfo::ExtendedUserData {
+                                                                anim_type,
+                                                                ..
+                                                            } => {
+                                                                ui.small(format!(
+                                                                    "User Data Track: {anim_type:?}",
+                                                                ));
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                        }
+                                    });
                             }
-
-                            ui.add_space(8.0);
-                            ui.separator();
-                            ui.heading("Animation Details");
-
-                            egui::ScrollArea::vertical()
-                                .id_salt("anim_debug_scroll")
-                                .show(ui, |ui| {
-                                    egui::Grid::new("anim_tracks_grid")
-                                        .num_columns(2)
-                                        .striped(true)
-                                        .spacing([8.0, 4.0])
-                                        .show(ui, |ui| {
-                                            ui.label("TODO: make this show stuff");
-                                        });
-                                });
                         });
                     }
                 }
@@ -510,6 +563,105 @@ pub fn draw_ui(
     };
 
     draw_archive_browser_window(ui, state, blarc_dir, archive_scan);
+}
+
+fn get_target_index_label(target: &TargetIndex, layer: u8) -> String {
+    let base_name = match target {
+        TargetIndex::PaneSrt(t) => format!("SRT, {t:?}"),
+        TargetIndex::VertexColor(t) => format!("Vertex Color, {t:?}"),
+        TargetIndex::MaterialColor(t) => format!("Material Color, {t:?}"),
+        TargetIndex::TextureSrt(t) => format!("Texture SRT, {t:?}"),
+        TargetIndex::TexturePattern(t) => format!("Texture Pattern, {t:?}"),
+        TargetIndex::IndirectSrt(t) => format!("Indirect SRT, {t:?}"),
+        TargetIndex::PerCharacterTransformCurve(t) => {
+            format!("Per Character Transform Curve, {t:?}")
+        }
+        TargetIndex::PerCharacterTransform(t) => format!("Per Character Transform, {t:?}"),
+        TargetIndex::DropShadow(t) => format!("Drop Shadow, {t:?}"),
+        TargetIndex::MaskTexture(t) => format!("Mask Texture, {t:?}"),
+        TargetIndex::ProceduralShape(t) => format!("Procedural Shape, {t:?}"),
+        TargetIndex::Window(t) => format!("Window, {t:?}"),
+        TargetIndex::FontShadow(t) => format!("Font Shadow, {t:?}"),
+        TargetIndex::BrickRepeat(t) => format!("Brick Repeat, {t:?}"),
+        other => format!("{other:?}"),
+    };
+
+    if layer > 0 {
+        format!("{} [Layer {}]", base_name, layer)
+    } else {
+        base_name
+    }
+}
+
+fn draw_keyframe_inspector(ui: &mut egui::Ui, curve: &Curve, current_frame: f32, unique_id: &str) {
+    match curve {
+        Curve::Hermite(keyframes) => {
+            ui.label("Hermite Spline");
+
+            egui::Grid::new(format!("grid_hermite_{}", unique_id))
+                .striped(true)
+                .num_columns(3)
+                .spacing([12.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Frame").strong().small());
+                    ui.label(egui::RichText::new("Value").strong().small());
+                    ui.label(egui::RichText::new("Slope").strong().small());
+                    ui.end_row();
+
+                    for kf in keyframes {
+                        let is_active = (kf.frame - current_frame).abs() < 0.2;
+                        let text_color = if is_active {
+                            egui::Color32::GREEN
+                        } else {
+                            ui.visuals().text_color()
+                        };
+
+                        ui.label(egui::RichText::new(format!("{:.1}", kf.frame)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.4}", kf.value)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.4}", kf.slope)).color(text_color));
+                        ui.end_row();
+                    }
+                });
+        }
+
+        Curve::Step(keyframes) => {
+            ui.label("Discrete Step");
+
+            egui::Grid::new(format!("grid_step_{}", unique_id))
+                .striped(true)
+                .num_columns(2)
+                .spacing([12.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("Frame").strong().small());
+                    ui.label(egui::RichText::new("Value").strong().small());
+                    ui.end_row();
+
+                    for kf in keyframes {
+                        let is_active = (kf.frame - current_frame).abs() < 0.2;
+                        let text_color = if is_active {
+                            egui::Color32::GREEN
+                        } else {
+                            ui.visuals().text_color()
+                        };
+
+                        ui.label(egui::RichText::new(format!("{:.1}", kf.frame)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.4}", kf.value)).color(text_color));
+                        ui.end_row();
+                    }
+                });
+        }
+
+        Curve::Constant(values) => {
+            ui.label("Static Constant");
+
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Values:");
+                for val in values {
+                    ui.label(format!("[{:.4}]", val));
+                }
+            });
+        }
+    }
 }
 
 fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: &Option<BflytView>) {
