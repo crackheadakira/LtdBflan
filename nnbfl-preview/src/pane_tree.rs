@@ -15,6 +15,7 @@ use nnbfl::{
 
 use crate::{
     anim_state::transform_uv_srt,
+    archive_browser::{ArchiveEntry, resolve_nested_package_bytes},
     decompress_if_needed, extract_all_files_recursive,
     renderer::{
         quad::Quad,
@@ -513,6 +514,7 @@ impl PaneTree {
         blarc_dir: Option<&Path>,
         file_name: String,
         has_bntx: bool,
+        archive_entries: Option<&[ArchiveEntry]>,
     ) -> Self {
         let layout_size = Vector2f {
             x: file.layout.width,
@@ -526,6 +528,7 @@ impl PaneTree {
         let mut builder = Builder {
             material_list: material_list.as_ref(),
             sub_material_list: None,
+            archive_entries,
             blarc_dir,
             blarc_cache: &mut blarc_cache,
             discovered: &mut discovered_bntx_buffers,
@@ -594,6 +597,7 @@ struct Builder<'a> {
     material_list: Option<&'a BflytMaterialList>,
     sub_material_list: Option<BflytMaterialList>,
     blarc_dir: Option<&'a Path>,
+    archive_entries: Option<&'a [ArchiveEntry]>,
     blarc_cache: &'a mut HashMap<String, Option<Bflyt>>,
     discovered: &'a mut Vec<Vec<u8>>,
     has_bntx: bool,
@@ -751,6 +755,25 @@ impl<'a> Builder<'a> {
         Some(node)
     }
 
+    fn load_bflyt_from_archive_index(&self, layout_name: &str) -> Option<Vec<MagicFiles>> {
+        let entries = self.archive_entries?;
+        let target = layout_name.to_lowercase();
+
+        let entry = entries.iter().find(|e| e.layout_key() == target)?;
+        let bytes = std::fs::read(&entry.path).ok()?;
+        let package_bytes = resolve_nested_package_bytes(bytes, &entry.nested_path)?;
+
+        let mut all_files = Vec::new();
+        extract_all_files_recursive(package_bytes, &mut all_files);
+
+        let has_bflyt = all_files.iter().any(|f| matches!(f, MagicFiles::Bflyt(_)));
+        if !has_bflyt {
+            return None;
+        }
+
+        Some(all_files)
+    }
+
     fn resolve_parts(
         &mut self,
         parts: &BflytPartsPane,
@@ -771,7 +794,10 @@ impl<'a> Builder<'a> {
         }
 
         if !self.blarc_cache.contains_key(layout_name) {
-            if let Some(assets) = load_bflyt_from_blarc_dir(blarc_dir, layout_name) {
+            let assets = load_bflyt_from_blarc_dir(blarc_dir, layout_name)
+                .or_else(|| self.load_bflyt_from_archive_index(layout_name));
+
+            if let Some(assets) = assets {
                 let bflyt_res = assets.iter().find_map(|f| {
                     if let MagicFiles::Bflyt(bytes) = f {
                         Bflyt::parse(bytes).ok()

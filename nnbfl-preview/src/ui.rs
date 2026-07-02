@@ -99,6 +99,7 @@ pub enum UiAction {
     SetBlarcDir(PathBuf),
     StartArchiveScan,
     CancelArchiveScan,
+    LoadArchiveEntry(crate::archive_browser::ArchiveEntry),
 }
 
 pub fn draw_ui(
@@ -652,9 +653,8 @@ fn draw_archive_browser_window(
                                 ui.horizontal(|ui| {
                                     ui.label(&entry.display_name);
                                     if ui.button("Load").clicked() {
-                                        // TODO: needs its own UI action for handing off raw bytes?
                                         state.pending_action =
-                                            Some(UiAction::LoadFile(entry.path.clone()));
+                                            Some(UiAction::LoadArchiveEntry(entry.clone()));
                                         state.hidden_panes.clear();
                                         state.selected_pane = None;
                                     }

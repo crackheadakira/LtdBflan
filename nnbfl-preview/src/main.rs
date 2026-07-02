@@ -641,6 +641,7 @@ impl App {
             self.blarc_dir.as_deref(),
             layout_name.clone(),
             has_textures,
+            self.archive_scan.as_ref().map(|s| s.entries.as_slice()),
         );
 
         self.anim_player = AnimPlayer::new();
@@ -934,6 +935,39 @@ impl ApplicationHandler for App {
                 UiAction::CancelArchiveScan => {
                     if let Some(scan) = &mut self.archive_scan {
                         scan.request_cancel();
+                    }
+                }
+
+                UiAction::LoadArchiveEntry(entry) => {
+                    let resolved = std::fs::read(&entry.path).ok().and_then(|bytes| {
+                        archive_browser::resolve_nested_package_bytes(bytes, &entry.nested_path)
+                    });
+
+                    match resolved {
+                        Some(package_bytes) => {
+                            let mut all_files = Vec::new();
+                            extract_all_files_recursive(package_bytes, &mut all_files);
+
+                            let has_bflyt =
+                                all_files.iter().any(|f| matches!(f, MagicFiles::Bflyt(_)));
+
+                            if has_bflyt {
+                                self.load_file_from_buffer(all_files);
+                            } else {
+                                self.ui_state.error_message = Some(format!(
+                                    "Couldn't find a layout in '{}' anymore - the archive may have changed since it was scanned.",
+                                    entry.display_name
+                                ));
+                            }
+                        }
+                        None => {
+                            self.ui_state.error_message =
+                                Some(format!("Failed to unpack '{}'.", entry.display_name));
+                        }
+                    }
+
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
                     }
                 }
             }

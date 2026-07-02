@@ -20,6 +20,24 @@ pub struct ArchiveEntry {
     pub path: PathBuf,
     pub nested_path: Vec<usize>,
     pub display_name: String,
+    /// The name of the innermost SARC entry, used for matching PartsPane's `o_layout_name`.
+    pub last_label: Option<String>,
+}
+
+impl ArchiveEntry {
+    pub fn layout_key(&self) -> String {
+        let raw = self.last_label.clone().unwrap_or_else(|| {
+            self.path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default()
+        });
+
+        match raw.rsplit_once('.') {
+            Some((stem, _ext)) => stem.to_lowercase(),
+            None => raw.to_lowercase(),
+        }
+    }
 }
 
 enum ArchiveScanEvent {
@@ -63,16 +81,18 @@ impl ArchiveScan {
                         .to_string_lossy()
                         .to_string();
 
+                    let last_label = labels.last().cloned();
                     let display_name = if labels.is_empty() {
                         relative
                     } else {
-                        labels.join(" -> ")
+                        format!("{relative} -> {}", labels.join(" -> "))
                     };
 
                     let _ = tx.send(ArchiveScanEvent::Found(ArchiveEntry {
                         path: path.clone(),
                         nested_path,
                         display_name,
+                        last_label,
                     }));
                 }
 
@@ -294,6 +314,7 @@ fn walk_sarc_for_packages(
         let Some(unwrapped) = unwrap_compression(file.data.clone(), origin, depth + 1) else {
             continue;
         };
+
         if !matches!(
             SarcFile {
                 name: None,
@@ -322,7 +343,6 @@ fn walk_sarc_for_packages(
 }
 
 /// Re-resolves one specific package identified by `entry.nested_path`.
-// TODO: figure out how to plug this into current file loading, and how to hook these up to PartsPane resolving as well :)
 pub fn resolve_nested_package_bytes(
     top_level_bytes: Vec<u8>,
     nested_path: &[usize],

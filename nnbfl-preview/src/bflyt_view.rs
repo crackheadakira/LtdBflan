@@ -2,7 +2,10 @@ use std::path::Path;
 
 use nnbfl::bflyt::file::Bflyt;
 
-use crate::pane_tree::{DirtyFlags, PaneTree};
+use crate::{
+    archive_browser::ArchiveEntry,
+    pane_tree::{DirtyFlags, PaneTree},
+};
 
 pub struct BflytView {
     pub tree: PaneTree,
@@ -32,11 +35,18 @@ pub fn build_view(
     blarc_dir: Option<&Path>,
     file_name: String,
     has_bntx: bool,
+    archive_entries: Option<&[ArchiveEntry]>,
 ) -> BflytView {
     let layout_width = file.layout.width;
     let layout_height = file.layout.height;
 
-    let tree = PaneTree::from_bflyt(file, blarc_dir, file_name.clone(), has_bntx);
+    let tree = PaneTree::from_bflyt(
+        file,
+        blarc_dir,
+        file_name.clone(),
+        has_bntx,
+        archive_entries,
+    );
 
     BflytView {
         tree,
