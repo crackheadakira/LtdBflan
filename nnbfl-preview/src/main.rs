@@ -2,6 +2,7 @@ mod anim_state;
 mod archive_browser;
 mod bflyt_view;
 mod camera;
+mod chinese_font;
 mod pane_tree;
 mod renderer;
 mod traits;
@@ -10,7 +11,7 @@ mod ui;
 use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use camera::Camera;
-use egui_chinese_font::{FontError, setup_chinese_fonts};
+use chinese_font::{FontError, setup_chinese_fonts};
 use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use nnbfl::{
     bflan::file::Bflan,

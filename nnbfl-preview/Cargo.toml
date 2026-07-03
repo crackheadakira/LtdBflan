@@ -12,9 +12,9 @@ nnbfl = { path = "../nnbfl" }
 
 wgpu = "29"
 winit = "0.30"
-egui = "0.34"
-egui-wgpu = "0.34"
-egui-winit = "0.34"
+egui = "0.35"
+egui-wgpu = "0.35"
+egui-winit = "0.35"
 bytemuck = { version = "1.16", features = ["derive"] }
 pollster = "0.4"
 log = "0.4"
@@ -22,6 +22,5 @@ env_logger = "0.11"
 rfd = "0.17"
 tomolib = "1.6"
 
-egui-chinese-font = { git = "https://github.com/szjerrywang/egui-chinese-font", branch = "egui-0.34" }
 szs = "0.3.7"
 bitflags = "2.13.0"
