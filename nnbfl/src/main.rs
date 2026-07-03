@@ -7,7 +7,6 @@ use std::process::exit;
 use crate::bflan::file::Bflan;
 use crate::bflyt::file::Bflyt;
 use crate::core::{NnbflError, ReadWriteable, Writer};
-use crate::sarc::file::Sarc;
 
 mod bflan;
 mod bflyt;
@@ -33,12 +32,6 @@ enum Format {
 
     /// Work with BFLYT (Layout) files
     Bflyt {
-        #[command(subcommand)]
-        action: Action,
-    },
-
-    /// Work with SARC (packaged) files
-    Sarc {
         #[command(subcommand)]
         action: Action,
     },
@@ -69,6 +62,9 @@ enum Action {
         #[arg(short, long)]
         quiet: bool,
     },
+
+    /// Compares two files and shows how they differ.
+    Compare { input_a: PathBuf, input_b: PathBuf },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -91,7 +87,6 @@ impl Format {
         match &self {
             Self::Bflan { action } => action.handle::<Bflan>(),
             Self::Bflyt { action } => action.handle::<Bflyt>(),
-            Self::Sarc { action } => action.handle::<Sarc>(),
         }
     }
 }
@@ -135,6 +130,36 @@ impl Action {
                 if had_failures {
                     return Err(NnbflError::BatchFailure);
                 }
+            }
+
+            Self::Compare { input_a, input_b } => {
+                validate_input(input_a)?;
+                validate_input(input_b)?;
+
+                let bytes_b = fs::read(input_b).map_err(|e| NnbflError::Io {
+                    path: input_b.clone(),
+                    source: e,
+                })?;
+
+                let bytes_a = fs::read(input_a).map_err(|e| NnbflError::Io {
+                    path: input_a.clone(),
+                    source: e,
+                })?;
+
+                let parsed_a = T::parse(&bytes_a).map_err(NnbflError::Format)?;
+                let writer_a = parsed_a.write();
+
+                let file_name_a = input_a
+                    .file_name()
+                    .unwrap_or(std::ffi::OsStr::new("Input A"));
+
+                let identical = compare_files(&writer_a, file_name_a, &bytes_b, false, true);
+
+                if !identical {
+                    return Err(NnbflError::BatchFailure);
+                }
+
+                println!("Files are identical.");
             }
         }
 
@@ -293,7 +318,7 @@ fn compare_files(
 
     for i in 0..std::cmp::min(file_in.len(), file_out.len()) {
         // skip header file size
-        if (0x00..=0x0F).contains(&i) {
+        if (0x00..=0x13).contains(&i) {
             continue;
         }
 

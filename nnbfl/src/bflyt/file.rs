@@ -202,9 +202,7 @@ impl BflytSection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bflyt {
-    pub magic: u32,
     pub endianness: u16,
-    pub header_size: u16,
     pub version: VersionFormat,
 
     pub layout: BflytLayout,
@@ -334,9 +332,7 @@ impl ReadWriteable for Bflyt {
         }
 
         let mut bflyt = Self {
-            magic,
             endianness,
-            header_size,
             version,
             layout: layout.unwrap(),
             user_data,
@@ -358,9 +354,9 @@ impl ReadWriteable for Bflyt {
         writer.version = this.version;
 
         writer.mark("File header");
-        writer.write_u32(this.magic);
+        writer.write_bytes(b"FLYT");
         writer.write_u16(this.endianness);
-        writer.write_u16(this.header_size);
+        let header_size = writer.write_placeholder_u16();
         this.version.serialize(&mut writer);
 
         let file_size_pos = writer.write_placeholder_u32();
@@ -372,10 +368,7 @@ impl ReadWriteable for Bflyt {
         total_sections += this.material_list.is_some() as u32;
 
         writer.write_u32(total_sections);
-
-        while writer.pos() < this.header_size as usize {
-            writer.write_u8(0);
-        }
+        writer.patch_u16(header_size, writer.pos() as u16);
 
         BflytSection::Layout(this.layout.clone()).serialize(&mut writer);
 

@@ -14,7 +14,7 @@ use egui_chinese_font::{FontError, setup_chinese_fonts};
 use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use nnbfl::{
     bflan::file::Bflan,
-    bflyt::file::Bflyt,
+    bflyt::{file::Bflyt, list::BflytLayout},
     core::ReadWriteable,
     sarc::file::{MagicFiles, Sarc, SarcFile},
 };
@@ -176,8 +176,8 @@ impl GpuState {
 
             let ndc_x0 = trans_x;
             let ndc_y0 = trans_y;
-            let ndc_x1 = view.layout_width * scale_x + trans_x;
-            let ndc_y1 = view.layout_height * scale_y + trans_y;
+            let ndc_x1 = view.tree.layout_size.x * scale_x + trans_x;
+            let ndc_y1 = view.tree.layout_size.y * scale_y + trans_y;
 
             let x0 = ((ndc_x0 + 1.0) * 0.5 * screen_w).clamp(0.0, screen_w);
             let y0 = ((1.0 - ndc_y0) * 0.5 * screen_h).clamp(0.0, screen_h);
@@ -256,8 +256,8 @@ impl GpuState {
             self.pane_renderer.recompute_proj_mtx(
                 &mut render_quads,
                 &self.texture_cache,
-                bflyt_view.layout_width,
-                bflyt_view.layout_height,
+                bflyt_view.tree.layout_size.x,
+                bflyt_view.tree.layout_size.y,
             );
 
             self.pane_renderer.update_selection(
@@ -390,6 +390,39 @@ impl App {
             drag_state: None,
             archive_scan: None,
         }
+    }
+
+    pub fn bake_bflyt(&self) -> Option<Bflyt> {
+        let view = self.bflyt_view.as_ref()?;
+
+        let mut nodes = Vec::new();
+        for root_node in &view.tree.roots {
+            root_node.flatten_to_bflyt_nodes(&mut nodes);
+        }
+
+        for group_node in &view.tree.group_nodes {
+            nodes.push(group_node.clone());
+        }
+
+        let layout_header = BflytLayout {
+            is_centered: view.is_centered,
+            width: view.tree.layout_size.x,
+            height: view.tree.layout_size.y,
+            parts_width: view.parts_size.x,
+            parts_height: view.parts_size.y,
+            name: view.file_name.clone(),
+        };
+
+        Some(Bflyt {
+            endianness: 0xFEFF,
+            version: view.version,
+            layout: layout_header,
+            user_data: view.tree.user_data.clone(),
+            texture_list: view.tree.texture_list.clone(),
+            font_list: view.tree.font_list.clone(),
+            material_list: view.tree.material_list.clone(),
+            nodes,
+        })
     }
 
     fn try_start_drag(&mut self, screen_pos: [f32; 2]) -> bool {
@@ -685,15 +718,15 @@ impl App {
                 &gpu.device,
                 &render_quads,
                 &gpu.texture_cache,
-                view.layout_width,
-                view.layout_height,
+                view.tree.layout_size.x,
+                view.tree.layout_size.y,
             );
 
             if let Some(window) = &self.window {
                 let size = window.inner_size();
                 self.camera.fit(
-                    view.layout_width,
-                    view.layout_height,
+                    view.tree.layout_size.x,
+                    view.tree.layout_size.y,
                     size.width as f32,
                     size.height as f32,
                 );
@@ -923,6 +956,43 @@ impl ApplicationHandler for App {
                     }
                 }
 
+                UiAction::SaveFile => {
+                    log::info!("i want to save file");
+
+                    if self.bflyt_view.is_some() {
+                        let mut dialog = rfd::FileDialog::new()
+                            .set_title("Save as .bflyt")
+                            .add_filter("BFLYT Layout", &["bflyt"]);
+
+                        if let Some(path) = &self.bflyt_path {
+                            if let Some(name) = path.file_name() {
+                                dialog = dialog.set_file_name(name.to_string_lossy());
+                            }
+                        }
+
+                        if let Some(target_path) = dialog.save_file() {
+                            if let Some(baked_bflyt) = self.bake_bflyt() {
+                                let writer = baked_bflyt.write();
+
+                                match std::fs::write(&target_path, &writer.buffer) {
+                                    Ok(_) => {
+                                        log::info!("File succesfully written to: {target_path:?}",);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed writing to disk: {e:?}");
+                                        self.ui_state.error_message =
+                                            Some(format!("Write error: {e}"));
+                                    }
+                                }
+                            } else {
+                                log::error!(
+                                    "Failed baking layout fields into file model layout structures."
+                                );
+                            }
+                        }
+                    }
+                }
+
                 UiAction::StartArchiveScan => {
                     if let Some(dir) = self.blarc_dir.clone() {
                         self.archive_scan = Some(ArchiveScan::start(dir));
@@ -1053,8 +1123,8 @@ impl ApplicationHandler for App {
 
                 if let Some(view) = &self.bflyt_view {
                     self.camera.fit(
-                        view.layout_width,
-                        view.layout_height,
+                        view.tree.layout_size.x,
+                        view.tree.layout_size.y,
                         size.width as f32,
                         size.height as f32,
                     );

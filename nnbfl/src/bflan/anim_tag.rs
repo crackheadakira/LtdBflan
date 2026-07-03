@@ -14,7 +14,7 @@ pub struct ResBflanPaneAnimTag {
     pub is_descending_bind: bool,
 
     pub o_name: String,
-    pub groups: Vec<ResBflanGroup>,
+    pub groups: Vec<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub user_data: Option<ResUi2dUserDataSection>,
@@ -46,9 +46,9 @@ impl ResBflanPaneAnimTag {
             cursor.seek(section_start + group_array_offset as usize)?;
             for _ in 0..group_count {
                 let group_name = cursor.read_fixed_string(0x21)?;
-                let flag = cursor.read_u8()?;
+                let _flag = cursor.read_u8()?;
                 let _reserve0 = cursor.read_u16()?;
-                groups.push(ResBflanGroup { group_name, flag });
+                groups.push(group_name);
             }
         }
 
@@ -95,8 +95,8 @@ impl ResBflanPaneAnimTag {
 
         writer.patch_u32(group_offset_pos, (writer.pos() - section_start) as u32);
         for group in &self.groups {
-            writer.write_fixed_string(&group.group_name, 0x21);
-            writer.write_u8(group.flag);
+            writer.write_fixed_string(&group, 0x21);
+            writer.write_u8(0);
             writer.write_u16(0);
         }
 
@@ -114,10 +114,4 @@ impl ResBflanPaneAnimTag {
             writer.patch_u32(embed_size_pos, embed_size);
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResBflanGroup {
-    pub group_name: String,
-    pub flag: u8,
 }

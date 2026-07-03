@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use nnbfl::bflyt::file::Bflyt;
+use nnbfl::{bflyt::file::Bflyt, core::VersionFormat, ui2d::types::Vector2f};
 
 use crate::{
     archive_browser::ArchiveEntry,
@@ -9,9 +9,10 @@ use crate::{
 
 pub struct BflytView {
     pub tree: PaneTree,
-    pub layout_width: f32,
-    pub layout_height: f32,
+    pub is_centered: bool,
+    pub parts_size: Vector2f,
     pub file_name: String,
+    pub version: VersionFormat,
 }
 
 impl BflytView {
@@ -37,8 +38,12 @@ pub fn build_view(
     has_bntx: bool,
     archive_entries: Option<&[ArchiveEntry]>,
 ) -> BflytView {
-    let layout_width = file.layout.width;
-    let layout_height = file.layout.height;
+    let is_centered = file.layout.is_centered;
+    let parts_size = Vector2f {
+        x: file.layout.parts_width,
+        y: file.layout.parts_height,
+    };
+    let version = file.version;
 
     let tree = PaneTree::from_bflyt(
         file,
@@ -50,8 +55,9 @@ pub fn build_view(
 
     BflytView {
         tree,
-        layout_width,
-        layout_height,
+        is_centered,
         file_name,
+        parts_size,
+        version,
     }
 }

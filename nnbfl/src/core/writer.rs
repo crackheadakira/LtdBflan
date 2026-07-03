@@ -70,10 +70,21 @@ impl Writer {
         self.buffer.push(0);
     }
 
+    pub fn write_placeholder_u16(&mut self) -> usize {
+        let pos = self.pos();
+        self.write_u16(0);
+        pos
+    }
+
     pub fn write_placeholder_u32(&mut self) -> usize {
         let pos = self.pos();
         self.write_u32(0);
         pos
+    }
+
+    pub fn patch_u16(&mut self, pos: usize, val: u16) {
+        let bytes = val.to_le_bytes();
+        self.buffer[pos..pos + 2].copy_from_slice(&bytes);
     }
 
     pub fn patch_u32(&mut self, pos: usize, val: u32) {

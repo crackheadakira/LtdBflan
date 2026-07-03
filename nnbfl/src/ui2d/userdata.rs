@@ -18,6 +18,7 @@ pub struct ResUi2dUserData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
 pub enum ResUi2dUserDataInner {
     Float(f32),
     S32(i32),

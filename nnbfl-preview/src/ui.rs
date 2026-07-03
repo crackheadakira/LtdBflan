@@ -101,6 +101,7 @@ pub enum UiAction {
     StartArchiveScan,
     CancelArchiveScan,
     LoadArchiveEntry(crate::archive_browser::ArchiveEntry),
+    SaveFile,
 }
 
 pub fn draw_ui(
@@ -184,6 +185,11 @@ pub fn draw_ui(
                     if let Some(dir) = rfd::FileDialog::new().pick_folder() {
                         state.pending_action = Some(UiAction::SetBlarcDir(dir));
                     }
+                    ui.close();
+                }
+
+                if ui.button("Save File As...").clicked() {
+                    state.pending_action = Some(UiAction::SaveFile);
                     ui.close();
                 }
             });

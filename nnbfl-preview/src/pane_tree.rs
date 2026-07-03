@@ -5,12 +5,12 @@ use nnbfl::{
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection},
         flags::{BflytOrigin, BflytParentOrigin, TexFilter, TexWrapMode},
-        list::{BflytMaterialList, MaterialColorEntry, TexGenSrc},
+        list::{BflytFontList, BflytMaterialList, BflytTextureList, MaterialColorEntry, TexGenSrc},
         pane::{BflytPane, BflytPartsPane, BflytPicturePane},
     },
     core::ReadWriteable,
     sarc::file::MagicFiles,
-    ui2d::types::Vector2f,
+    ui2d::{types::Vector2f, userdata::ResUi2dUserDataSection},
 };
 
 use crate::{
@@ -153,9 +153,43 @@ pub struct PaneNode {
 
     pub dirty: DirtyFlags,
     pub children: Vec<PaneNode>,
+
+    // Store non-pane metadata chunks that belong right after this pane
+    pub trailing_sections: Vec<BflytSection>,
 }
 
 impl PaneNode {
+    pub fn flatten_to_bflyt_nodes(&self, out: &mut Vec<BflytNode>) {
+        if self.plain_quad.is_parts_root || self.parts_source.is_some() {
+            return;
+        }
+
+        let mut baked_section = self.section.clone();
+        if let Some(base) = baked_section.get_base_pane_mut() {
+            // when serializing it seems parent visibility isn't taken into account
+            // base.pane_flags.is_visible = self.visible;
+            base.pane_name = self.label.clone();
+        }
+
+        out.push(BflytNode::Section(baked_section));
+
+        if !self.children.is_empty() {
+            let mut child_nodes = Vec::new();
+
+            for child in &self.children {
+                child.flatten_to_bflyt_nodes(&mut child_nodes);
+            }
+
+            if !child_nodes.is_empty() {
+                out.push(BflytNode::Panes(child_nodes));
+            }
+        }
+
+        for trailing in &self.trailing_sections {
+            out.push(BflytNode::Section(trailing.clone()));
+        }
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &PaneNode> {
         PaneIter { stack: vec![self] }
     }
@@ -252,8 +286,14 @@ impl<'a> Iterator for PaneIter<'a> {
 
 pub struct PaneTree {
     pub roots: Vec<PaneNode>,
+
     pub layout_size: Vector2f,
     pub material_list: Option<BflytMaterialList>,
+    pub user_data: Option<ResUi2dUserDataSection>,
+    pub texture_list: Option<BflytTextureList>,
+    pub font_list: Option<BflytFontList>,
+    pub group_nodes: Vec<BflytNode>,
+
     pub file_name: String,
     pub discovered_bntx_buffers: Vec<Vec<u8>>,
 
@@ -525,6 +565,23 @@ impl PaneTree {
         let mut blarc_cache: HashMap<String, Option<Bflyt>> = HashMap::new();
         let mut discovered_bntx_buffers: Vec<Vec<u8>> = Vec::new();
 
+        let mut pane_nodes = Vec::new();
+        let mut group_nodes = Vec::new();
+
+        for node in file.nodes {
+            match &node {
+                BflytNode::Groups(_) => {
+                    group_nodes.push(node);
+                }
+                BflytNode::Section(BflytSection::Group(_)) => {
+                    group_nodes.push(node);
+                }
+                _ => {
+                    pane_nodes.push(node);
+                }
+            }
+        }
+
         let mut builder = Builder {
             material_list: material_list.as_ref(),
             sub_material_list: None,
@@ -539,7 +596,7 @@ impl PaneTree {
         };
 
         let roots = builder.build_nodes(
-            &file.nodes,
+            &pane_nodes,
             Vector2f::empty(),
             layout_size,
             Vector2f::max(),
@@ -589,6 +646,10 @@ impl PaneTree {
             parent_map,
             label_map,
             max_pane_idx,
+            user_data: file.user_data,
+            texture_list: file.texture_list,
+            font_list: file.font_list,
+            group_nodes,
         }
     }
 }
@@ -626,23 +687,34 @@ impl<'a> Builder<'a> {
         for node in nodes {
             match node {
                 BflytNode::Section(section) => {
-                    if let Some(pane_node) = self.build_node(
-                        section,
-                        parent_pos,
-                        parent_size,
-                        parent_scale,
-                        parent_visible,
-                        depth,
-                    ) {
-                        last_rect = (pane_node.world_pos, pane_node.world_size);
-                        if let Some(base) = section.get_base_pane() {
-                            last_visible = parent_visible && base.pane_flags.is_visible;
-                            last_scale = Vector2f {
-                                x: base.scale.x * parent_scale.x,
-                                y: base.scale.y * parent_scale.y,
-                            };
+                    if section.get_base_pane().is_some() {
+                        if let Some(pane_node) = self.build_node(
+                            section,
+                            parent_pos,
+                            parent_size,
+                            parent_scale,
+                            parent_visible,
+                            depth,
+                        ) {
+                            last_rect = (pane_node.world_pos, pane_node.world_size);
+                            if let Some(base) = section.get_base_pane() {
+                                last_visible = parent_visible && base.pane_flags.is_visible;
+                                last_scale = Vector2f {
+                                    x: base.scale.x * parent_scale.x,
+                                    y: base.scale.y * parent_scale.y,
+                                };
+                            }
+                            out.push(pane_node);
                         }
-                        out.push(pane_node);
+                    } else {
+                        if let Some(last_pane) = out.last_mut() {
+                            last_pane.trailing_sections.push(section.clone());
+                        } else {
+                            log::warn!(
+                                "Metadata section found with no preceding sibling pane: {:?}",
+                                section.kind_name()
+                            );
+                        }
                     }
                 }
 
@@ -746,6 +818,7 @@ impl<'a> Builder<'a> {
             plain_quad,
             dirty: DirtyFlags::empty(),
             children: Vec::new(),
+            trailing_sections: Vec::new(),
         };
 
         if let BflytSection::PartsPane(parts) = section {

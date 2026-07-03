@@ -9,9 +9,7 @@ use crate::{
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Bflan {
-    pub magic: u32,
     pub endianness: u16,
-    pub header_size: u16,
     pub version: VersionFormat,
     pub anim_tag: ResBflanPaneAnimTag,
     pub anim_info: PaneAnimInfo,
@@ -75,12 +73,10 @@ impl ReadWriteable for Bflan {
         }
 
         Ok(Self {
-            magic,
             anim_tag: anim_tag.unwrap(),
             anim_info: anim_info.unwrap(),
             user_data,
             endianness,
-            header_size,
             version,
         })
     }
@@ -90,15 +86,17 @@ impl ReadWriteable for Bflan {
         writer.version = self.version;
 
         writer.mark("File header");
-        writer.write_u32(self.magic);
+        writer.write_bytes(b"FLAN");
         writer.write_u16(self.endianness);
-        writer.write_u16(self.header_size);
+        let header_size = writer.write_placeholder_u16();
         self.version.serialize(&mut writer);
 
         let file_size_pos = writer.write_placeholder_u32();
         let mut section_count = 2;
         section_count += self.user_data.is_some() as u32;
         writer.write_u32(section_count);
+
+        writer.patch_u16(header_size, writer.pos() as u16);
 
         BflanSectionsRef::PaneAnimTag(&self.anim_tag).serialize(&mut writer);
         BflanSectionsRef::PaneAnimInfo(&self.anim_info).serialize(&mut writer);
