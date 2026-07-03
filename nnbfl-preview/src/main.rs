@@ -778,7 +778,7 @@ pub fn extract_all_files_recursive(data: Vec<u8>, out_files: &mut Vec<MagicFiles
 }
 
 fn decompress_if_needed(data: Vec<u8>, filename: &str) -> Vec<u8> {
-    if data.len() >= 4 && &data[0..4] == [0x28, 0xB5, 0x2F, 0xFD] {
+    if data.len() >= 4 && data[0..4] == [0x28, 0xB5, 0x2F, 0xFD] {
         let mut decompressed = Vec::new();
 
         if tomolib::formats::zs::decompress(&data[..], &mut decompressed).is_ok() {
@@ -1030,10 +1030,8 @@ impl ApplicationHandler for App {
                 state,
                 button: MouseButton::Right,
                 ..
-            } => {
-                if state == winit::event::ElementState::Pressed && !egui_wants_pointer {
-                    self.try_open_context_menu(self.camera.cursor_screen);
-                }
+            } if state == winit::event::ElementState::Pressed && !egui_wants_pointer => {
+                self.try_open_context_menu(self.camera.cursor_screen);
             }
 
             WindowEvent::MouseWheel { delta, .. } if !egui_wants_scroll => {

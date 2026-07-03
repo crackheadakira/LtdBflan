@@ -100,7 +100,7 @@ impl Corners {
         }
     }
 
-    pub fn to_array(&self) -> [[f32; 2]; 4] {
+    pub fn to_array(self) -> [[f32; 2]; 4] {
         [
             [self.top_left.x, self.top_left.y],
             [self.top_right.x, self.top_right.y],
@@ -312,7 +312,7 @@ impl PaneTree {
     pub fn collect_render_quads(&self) -> Vec<PaneQuadData> {
         fn collect_recursive(node: &PaneNode, out: &mut Vec<PaneQuadData>) {
             if let Some(tq) = &node.textured_quad {
-                out.push(PaneQuadData::Textured(tq.clone()));
+                out.push(PaneQuadData::Textured(Box::new(tq.clone())));
             } else {
                 if !node.plain_quad.is_parts_root {
                     out.push(PaneQuadData::Plain(node.plain_quad.clone()));
@@ -868,7 +868,7 @@ impl<'a> Builder<'a> {
             };
 
             fn apply_override(
-                nodes: &mut Vec<PaneNode>,
+                nodes: &mut [PaneNode],
                 prop_name: &str,
                 override_section: &BflytSection,
                 builder: &Builder,
@@ -922,9 +922,7 @@ impl<'a> Builder<'a> {
             return None;
         }
 
-        let Some(material_list) = self.sub_material_list.as_ref().or(self.material_list) else {
-            return None;
-        };
+        let material_list = self.sub_material_list.as_ref().or(self.material_list)?;
 
         let mat = material_list.materials.get(pic.material_index as usize)?;
         let tex_map = mat.tex_maps.first()?;

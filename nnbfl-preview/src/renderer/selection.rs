@@ -414,7 +414,8 @@ pub fn point_hits_textured_quad(
 
     let Some([u, v]) = hit_uv else { return true };
 
-    let u_ok = !clamp_u || (u >= 0.0 && u <= 1.0);
-    let v_ok = !clamp_v || (v >= 0.0 && v <= 1.0);
+    let u_ok = !clamp_u || (0.0..=1.0).contains(&u);
+    let v_ok = !clamp_v || (0.0..=1.0).contains(&v);
+
     u_ok && v_ok
 }

@@ -1303,14 +1303,14 @@ fn draw_material_list(ui: &mut Ui, list: &BflytMaterialList) {
                                     egui::Grid::new(ui.id().with("f_sh_clr_grid"))
                                         .striped(true)
                                         .show(ui, |ui| {
-                                            draw_prop(ui, &format!("Color 1, Red"), fcs.color0.r);
-                                            draw_prop(ui, &format!("Color 1, Green"), fcs.color0.g);
-                                            draw_prop(ui, &format!("Color 1, Blue"), fcs.color0.b);
-                                            draw_prop(ui, &format!("Color 1, Alpha"), fcs.color0.a);
-                                            draw_prop(ui, &format!("Color 2, Red"), fcs.color1.r);
-                                            draw_prop(ui, &format!("Color 2, Green"), fcs.color1.g);
-                                            draw_prop(ui, &format!("Color 2, Blue"), fcs.color1.b);
-                                            draw_prop(ui, &format!("Color 2, Alpha"), fcs.color1.a);
+                                            draw_prop(ui, "Color 1, Red", fcs.color0.r);
+                                            draw_prop(ui, "Color 1, Green", fcs.color0.g);
+                                            draw_prop(ui, "Color 1, Blue", fcs.color0.b);
+                                            draw_prop(ui, "Color 1, Alpha", fcs.color0.a);
+                                            draw_prop(ui, "Color 2, Red", fcs.color1.r);
+                                            draw_prop(ui, "Color 2, Green", fcs.color1.g);
+                                            draw_prop(ui, "Color 2, Blue", fcs.color1.b);
+                                            draw_prop(ui, "Color 2, Alpha", fcs.color1.a);
                                         });
                                 });
                         }
@@ -1324,28 +1324,28 @@ fn draw_material_list(ui: &mut Ui, list: &BflytMaterialList) {
                                         .show(ui, |ui| {
                                             draw_prop(ui, "Stage Flags", dc.stage_flags);
 
-                                            draw_prop(ui, &format!("Color 1, Red"), dc.color1.r);
-                                            draw_prop(ui, &format!("Color 1, Green"), dc.color1.g);
-                                            draw_prop(ui, &format!("Color 1, Blue"), dc.color1.b);
-                                            draw_prop(ui, &format!("Color 1, Alpha"), dc.color1.a);
-                                            draw_prop(ui, &format!("Color 2, Red"), dc.color2.r);
-                                            draw_prop(ui, &format!("Color 2, Green"), dc.color2.g);
-                                            draw_prop(ui, &format!("Color 2, Blue"), dc.color2.b);
-                                            draw_prop(ui, &format!("Color 2, Alpha"), dc.color2.a);
+                                            draw_prop(ui, "Color 1, Red", dc.color1.r);
+                                            draw_prop(ui, "Color 1, Green", dc.color1.g);
+                                            draw_prop(ui, "Color 1, Blue", dc.color1.b);
+                                            draw_prop(ui, "Color 1, Alpha", dc.color1.a);
+                                            draw_prop(ui, "Color 2, Red", dc.color2.r);
+                                            draw_prop(ui, "Color 2, Green", dc.color2.g);
+                                            draw_prop(ui, "Color 2, Blue", dc.color2.b);
+                                            draw_prop(ui, "Color 2, Alpha", dc.color2.a);
 
-                                            draw_prop(ui, &format!("Color 3, Red"), dc.color3.r);
-                                            draw_prop(ui, &format!("Color 3, Green"), dc.color3.g);
-                                            draw_prop(ui, &format!("Color 3, Blue"), dc.color3.b);
-                                            draw_prop(ui, &format!("Color 3, Alpha"), dc.color3.a);
-                                            draw_prop(ui, &format!("Color 4, Red"), dc.color4.r);
-                                            draw_prop(ui, &format!("Color 4, Green"), dc.color4.g);
-                                            draw_prop(ui, &format!("Color 4, Blue"), dc.color4.b);
-                                            draw_prop(ui, &format!("Color 4, Alpha"), dc.color4.a);
+                                            draw_prop(ui, "Color 3, Red", dc.color3.r);
+                                            draw_prop(ui, "Color 3, Green", dc.color3.g);
+                                            draw_prop(ui, "Color 3, Blue", dc.color3.b);
+                                            draw_prop(ui, "Color 3, Alpha", dc.color3.a);
+                                            draw_prop(ui, "Color 4, Red", dc.color4.r);
+                                            draw_prop(ui, "Color 4, Green", dc.color4.g);
+                                            draw_prop(ui, "Color 4, Blue", dc.color4.b);
+                                            draw_prop(ui, "Color 4, Alpha", dc.color4.a);
 
-                                            draw_prop(ui, &format!("Color 5, Red"), dc.color5.r);
-                                            draw_prop(ui, &format!("Color 5, Green"), dc.color5.g);
-                                            draw_prop(ui, &format!("Color 5, Blue"), dc.color5.b);
-                                            draw_prop(ui, &format!("Color 5, Alpha"), dc.color5.a);
+                                            draw_prop(ui, "Color 5, Red", dc.color5.r);
+                                            draw_prop(ui, "Color 5, Green", dc.color5.g);
+                                            draw_prop(ui, "Color 5, Blue", dc.color5.b);
+                                            draw_prop(ui, "Color 5, Alpha", dc.color5.a);
 
                                             draw_vec_grid(
                                                 ui,

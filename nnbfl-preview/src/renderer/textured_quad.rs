@@ -183,7 +183,7 @@ pub struct TexturedQuad {
 #[derive(Clone, Debug)]
 pub enum PaneQuadData {
     Plain(Quad),
-    Textured(TexturedQuad),
+    Textured(Box<TexturedQuad>),
 }
 
 impl PaneQuadData {
@@ -995,7 +995,7 @@ impl PaneRenderer {
         let mut textured_lookup: HashMap<usize, &mut TexturedQuad> = ordered
             .iter_mut()
             .filter_map(|d| match d {
-                PaneQuadData::Textured(tq) => Some((tq.pane_idx, tq)),
+                PaneQuadData::Textured(tq) => Some((tq.pane_idx, &mut **tq)),
                 _ => None,
             })
             .collect();
@@ -1219,7 +1219,7 @@ impl PaneRenderer {
         let textured_lookup: HashMap<usize, &TexturedQuad> = ordered
             .iter()
             .filter_map(|d| match d {
-                PaneQuadData::Textured(tq) => Some((tq.pane_idx, tq)),
+                PaneQuadData::Textured(tq) => Some((tq.pane_idx, &**tq)),
                 _ => None,
             })
             .collect();

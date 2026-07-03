@@ -410,21 +410,20 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
 
                 let final_w = new_w * scale_x;
                 let final_h = new_h * scale_y;
-                if (final_w - base_w).abs() > f32::EPSILON
-                    || (final_h - base_h).abs() > f32::EPSILON
+                if ((final_w - base_w).abs() > f32::EPSILON
+                    || (final_h - base_h).abs() > f32::EPSILON)
+                    && let Some(&ptr) = idx_map.get(&pane_idx)
                 {
-                    if let Some(&ptr) = idx_map.get(&pane_idx) {
-                        let node = unsafe { &mut *ptr };
-                        node.world_size.x = final_w;
-                        node.world_size.y = final_h;
-                        node.plain_quad.width = final_w;
-                        node.plain_quad.height = final_h;
-                        if let Some(tq) = &mut node.textured_quad {
-                            tq.width = final_w;
-                            tq.height = final_h;
-                        }
-                        node.dirty.insert(DirtyFlags::VERTICES);
+                    let node = unsafe { &mut *ptr };
+                    node.world_size.x = final_w;
+                    node.world_size.y = final_h;
+                    node.plain_quad.width = final_w;
+                    node.plain_quad.height = final_h;
+                    if let Some(tq) = &mut node.textured_quad {
+                        tq.width = final_w;
+                        tq.height = final_h;
                     }
+                    node.dirty.insert(DirtyFlags::VERTICES);
                 }
             }
 
