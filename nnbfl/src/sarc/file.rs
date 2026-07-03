@@ -38,7 +38,9 @@ impl ReadWriteable for Sarc {
         let version_number = cursor.read_u16()?;
         let padding = cursor.read_u16()?;
 
-        let data_alignment = if data_start_offset % 4096 == 0 {
+        let data_alignment = if data_start_offset % 8192 == 0 {
+            8192
+        } else if data_start_offset % 4096 == 0 {
             4096
         } else if data_start_offset % 2048 == 0 {
             2048
@@ -131,8 +133,6 @@ impl ReadWriteable for Sarc {
     }
 
     fn write(&self) -> Writer {
-        todo!("currently inaccurate");
-
         let mut writer = Writer::new();
 
         let mut sorted_files = self.files.clone();
@@ -167,11 +167,22 @@ impl ReadWriteable for Sarc {
         let mut file_layouts = Vec::with_capacity(sorted_files.len());
 
         for file in self.files.iter() {
-            let alignment = if relative_cursor >= 0x2000 { 4096 } else { 16 };
+            let alignment = if let Some(ref name) = file.name {
+                if name.ends_with(".bntx") || name.ends_with(".bnsh") || name.ends_with(".baglmf") {
+                    self.data_alignment
+                } else if name.ends_with(".szs") {
+                    64
+                } else {
+                    16
+                }
+            } else {
+                16
+            };
 
             relative_cursor = relative_cursor.next_multiple_of(alignment);
             let start = relative_cursor;
             let end = start + file.data.len() as u32;
+
             file_layouts.push((start, end));
             relative_cursor = end;
         }

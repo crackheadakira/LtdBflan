@@ -7,6 +7,7 @@ use std::process::exit;
 use crate::bflan::file::Bflan;
 use crate::bflyt::file::Bflyt;
 use crate::core::{NnbflError, ReadWriteable, Writer};
+use crate::sarc::file::Sarc;
 
 mod bflan;
 mod bflyt;
@@ -32,6 +33,12 @@ enum Format {
 
     /// Work with BFLYT (Layout) files
     Bflyt {
+        #[command(subcommand)]
+        action: Action,
+    },
+
+    /// Work with SARC (packaged) files
+    Sarc {
         #[command(subcommand)]
         action: Action,
     },
@@ -84,6 +91,7 @@ impl Format {
         match &self {
             Self::Bflan { action } => action.handle::<Bflan>(),
             Self::Bflyt { action } => action.handle::<Bflyt>(),
+            Self::Sarc { action } => action.handle::<Sarc>(),
         }
     }
 }
