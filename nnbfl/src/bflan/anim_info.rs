@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     bflan::targets::AnimTarget,
-    core::{Cursor, FormatError, Writer, tchar_code32},
+    core::{Cursor, FormatError, Placeholder32, Writer, tchar_code32},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -244,7 +244,7 @@ impl ExtendedUserDataAnim {
         let string_start = writer.pos();
         writer.write_null_terminated_string(&self.key);
 
-        let relative_offset = (string_start - offset_pos) as u32;
+        let relative_offset = (string_start - offset_pos.0) as u32;
         writer.patch_u32(offset_pos, relative_offset);
     }
 }
@@ -401,7 +401,7 @@ impl AnimContent {
         writer.write_u8(type_val);
         writer.write_u16(0);
 
-        let mut total_size_pos = 0;
+        let mut total_size_pos = Placeholder32(0);
 
         // Workaround for MiniGame_PictQuiz_00_MosaicNormal.bflan
         if matches!(self.anim_type, AnimType::User) {

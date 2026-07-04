@@ -6,10 +6,16 @@ pub struct Writer {
     pub version: VersionFormat,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Placeholder32(pub usize);
+
+#[derive(Debug, Clone, Copy)]
+pub struct Placeholder16(pub usize);
+
 impl Writer {
     pub fn new() -> Self {
         Self {
-            buffer: Vec::new(),
+            buffer: Vec::with_capacity(65536),
             breadcrumbs: Vec::new(),
             version: VersionFormat::default(),
         }
@@ -60,8 +66,8 @@ impl Writer {
         let write_len = bytes.len().min(len);
         self.buffer.extend_from_slice(&bytes[..write_len]);
 
-        for _ in write_len..len {
-            self.buffer.push(0);
+        if write_len < len {
+            self.buffer.resize(self.buffer.len() + (len - write_len), 0);
         }
     }
 
@@ -70,35 +76,33 @@ impl Writer {
         self.buffer.push(0);
     }
 
-    pub fn write_placeholder_u16(&mut self) -> usize {
+    pub fn write_placeholder_u16(&mut self) -> Placeholder16 {
         let pos = self.pos();
         self.write_u16(0);
-        pos
+        Placeholder16(pos)
     }
 
-    pub fn write_placeholder_u32(&mut self) -> usize {
+    pub fn write_placeholder_u32(&mut self) -> Placeholder32 {
         let pos = self.pos();
         self.write_u32(0);
-        pos
+        Placeholder32(pos)
     }
 
-    pub fn patch_u16(&mut self, pos: usize, val: u16) {
+    pub fn patch_u16(&mut self, pos: Placeholder16, val: u16) {
         let bytes = val.to_le_bytes();
-        self.buffer[pos..pos + 2].copy_from_slice(&bytes);
+        self.buffer[pos.0..pos.0 + 2].copy_from_slice(&bytes);
     }
 
-    pub fn patch_u32(&mut self, pos: usize, val: u32) {
+    pub fn patch_u32(&mut self, pos: Placeholder32, val: u32) {
         let bytes = val.to_le_bytes();
-        self.buffer[pos..pos + 4].copy_from_slice(&bytes);
+        self.buffer[pos.0..pos.0 + 4].copy_from_slice(&bytes);
     }
 
     pub fn align(&mut self, alignment: usize) {
         let remainder = self.pos() % alignment;
         if remainder != 0 {
             let padding = alignment - remainder;
-            for _ in 0..padding {
-                self.write_u8(0);
-            }
+            self.buffer.resize(self.buffer.len() + padding, 0);
         }
     }
 }

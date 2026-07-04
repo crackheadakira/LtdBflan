@@ -53,7 +53,7 @@ impl UserDataArray {
         writer.write_u16(self.user_data.len() as u16);
         writer.write_u16(0);
 
-        let mut slots: Vec<(usize, usize, usize)> = Vec::with_capacity(self.user_data.len());
+        let mut slots = Vec::with_capacity(self.user_data.len());
 
         for data in &self.user_data {
             let entry_base = writer.pos();

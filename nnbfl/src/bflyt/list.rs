@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     bflyt::flags::{TexFilter, TexWrapMode},
-    core::{Cursor, FormatError, Writer},
+    core::{Cursor, FormatError, Placeholder32, Writer},
     ui2d::types::{Color4f, Color4u8, Vector2f},
 };
 
@@ -1382,8 +1382,8 @@ impl CaptureTexture {
     pub fn serialize(
         &self,
         writer: &mut Writer,
-        tex_placeholder: &mut usize,
-        pane_placeholder: &mut usize,
+        tex_placeholder: &mut Placeholder32,
+        pane_placeholder: &mut Placeholder32,
     ) {
         *tex_placeholder = writer.write_placeholder_u32();
         *pane_placeholder = writer.write_placeholder_u32();
@@ -1431,8 +1431,8 @@ impl CaptureTextureList {
         let mut pane_placeholders = Vec::with_capacity(self.infos.len());
 
         for info in &self.infos {
-            let mut tex_ph = 0;
-            let mut pane_ph = 0;
+            let mut tex_ph = Placeholder32(0);
+            let mut pane_ph = Placeholder32(0);
 
             info.serialize(writer, &mut tex_ph, &mut pane_ph);
 

@@ -7,7 +7,7 @@ use crate::{
         file::BflytSection,
         flags::{BflytOrigins, PaneFlags, PaneFlagsEx, TextPaneFlags, WindowFlags},
     },
-    core::{Cursor, FormatError, Writer},
+    core::{Cursor, FormatError, Placeholder32, Writer},
     ui2d::types::{Color4u8, Vector2f, Vector3f},
 };
 
@@ -912,7 +912,10 @@ impl PartsProperty {
         Ok(property)
     }
 
-    pub fn serialize_header(&self, writer: &mut Writer) -> (usize, usize, usize) {
+    pub fn serialize_header(
+        &self,
+        writer: &mut Writer,
+    ) -> (Placeholder32, Placeholder32, Placeholder32) {
         writer.write_fixed_string(&self.property_name, PANE_NAME_LEN);
         writer.write_u8(self.usage_flag.pack_flags());
         writer.write_u8(self.basic_usage_flag.pack_flags());
