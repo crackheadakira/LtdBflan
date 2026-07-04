@@ -46,6 +46,7 @@ pub struct UiState {
 
     pub context_menu: Option<ContextMenuState>,
     pub archive_browser_open: bool,
+    pub shortcuts_window_open: bool,
 
     pub timeline: TimelineState,
 }
@@ -141,6 +142,11 @@ pub enum UiAction {
     CancelArchiveScan,
     LoadArchiveEntry(crate::archive_browser::ArchiveEntry),
     SaveFile,
+
+    DeletePane(usize),
+    DuplicatePane(usize),
+    Undo,
+    Redo,
 }
 
 pub fn draw_ui(
@@ -154,6 +160,8 @@ pub fn draw_ui(
     blarc_dir: Option<&std::path::PathBuf>,
     archive_scan: Option<&crate::archive_browser::ArchiveScan>,
 ) {
+    crate::keybinds::handle(ui.ctx(), state, anim_player);
+
     if let Some(view) = view {
         let viewport_rect = ui.content_rect();
         let painter = ui.painter().with_clip_rect(viewport_rect);
@@ -261,6 +269,13 @@ pub fn draw_ui(
                     }
                 });
             }
+
+            ui.menu_button("Help", |ui| {
+                if ui.button("Keyboard Shortcuts").clicked() {
+                    state.shortcuts_window_open = true;
+                    ui.close();
+                }
+            });
         })
     });
 
@@ -609,6 +624,7 @@ pub fn draw_ui(
 
     draw_timeline_panel(ui, state, anim_player);
     draw_archive_browser_window(ui, state, blarc_dir, archive_scan);
+    draw_shortcuts_window(ui, state);
 }
 
 fn get_target_index_label(target: &TargetIndex, layer: u8) -> String {
@@ -636,6 +652,64 @@ fn get_target_index_label(target: &TargetIndex, layer: u8) -> String {
         format!("{} [Layer {}]", base_name, layer)
     } else {
         base_name
+    }
+}
+
+fn draw_shortcuts_window(ui: &mut egui::Ui, state: &mut UiState) {
+    if !state.shortcuts_window_open {
+        return;
+    }
+
+    let mut open = true;
+
+    egui::Window::new("Keyboard Shortcuts")
+        .open(&mut open)
+        .resizable(false)
+        .default_width(360.0)
+        .show(ui.ctx(), |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(400.0)
+                .show(ui, |ui| {
+                    egui::Grid::new("shortcuts_grid")
+                        .num_columns(2)
+                        .spacing([16.0, 8.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for bind in crate::keybinds::BINDINGS {
+                                let mut mods = String::new();
+                                if bind.modifiers.command {
+                                    mods.push_str("Ctrl+");
+                                }
+
+                                if bind.modifiers.shift {
+                                    mods.push_str("Shift+");
+                                }
+
+                                if bind.modifiers.alt {
+                                    mods.push_str("Alt+");
+                                }
+
+                                let shortcut_text = format!("{mods}{:?}", bind.key);
+
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.colored_label(
+                                            egui::Color32::from_gray(140),
+                                            shortcut_text,
+                                        );
+                                    },
+                                );
+
+                                ui.label(bind.description);
+                                ui.end_row();
+                            }
+                        });
+                });
+        });
+
+    if !open {
+        state.shortcuts_window_open = false;
     }
 }
 

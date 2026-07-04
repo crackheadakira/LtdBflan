@@ -4,8 +4,11 @@ use nnbfl::{bflyt::file::Bflyt, core::VersionFormat, ui2d::types::Vector2f};
 
 use crate::{
     archive_browser::ArchiveEntry,
+    edit_history::EditHistory,
     pane_tree::{DirtyFlags, PaneTree},
 };
+
+const EDIT_HISTORY_LIMIT: usize = 20;
 
 pub struct BflytView {
     pub tree: PaneTree,
@@ -13,6 +16,7 @@ pub struct BflytView {
     pub parts_size: Vector2f,
     pub file_name: String,
     pub version: VersionFormat,
+    pub history: EditHistory,
 }
 
 impl BflytView {
@@ -59,5 +63,6 @@ pub fn build_view(
         file_name,
         parts_size,
         version,
+        history: EditHistory::new(EDIT_HISTORY_LIMIT),
     }
 }

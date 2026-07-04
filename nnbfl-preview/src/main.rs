@@ -3,6 +3,8 @@ mod archive_browser;
 mod bflyt_view;
 mod camera;
 mod chinese_font;
+mod edit_history;
+mod keybinds;
 mod pane_tree;
 mod renderer;
 mod traits;
@@ -783,6 +785,44 @@ impl App {
 
         Some(all_files)
     }
+
+    fn perform_pane_edit(&mut self, edit: edit_history::PaneEdit) {
+        let Some(view) = &mut self.bflyt_view else {
+            return;
+        };
+
+        let resulting_idx = view.history.perform(&mut view.tree, edit);
+        if resulting_idx.is_some() {
+            self.ui_state.selected_pane = resulting_idx;
+        } else {
+            self.ui_state.selected_pane = None;
+        }
+
+        self.after_structural_edit();
+    }
+
+    fn after_structural_edit(&mut self) {
+        let Some(view) = &mut self.bflyt_view else {
+            return;
+        };
+
+        view.tree.recompute_dirty();
+
+        let Some(gpu) = &mut self.gpu else { return };
+        let render_quads = view.tree.collect_render_quads();
+
+        gpu.pane_renderer.upload_quads(
+            &gpu.device,
+            &render_quads,
+            &gpu.texture_cache,
+            view.tree.layout_size.x,
+            view.tree.layout_size.y,
+        );
+
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
 }
 
 pub fn extract_all_files_recursive(data: Vec<u8>, out_files: &mut Vec<MagicFiles>) {
@@ -1064,6 +1104,29 @@ impl ApplicationHandler for App {
 
                     if let Some(w) = &self.window {
                         w.request_redraw();
+                    }
+                }
+                UiAction::DeletePane(target_idx) => {
+                    self.perform_pane_edit(edit_history::PaneEdit::Delete { target_idx })
+                }
+
+                UiAction::DuplicatePane(source_idx) => {
+                    self.perform_pane_edit(edit_history::PaneEdit::Duplicate { source_idx })
+                }
+
+                UiAction::Undo => {
+                    if let Some(view) = &mut self.bflyt_view {
+                        let resulting_idx = view.history.undo(&mut view.tree);
+                        self.ui_state.selected_pane = resulting_idx;
+                        self.after_structural_edit();
+                    }
+                }
+
+                UiAction::Redo => {
+                    if let Some(view) = &mut self.bflyt_view {
+                        let resulting_idx = view.history.redo(&mut view.tree);
+                        self.ui_state.selected_pane = resulting_idx;
+                        self.after_structural_edit();
                     }
                 }
             }
