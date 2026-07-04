@@ -87,17 +87,27 @@ pub const BINDINGS: &[KeyBind] = &[
 ];
 
 pub fn handle(ctx: &Context, state: &mut UiState, anim_player: &mut AnimPlayer) {
-    for bind in BINDINGS {
+    let mut action_to_apply = None;
+
+    ctx.input_mut(|i| {
+        for bind in BINDINGS {
+            if i.modifiers.matches_exact(bind.modifiers) && i.key_pressed(bind.key) {
+                action_to_apply = Some(*bind);
+                break;
+            }
+        }
+    });
+
+    if let Some(bind) = action_to_apply {
         let fired = ctx.input_mut(|i| i.consume_key(bind.modifiers, bind.key));
-        if !fired {
-            continue;
-        }
 
-        if bind.modifiers.is_none() && ctx.egui_wants_keyboard_input() {
-            continue;
-        }
+        if fired {
+            if bind.modifiers.is_none() && ctx.egui_wants_keyboard_input() {
+                return;
+            }
 
-        apply(bind.action, state, anim_player);
+            apply(bind.action, state, anim_player);
+        }
     }
 }
 
