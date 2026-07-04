@@ -297,11 +297,17 @@ pub fn draw_ui(
                     );
                     ui.separator();
 
-                    egui::ScrollArea::vertical()
-                        .auto_shrink(false)
-                        .show(ui, |ui| {
+                    let total_rows = view.as_ref().map_or(1, |v| v.tree.flatten().len());
+                    egui::ScrollArea::vertical().auto_shrink(false).show_rows(
+                        ui,
+                        24.0,
+                        total_rows,
+                        |ui, row_range| {
                             if let Some(view) = view {
-                                for node in view.tree.iter() {
+                                let nodes = view.tree.flatten();
+
+                                for idx in row_range {
+                                    let node = nodes[idx];
                                     let i = node.pane_idx;
 
                                     let indent = node.depth as f32 * 12.0;
@@ -356,7 +362,8 @@ pub fn draw_ui(
                             } else {
                                 ui.label("No .bflyt file loaded");
                             }
-                        });
+                        },
+                    );
                 }
                 SidebarTab::Materials => {
                     ui.heading("Material List");
@@ -1133,15 +1140,18 @@ fn draw_archive_browser_window(
 
                     ui.separator();
 
-                    // can this somehow be virtualized?
-                    egui::ScrollArea::vertical()
-                        .auto_shrink(false)
-                        .show(ui, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink(false).show_rows(
+                        ui,
+                        24.0,
+                        scan.entries.len(),
+                        |ui, row_range| {
                             if scan.entries.is_empty() && scan.done {
                                 ui.weak("No BFLYT-containing archives found.");
                             }
 
-                            for entry in &scan.entries {
+                            for i in row_range {
+                                let entry = &scan.entries[i];
+
                                 ui.horizontal(|ui| {
                                     ui.label(&entry.display_name);
                                     if ui.button("Load").clicked() {
@@ -1152,7 +1162,8 @@ fn draw_archive_browser_window(
                                     }
                                 });
                             }
-                        });
+                        },
+                    );
                 }
             }
         });

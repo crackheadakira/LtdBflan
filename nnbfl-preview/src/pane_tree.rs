@@ -307,6 +307,10 @@ impl PaneTree {
         self.roots.iter().flat_map(|r| r.iter())
     }
 
+    pub fn flatten(&self) -> Vec<&PaneNode> {
+        self.iter().collect()
+    }
+
     pub fn for_each_mut<F>(&mut self, mut f: F)
     where
         F: FnMut(&mut PaneNode),
