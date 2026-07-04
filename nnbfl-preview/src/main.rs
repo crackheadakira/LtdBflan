@@ -1044,10 +1044,10 @@ impl ApplicationHandler for App {
                             .set_title("Save as .bflyt")
                             .add_filter("BFLYT Layout", &["bflyt"]);
 
-                        if let Some(path) = &self.bflyt_path {
-                            if let Some(name) = path.file_name() {
-                                dialog = dialog.set_file_name(name.to_string_lossy());
-                            }
+                        if let Some(path) = &self.bflyt_path
+                            && let Some(name) = path.file_name()
+                        {
+                            dialog = dialog.set_file_name(name.to_string_lossy());
                         }
 
                         if let Some(target_path) = dialog.save_file() {

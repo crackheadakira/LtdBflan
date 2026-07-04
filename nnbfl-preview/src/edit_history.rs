@@ -11,7 +11,7 @@ pub enum PaneEdit {
     Insert {
         parent_idx: Option<usize>,
         position: usize,
-        node: PaneNode,
+        node: Box<PaneNode>,
     },
 }
 
@@ -21,11 +21,11 @@ impl PaneEdit {
             PaneEdit::Delete { target_idx } => {
                 let (parent_idx, position) = tree.sibling_position(target_idx)?;
                 let node = tree.remove_node(target_idx)?;
-                Some(AppliedCommand::Removed(PendingRemoval {
+                Some(AppliedCommand::Removed(Box::new(PendingRemoval {
                     parent_idx,
                     position,
                     node,
-                }))
+                })))
             }
 
             PaneEdit::Duplicate { source_idx } => {
@@ -38,7 +38,7 @@ impl PaneEdit {
                 position,
                 node,
             } => {
-                let idx = tree.insert_node_at(parent_idx, position, node);
+                let idx = tree.insert_node_at(parent_idx, position, *node);
                 Some(AppliedCommand::Inserted(idx))
             }
         }
@@ -53,7 +53,7 @@ pub struct PendingRemoval {
 
 pub enum AppliedCommand {
     Inserted(usize),
-    Removed(PendingRemoval),
+    Removed(Box<PendingRemoval>),
 }
 
 impl AppliedCommand {
@@ -62,11 +62,11 @@ impl AppliedCommand {
             AppliedCommand::Inserted(pane_idx) => {
                 let (parent_idx, position) = tree.sibling_position(pane_idx)?;
                 let node = tree.remove_node(pane_idx)?;
-                Some(AppliedCommand::Removed(PendingRemoval {
+                Some(AppliedCommand::Removed(Box::new(PendingRemoval {
                     parent_idx,
                     position,
                     node,
-                }))
+                })))
             }
 
             AppliedCommand::Removed(removal) => {
