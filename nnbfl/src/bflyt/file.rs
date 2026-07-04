@@ -4,40 +4,37 @@ use crate::{
     bflyt::{
         constants::*,
         list::{
-            BflytCaptureTextureList, BflytControlSource, BflytFontList, BflytGroup, BflytLayout,
-            BflytMaterialList, BflytTextureList, BflytVectorGraphicsList,
+            CaptureTextureList, ControlSource, FontList, Group, Layout, MaterialList, TextureList,
+            VectorGraphicsList,
         },
-        pane::{
-            BflytAlignmentPane, BflytPane, BflytPartsPane, BflytPicturePane, BflytTextBoxPane,
-            BflytWindowPane,
-        },
+        pane::{AlignmentPane, Pane, PartsPane, PicturePane, TextBoxPane, WindowPane},
     },
     core::{
         Cursor, FormatError, ReadWriteable, SectionHeader, VersionFormat, Writer, tchar_code32,
     },
-    ui2d::userdata::ResUi2dUserDataSection,
+    ui2d::userdata::UserDataArray,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BflytSection {
-    UserData(ResUi2dUserDataSection),
-    Layout(BflytLayout),
-    TextureList(BflytTextureList),
-    FontList(BflytFontList),
-    MaterialList(BflytMaterialList),
-    CaptureTextureList(BflytCaptureTextureList),
-    VectorGraphicsList(BflytVectorGraphicsList),
-    Pane(BflytPane),
-    PicturePane(BflytPicturePane),
-    TextBoxPane(BflytTextBoxPane),
-    WindowPane(BflytWindowPane),
-    PartsPane(BflytPartsPane),
-    AlignmentPane(BflytAlignmentPane),
-    CapturePane(BflytPane),
-    BoundingPane(BflytPane),
-    ScissorPane(BflytPane),
-    Group(BflytGroup),
-    ControlSource(BflytControlSource),
+    UserData(UserDataArray),
+    Layout(Layout),
+    TextureList(TextureList),
+    FontList(FontList),
+    MaterialList(MaterialList),
+    CaptureTextureList(CaptureTextureList),
+    VectorGraphicsList(VectorGraphicsList),
+    Pane(Pane),
+    PicturePane(PicturePane),
+    TextBoxPane(TextBoxPane),
+    WindowPane(WindowPane),
+    PartsPane(PartsPane),
+    AlignmentPane(AlignmentPane),
+    CapturePane(Pane),
+    BoundingPane(Pane),
+    ScissorPane(Pane),
+    Group(Group),
+    ControlSource(ControlSource),
     PaneStart,
     PaneEnd,
     GroupStart,
@@ -59,34 +56,34 @@ impl BflytSection {
 
         let section = match magic {
             MAGIC_USERDATA => {
-                let s = ResUi2dUserDataSection::parse(cursor, *last_was_pane)?;
+                let s = UserDataArray::parse(cursor, *last_was_pane)?;
                 BflytSection::UserData(s)
             }
             MAGIC_LAYOUT => {
-                let s = BflytLayout::parse(cursor)?;
+                let s = Layout::parse(cursor)?;
                 if !is_embed {
                     *last_was_pane = false;
                 }
                 BflytSection::Layout(s)
             }
             MAGIC_TEXTURELIST => {
-                let s = BflytTextureList::parse(cursor)?;
+                let s = TextureList::parse(cursor)?;
                 BflytSection::TextureList(s)
             }
             MAGIC_FONTLIST => {
-                let s = BflytFontList::parse(cursor)?;
+                let s = FontList::parse(cursor)?;
                 BflytSection::FontList(s)
             }
             MAGIC_MATERIALLIST => {
-                let s = BflytMaterialList::parse(cursor, section_start)?;
+                let s = MaterialList::parse(cursor, section_start)?;
                 BflytSection::MaterialList(s)
             }
             MAGIC_CAPTURETEXTURELIST => {
-                let s = BflytCaptureTextureList::parse(cursor, section_start)?;
+                let s = CaptureTextureList::parse(cursor, section_start)?;
                 BflytSection::CaptureTextureList(s)
             }
             MAGIC_VECTORGRAPHICSLIST => {
-                let s = BflytVectorGraphicsList::parse(cursor, section_start)?;
+                let s = VectorGraphicsList::parse(cursor, section_start)?;
                 BflytSection::VectorGraphicsList(s)
             }
             MAGIC_PANESTART => BflytSection::PaneStart,
@@ -94,50 +91,50 @@ impl BflytSection {
             MAGIC_GROUPSTART => BflytSection::GroupStart,
             MAGIC_GROUPEND => BflytSection::GroupEnd,
             MAGIC_PANE => {
-                let s = BflytPane::parse(cursor)?;
+                let s = Pane::parse(cursor)?;
                 if !is_embed {
                     *last_was_pane = true;
                 }
                 BflytSection::Pane(s)
             }
             MAGIC_PICTUREPANE => {
-                let s = BflytPicturePane::parse(cursor)?;
+                let s = PicturePane::parse(cursor)?;
                 BflytSection::PicturePane(s)
             }
             MAGIC_TEXTBOXPANE => {
-                let s = BflytTextBoxPane::parse(cursor, section_start)?;
+                let s = TextBoxPane::parse(cursor, section_start)?;
                 BflytSection::TextBoxPane(s)
             }
             MAGIC_WINDOWPANE => {
-                let s = BflytWindowPane::parse(cursor)?;
+                let s = WindowPane::parse(cursor)?;
                 BflytSection::WindowPane(s)
             }
             MAGIC_PARTSPANE => {
-                let s = BflytPartsPane::parse(cursor, last_was_pane)?;
+                let s = PartsPane::parse(cursor, last_was_pane)?;
                 BflytSection::PartsPane(s)
             }
             MAGIC_ALIGNMENTPANE => {
-                let s = BflytAlignmentPane::parse(cursor)?;
+                let s = AlignmentPane::parse(cursor)?;
                 BflytSection::AlignmentPane(s)
             }
             MAGIC_CAPTUREPANE => {
-                let s = BflytPane::parse(cursor)?;
+                let s = Pane::parse(cursor)?;
                 BflytSection::CapturePane(s)
             }
             MAGIC_BOUNDINGPANE => {
-                let s = BflytPane::parse(cursor)?;
+                let s = Pane::parse(cursor)?;
                 BflytSection::BoundingPane(s)
             }
             MAGIC_SCISSORPANE => {
-                let s = BflytPane::parse(cursor)?;
+                let s = Pane::parse(cursor)?;
                 BflytSection::ScissorPane(s)
             }
             MAGIC_GROUP => {
-                let s = BflytGroup::parse(cursor)?;
+                let s = Group::parse(cursor)?;
                 BflytSection::Group(s)
             }
             MAGIC_CONTROLSOURCE => {
-                let s = BflytControlSource::parse(cursor)?;
+                let s = ControlSource::parse(cursor)?;
                 BflytSection::ControlSource(s)
             }
             _ => {
@@ -205,11 +202,11 @@ pub struct Bflyt {
     pub endianness: u16,
     pub version: VersionFormat,
 
-    pub layout: BflytLayout,
-    pub user_data: Option<ResUi2dUserDataSection>,
-    pub texture_list: Option<BflytTextureList>,
-    pub font_list: Option<BflytFontList>,
-    pub material_list: Option<BflytMaterialList>,
+    pub layout: Layout,
+    pub user_data: Option<UserDataArray>,
+    pub texture_list: Option<TextureList>,
+    pub font_list: Option<FontList>,
+    pub material_list: Option<MaterialList>,
 
     pub nodes: Vec<BflytNode>,
 }

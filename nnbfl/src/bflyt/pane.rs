@@ -8,39 +8,14 @@ use crate::{
         flags::{BflytOrigins, PaneFlags, PaneFlagsEx, TextPaneFlags, WindowFlags},
     },
     core::{Cursor, FormatError, Writer},
-    ui2d::types::{Vector2f, Vector3f},
+    ui2d::types::{Color4u8, Vector2f, Vector3f},
 };
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub struct Color4u8 {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-impl Color4u8 {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
-        Ok(Self {
-            r: cursor.read_u8()?,
-            g: cursor.read_u8()?,
-            b: cursor.read_u8()?,
-            a: cursor.read_u8()?,
-        })
-    }
-    pub fn serialize(&self, writer: &mut Writer) {
-        writer.write_u8(self.r);
-        writer.write_u8(self.g);
-        writer.write_u8(self.b);
-        writer.write_u8(self.a);
-    }
-}
 
 pub const PANE_NAME_LEN: usize = 0x18;
 pub const USER_NAME_LEN: usize = 0x08;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytPane {
+pub struct Pane {
     pub pane_flags: PaneFlags,
     pub origin: BflytOrigins,
     pub alpha: u8,
@@ -53,7 +28,7 @@ pub struct BflytPane {
     pub size: Vector2f,
 }
 
-impl BflytPane {
+impl Pane {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             pane_flags: PaneFlags::decode(cursor.read_u8()?),
@@ -114,8 +89,8 @@ impl TextureUv {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytPicturePane {
-    pub base: BflytPane,
+pub struct PicturePane {
+    pub base: Pane,
     pub top_left_vertex_color: Color4u8,
     pub top_right_vertex_color: Color4u8,
     pub bottom_left_vertex_color: Color4u8,
@@ -125,9 +100,9 @@ pub struct BflytPicturePane {
     pub texture_uvs: Vec<TextureUv>,
 }
 
-impl BflytPicturePane {
+impl PicturePane {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
-        let base = BflytPane::parse(cursor)?;
+        let base = Pane::parse(cursor)?;
         let top_left_vertex_color = Color4u8::parse(cursor)?;
         let top_right_vertex_color = Color4u8::parse(cursor)?;
         let bottom_left_vertex_color = Color4u8::parse(cursor)?;
@@ -293,8 +268,8 @@ pub enum TextAlignment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytTextBoxPane {
-    pub base: BflytPane,
+pub struct TextBoxPane {
+    pub base: Pane,
     pub text_buffer_size: u16,
     pub text_length: u16,
     pub material_index: u16,
@@ -323,9 +298,9 @@ pub struct BflytTextBoxPane {
     pub per_character_transform: Option<PerCharacterTransform>,
 }
 
-impl BflytTextBoxPane {
+impl TextBoxPane {
     pub fn parse(cursor: &mut Cursor, section_start: usize) -> Result<Self, FormatError> {
-        let base = BflytPane::parse(cursor)?;
+        let base = Pane::parse(cursor)?;
         let txt1_base = section_start + 8;
 
         let text_buffer_size = cursor.read_u16()?;
@@ -571,8 +546,8 @@ impl WindowFrame {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytWindowPane {
-    pub base: BflytPane,
+pub struct WindowPane {
+    pub base: Pane,
     pub inflation_left: i16,
     pub inflation_right: i16,
     pub inflation_top: i16,
@@ -587,10 +562,10 @@ pub struct BflytWindowPane {
     pub frames: Vec<WindowFrame>,
 }
 
-impl BflytWindowPane {
+impl WindowPane {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let wnd_base = cursor.pos - 8;
-        let base = BflytPane::parse(cursor)?;
+        let base = Pane::parse(cursor)?;
 
         let inflation_left = cursor.read_i16()?;
         let inflation_right = cursor.read_i16()?;
@@ -953,18 +928,18 @@ impl PartsProperty {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytPartsPane {
-    pub base: BflytPane,
+pub struct PartsPane {
+    pub base: Pane,
     pub magnify_x: f32,
     pub magnify_y: f32,
     pub properties: Vec<PartsProperty>,
     pub o_layout_name: String,
 }
 
-impl BflytPartsPane {
+impl PartsPane {
     pub fn parse(cursor: &mut Cursor, is_pane: &mut bool) -> Result<Self, FormatError> {
         let base_offset = cursor.pos;
-        let base = BflytPane::parse(cursor)?;
+        let base = Pane::parse(cursor)?;
 
         let property_count = cursor.read_u32()?;
         let magnify_x = cursor.read_f32()?;
@@ -1032,17 +1007,17 @@ impl BflytPartsPane {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytAlignmentPane {
-    pub base: BflytPane,
+pub struct AlignmentPane {
+    pub base: Pane,
     pub direction: u32,
     pub default_margin: f32,
     pub is_align_last_pane: bool,
     pub is_vertical_alignment: bool,
 }
 
-impl BflytAlignmentPane {
+impl AlignmentPane {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
-        let base = BflytPane::parse(cursor)?;
+        let base = Pane::parse(cursor)?;
 
         let out = Self {
             base,

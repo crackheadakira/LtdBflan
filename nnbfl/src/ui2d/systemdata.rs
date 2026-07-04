@@ -8,86 +8,14 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResUi2dSystemDataArray {
-    pub data_array: Vec<ResUi2dSystemDataInner>,
-}
-
-impl ResUi2dSystemDataArray {
-    pub fn parse(cursor: &mut Cursor, is_pane: bool) -> Result<Self, FormatError> {
-        let base_offset = cursor.pos;
-
-        let _reserve0 = cursor.read_u16()?;
-        let count = cursor.read_u16()?;
-        let offset = cursor.read_u32()?;
-
-        let post_header_point = cursor.pos;
-
-        cursor.seek(base_offset + offset as usize)?;
-
-        let mut data_array = Vec::new();
-
-        for _ in 0..count {
-            let data = if is_pane {
-                ResUi2dSystemDataInner::Pane(ResUi2dPaneData::parse(cursor)?)
-            } else {
-                ResUi2dSystemDataInner::Layout(ResUi2dLayoutData::parse(cursor, post_header_point)?)
-            };
-
-            data_array.push(data);
-        }
-
-        Ok(Self { data_array })
-    }
-
-    pub fn serialize(&self, writer: &mut Writer) {
-        writer.mark("Ui2dSystemDataArray");
-
-        writer.write_u16(0);
-        writer.write_u16(self.data_array.len() as u16);
-
-        let count = self.data_array.len();
-
-        let offset: u32 = if count > 1 { 0xC } else { 0x8 };
-        writer.write_u32(offset);
-
-        let size_ph = if count > 1 {
-            Some(writer.write_placeholder_u32())
-        } else {
-            None
-        };
-
-        let items_start = writer.pos();
-        for item in &self.data_array {
-            match item {
-                ResUi2dSystemDataInner::Pane(pane) => pane.serialize(writer),
-                ResUi2dSystemDataInner::Layout(layout) => layout.serialize(writer),
-            }
-        }
-
-        if let Some(ph) = size_ph {
-            let items_written = writer.pos() - items_start;
-
-            // rounding up to next 8 byte boundary
-            let block_size = (items_written + 7) & !7;
-            writer.patch_u32(ph, block_size as u32);
-
-            let padding = block_size - items_written;
-            for _ in 0..padding {
-                writer.write_u8(0);
-            }
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum ResUi2dSystemDataInner {
-    Layout(ResUi2dLayoutData),
-    Pane(ResUi2dPaneData),
+pub enum SystemData {
+    Layout(LayoutData),
+    Pane(PaneData),
 }
 
 #[derive(Debug, FromPrimitive, IntoPrimitive)]
 #[repr(u32)]
-pub enum Ui2dLayoutSystemDataType {
+pub enum LayoutDataType {
     AnimTagName = 0,
     #[num_enum(default)]
     Unknown = 1,
@@ -95,7 +23,7 @@ pub enum Ui2dLayoutSystemDataType {
 
 #[derive(Debug, FromPrimitive, IntoPrimitive)]
 #[repr(u32)]
-pub enum Ui2dPaneSystemDataType {
+pub enum PaneDataType {
     VertexPos0 = 0,
     VertexPos1 = 1,
     Alignment = 2,
@@ -107,38 +35,30 @@ pub enum Ui2dPaneSystemDataType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum ResUi2dPaneData {
+pub enum PaneData {
     VertexPos0(VertexPos),
     VertexPos1(VertexPos),
-    ProceduralShape(ResUi2dSystemDataProceduralShape),
-    Alignment(ResUi2dSystemDataAlignment),
-    DropShadow(ResUi2dSystemDataDropShadow),
-    MaskTexture(ResUi2dSystemDataMaskTexture),
+    ProceduralShape(ProceduralShape),
+    Alignment(Alignment),
+    DropShadow(DropShadow),
+    MaskTexture(MaskTexture),
 }
 
-impl ResUi2dPaneData {
+impl PaneData {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let offset = cursor.pos;
-        let data_type: Ui2dPaneSystemDataType = cursor.read_u32()?.into();
+        let data_type: PaneDataType = cursor.read_u32()?.into();
 
         let res = match data_type {
-            Ui2dPaneSystemDataType::VertexPos0 => Self::VertexPos0(VertexPos::parse(cursor)?),
-            Ui2dPaneSystemDataType::VertexPos1 => Self::VertexPos1(VertexPos::parse(cursor)?),
-            Ui2dPaneSystemDataType::MaskTexture => {
-                Self::MaskTexture(ResUi2dSystemDataMaskTexture::parse(cursor)?)
-            }
-            Ui2dPaneSystemDataType::DropShadow => {
-                Self::DropShadow(ResUi2dSystemDataDropShadow::parse(cursor)?)
-            }
-            Ui2dPaneSystemDataType::Alignment => {
-                Self::Alignment(ResUi2dSystemDataAlignment::parse(cursor)?)
-            }
-            Ui2dPaneSystemDataType::ProceduralShape => {
-                Self::ProceduralShape(ResUi2dSystemDataProceduralShape::parse(cursor)?)
-            }
+            PaneDataType::VertexPos0 => Self::VertexPos0(VertexPos::parse(cursor)?),
+            PaneDataType::VertexPos1 => Self::VertexPos1(VertexPos::parse(cursor)?),
+            PaneDataType::MaskTexture => Self::MaskTexture(MaskTexture::parse(cursor)?),
+            PaneDataType::DropShadow => Self::DropShadow(DropShadow::parse(cursor)?),
+            PaneDataType::Alignment => Self::Alignment(Alignment::parse(cursor)?),
+            PaneDataType::ProceduralShape => Self::ProceduralShape(ProceduralShape::parse(cursor)?),
             _ => {
                 return Err(FormatError::UnknownTag {
-                    enum_name: "Ui2dPaneSystemDataType",
+                    enum_name: "PaneDataType",
                     tag: data_type.into(),
                     offset,
                 });
@@ -149,41 +69,41 @@ impl ResUi2dPaneData {
     }
 
     pub fn serialize(&self, writer: &mut Writer) {
-        writer.mark("Ui2dPaneData");
+        writer.mark("PaneDataType");
 
         let type_id: u32 = match self {
-            ResUi2dPaneData::VertexPos0(_) => 0,
-            ResUi2dPaneData::VertexPos1(_) => 1,
-            ResUi2dPaneData::Alignment(_) => 2,
-            ResUi2dPaneData::MaskTexture(_) => 3,
-            ResUi2dPaneData::DropShadow(_) => 4,
-            ResUi2dPaneData::ProceduralShape(_) => 6,
+            PaneData::VertexPos0(_) => 0,
+            PaneData::VertexPos1(_) => 1,
+            PaneData::Alignment(_) => 2,
+            PaneData::MaskTexture(_) => 3,
+            PaneData::DropShadow(_) => 4,
+            PaneData::ProceduralShape(_) => 6,
         };
 
         writer.write_u32(type_id);
 
         match self {
-            ResUi2dPaneData::VertexPos0(v) | ResUi2dPaneData::VertexPos1(v) => v.serialize(writer),
-            ResUi2dPaneData::Alignment(a) => a.serialize(writer),
-            ResUi2dPaneData::MaskTexture(m) => m.serialize(writer),
-            ResUi2dPaneData::DropShadow(d) => d.serialize(writer),
-            ResUi2dPaneData::ProceduralShape(p) => p.serialize(writer),
+            PaneData::VertexPos0(v) | PaneData::VertexPos1(v) => v.serialize(writer),
+            PaneData::Alignment(a) => a.serialize(writer),
+            PaneData::MaskTexture(m) => m.serialize(writer),
+            PaneData::DropShadow(d) => d.serialize(writer),
+            PaneData::ProceduralShape(p) => p.serialize(writer),
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum ResUi2dLayoutData {
+pub enum LayoutData {
     AnimTagName(Vec<String>),
     Unknown,
 }
 
-impl ResUi2dLayoutData {
+impl LayoutData {
     pub fn parse(cursor: &mut Cursor, base_offset: usize) -> Result<Self, FormatError> {
-        let data_type: Ui2dLayoutSystemDataType = cursor.read_u32()?.into();
+        let data_type: LayoutDataType = cursor.read_u32()?.into();
 
         let res = match data_type {
-            Ui2dLayoutSystemDataType::AnimTagName => {
+            LayoutDataType::AnimTagName => {
                 let string_count = cursor.read_u32()?;
                 let mut strings = Vec::new();
 
@@ -209,10 +129,10 @@ impl ResUi2dLayoutData {
 
     pub fn serialize(&self, writer: &mut Writer) {
         match self {
-            ResUi2dLayoutData::AnimTagName(strings) => {
+            LayoutData::AnimTagName(strings) => {
                 let base_offset = writer.pos();
 
-                writer.write_u32(Ui2dLayoutSystemDataType::AnimTagName as u32);
+                writer.write_u32(LayoutDataType::AnimTagName as u32);
                 writer.write_u32(strings.len() as u32);
 
                 let mut offset_positions = Vec::with_capacity(strings.len());
@@ -236,7 +156,7 @@ impl ResUi2dLayoutData {
                 }
             }
 
-            ResUi2dLayoutData::Unknown => {
+            LayoutData::Unknown => {
                 writer.write_u32(0xFFFFFFFF);
                 writer.write_u32(0);
             }
@@ -247,12 +167,12 @@ impl ResUi2dLayoutData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub struct ResUi2dSystemDataAlignment {
+pub struct Alignment {
     pub options: u32,
     pub margin: f32,
 }
 
-impl ResUi2dSystemDataAlignment {
+impl Alignment {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             options: cursor.read_u32()?,
@@ -281,7 +201,7 @@ pub enum DropShadowBlendMode {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub struct ResUi2dSystemDataDropShadow {
+pub struct DropShadow {
     pub texture_id: u16,
     pub u_options: TexOptions,
     pub v_options: TexOptions,
@@ -306,7 +226,7 @@ pub struct ResUi2dSystemDataDropShadow {
     pub drop_shadow_size: f32,
 }
 
-impl ResUi2dSystemDataDropShadow {
+impl DropShadow {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let texture_id = cursor.read_u16()?;
         let u_options = TexOptions::decode(cursor.read_u8()?);
@@ -405,7 +325,7 @@ impl ResUi2dSystemDataDropShadow {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub struct ResUi2dSystemDataMaskTexture {
+pub struct MaskTexture {
     pub flags: u8,
     pub texture_id: u16,
     pub u_options: u8,
@@ -420,7 +340,7 @@ pub struct ResUi2dSystemDataMaskTexture {
     pub scale: [f32; 2],
 }
 
-impl ResUi2dSystemDataMaskTexture {
+impl MaskTexture {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let flags = cursor.read_u8()?;
         let _reserve0 = [cursor.read_u8()?, cursor.read_u8()?, cursor.read_u8()?];
@@ -487,7 +407,7 @@ impl ResUi2dSystemDataMaskTexture {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub struct ResUi2dSystemDataProceduralShape {
+pub struct ProceduralShape {
     pub options: u8,
     pub color0_options: u8,
     pub inner_shadow_options: u8,
@@ -513,7 +433,7 @@ pub struct ResUi2dSystemDataProceduralShape {
     pub drop_shadow_transform: [f32; 3],
 }
 
-impl ResUi2dSystemDataProceduralShape {
+impl ProceduralShape {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let options = cursor.read_u8()?;
         let color0_options = cursor.read_u8()?;

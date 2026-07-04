@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 use crate::{
     bflyt::constants::MAGIC_USERDATA,
     core::{Cursor, FormatError, Writer},
-    ui2d::userdata::ResUi2dUserDataSection,
+    ui2d::userdata::UserDataArray,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResBflanPaneAnimTag {
+pub struct PaneAnimTag {
     pub tag_order: u16,
     pub start_frame: u16,
     pub end_frame: u16,
@@ -17,10 +17,10 @@ pub struct ResBflanPaneAnimTag {
     pub groups: Vec<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub user_data: Option<ResUi2dUserDataSection>,
+    pub user_data: Option<UserDataArray>,
 }
 
-impl ResBflanPaneAnimTag {
+impl PaneAnimTag {
     pub fn parse(cursor: &mut Cursor, section_start: usize) -> Result<Self, FormatError> {
         let tag_order = cursor.read_u16()?;
         let group_count = cursor.read_u16()?;
@@ -59,7 +59,7 @@ impl ResBflanPaneAnimTag {
             let _embed_size = cursor.read_u32()?;
 
             if embed_magic == MAGIC_USERDATA {
-                user_data = Some(ResUi2dUserDataSection::parse(cursor, false)?);
+                user_data = Some(UserDataArray::parse(cursor, false)?);
             }
         }
 

@@ -1,19 +1,19 @@
 use crate::{
-    bflan::{anim_info::PaneAnimInfo, anim_tag::ResBflanPaneAnimTag, constants::*},
+    bflan::{anim_info::PaneAnimInfo, anim_tag::PaneAnimTag, constants::*},
     bflyt::constants::*,
     core::{
         Cursor, FormatError, ReadWriteable, SectionHeader, VersionFormat, Writer, tchar_code32,
     },
-    ui2d::userdata::ResUi2dUserDataSection,
+    ui2d::userdata::UserDataArray,
 };
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Bflan {
     pub endianness: u16,
     pub version: VersionFormat,
-    pub anim_tag: ResBflanPaneAnimTag,
+    pub anim_tag: PaneAnimTag,
     pub anim_info: PaneAnimInfo,
-    pub user_data: Option<ResUi2dUserDataSection>,
+    pub user_data: Option<UserDataArray>,
 }
 
 impl ReadWriteable for Bflan {
@@ -115,8 +115,8 @@ impl ReadWriteable for Bflan {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum BflanSections {
-    UserData(ResUi2dUserDataSection),
-    PaneAnimTag(ResBflanPaneAnimTag),
+    UserData(UserDataArray),
+    PaneAnimTag(PaneAnimTag),
     PaneAnimInfo(PaneAnimInfo),
     Unknown(SectionHeader, Vec<u8>),
 }
@@ -127,8 +127,8 @@ impl BflanSections {
 
         let header = SectionHeader::parse(cursor)?;
         let section = match header.magic {
-            MAGIC_USERDATA => Self::UserData(ResUi2dUserDataSection::parse(cursor, false)?),
-            MAGIC_ANIMTAG => Self::PaneAnimTag(ResBflanPaneAnimTag::parse(cursor, section_start)?),
+            MAGIC_USERDATA => Self::UserData(UserDataArray::parse(cursor, false)?),
+            MAGIC_ANIMTAG => Self::PaneAnimTag(PaneAnimTag::parse(cursor, section_start)?),
             MAGIC_ANIMINFO => Self::PaneAnimInfo(PaneAnimInfo::parse(cursor, section_start)?),
             _ => {
                 let remaining_payload = (header.size - 8) as usize;
@@ -144,8 +144,8 @@ impl BflanSections {
 }
 
 enum BflanSectionsRef<'a> {
-    UserData(&'a ResUi2dUserDataSection),
-    PaneAnimTag(&'a ResBflanPaneAnimTag),
+    UserData(&'a UserDataArray),
+    PaneAnimTag(&'a PaneAnimTag),
     PaneAnimInfo(&'a PaneAnimInfo),
 }
 

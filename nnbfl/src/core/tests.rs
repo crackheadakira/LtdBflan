@@ -335,7 +335,7 @@ mod bflyt_roundtrip_tests {
         bflyt::{
             flags::{BflytOrigins, PaneFlags, PaneFlagsEx},
             list::{BflytFontList, BflytLayout, BflytTextureList},
-            pane::BflytPane,
+            pane::Pane,
         },
         core::{Cursor, Writer},
         ui2d::types::{Vector2f, Vector3f},
@@ -473,8 +473,8 @@ mod bflyt_roundtrip_tests {
         assert_eq!(rt.fonts, &["NintendoStandard"]);
     }
 
-    fn make_pane(name: &str) -> BflytPane {
-        BflytPane {
+    fn make_pane(name: &str) -> Pane {
+        Pane {
             pane_flags: PaneFlags {
                 is_visible: true,
                 influenced_alpha: false,
@@ -505,7 +505,7 @@ mod bflyt_roundtrip_tests {
         }
     }
 
-    fn roundtrip_pane(p: &BflytPane) -> BflytPane {
+    fn roundtrip_pane(p: &Pane) -> Pane {
         let mut w = Writer::new();
         p.serialize(&mut w);
         let mut c = Cursor {
@@ -513,7 +513,7 @@ mod bflyt_roundtrip_tests {
             pos: 0,
             ..Default::default()
         };
-        BflytPane::parse(&mut c).unwrap()
+        Pane::parse(&mut c).unwrap()
     }
 
     #[test]

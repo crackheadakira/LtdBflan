@@ -2,16 +2,13 @@ use num_enum::{FromPrimitive, IntoPrimitive};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    bflyt::{
-        flags::{TexFilter, TexWrapMode},
-        pane::Color4u8,
-    },
+    bflyt::flags::{TexFilter, TexWrapMode},
     core::{Cursor, FormatError, Writer},
-    ui2d::types::{Color4f, Vector2f},
+    ui2d::types::{Color4f, Color4u8, Vector2f},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytLayout {
+pub struct Layout {
     pub is_centered: bool,
     pub width: f32,
     pub height: f32,
@@ -20,7 +17,7 @@ pub struct BflytLayout {
     pub name: String,
 }
 
-impl BflytLayout {
+impl Layout {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let is_centered = cursor.read_u8()? != 0;
         let _reserve0 = cursor.read_u8()?;
@@ -49,11 +46,11 @@ impl BflytLayout {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytTextureList {
+pub struct TextureList {
     pub textures: Vec<String>,
 }
 
-impl BflytTextureList {
+impl TextureList {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let texture_count = cursor.read_u16()?;
         let _reserve0 = cursor.read_u16()?;
@@ -92,11 +89,11 @@ impl BflytTextureList {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytFontList {
+pub struct FontList {
     pub fonts: Vec<String>,
 }
 
-impl BflytFontList {
+impl FontList {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let font_count = cursor.read_u16()?;
         let _reserve0 = cursor.read_u16()?;
@@ -966,7 +963,7 @@ pub struct MaterialColorEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytMaterial {
+pub struct Material {
     pub material_name: String,
 
     pub colors: Vec<MaterialColorEntry>,
@@ -996,7 +993,7 @@ pub struct BflytMaterial {
     pub use_thresholding_alpha_interpolation: bool,
 }
 
-impl BflytMaterial {
+impl Material {
     pub fn parse(cursor: &mut Cursor, mat_base: usize) -> Result<Self, FormatError> {
         cursor.seek(mat_base)?;
         let material_name = cursor.read_fixed_string(MATERIAL_NAME_LEN)?;
@@ -1273,11 +1270,11 @@ impl BflytMaterial {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytMaterialList {
-    pub materials: Vec<BflytMaterial>,
+pub struct MaterialList {
+    pub materials: Vec<Material>,
 }
 
-impl BflytMaterialList {
+impl MaterialList {
     pub fn parse(cursor: &mut Cursor, section_start: usize) -> Result<Self, FormatError> {
         let mat_list_base = section_start;
 
@@ -1294,7 +1291,7 @@ impl BflytMaterialList {
 
         for offset in offsets {
             let mat_base = mat_list_base + offset as usize;
-            materials.push(BflytMaterial::parse(cursor, mat_base)?);
+            materials.push(Material::parse(cursor, mat_base)?);
         }
 
         cursor.seek(saved)?;
@@ -1327,7 +1324,7 @@ pub struct CaptureTextureFilter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CapturePaneInfo {
+pub struct CaptureTexture {
     pub texture_name: String,
     pub pane_name: String,
     pub clear_color: Color4f,
@@ -1337,7 +1334,7 @@ pub struct CapturePaneInfo {
     pub filters: Vec<CaptureTextureFilter>,
 }
 
-impl CapturePaneInfo {
+impl CaptureTexture {
     pub fn parse(cursor: &mut Cursor, ctl_base: usize) -> Result<Self, FormatError> {
         let texture_name_offset = cursor.read_u32()?;
         let pane_name_offset = cursor.read_u32()?;
@@ -1407,17 +1404,17 @@ impl CapturePaneInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytCaptureTextureList {
-    pub infos: Vec<CapturePaneInfo>,
+pub struct CaptureTextureList {
+    pub infos: Vec<CaptureTexture>,
 }
 
-impl BflytCaptureTextureList {
+impl CaptureTextureList {
     pub fn parse(cursor: &mut Cursor, section_start: usize) -> Result<Self, FormatError> {
         let count = cursor.read_u32()?;
 
         let mut infos = Vec::new();
         for _ in 0..count {
-            infos.push(CapturePaneInfo::parse(cursor, section_start)?);
+            infos.push(CaptureTexture::parse(cursor, section_start)?);
         }
 
         Ok(Self { infos })
@@ -1453,7 +1450,7 @@ impl BflytCaptureTextureList {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VectorGraphicsInfo {
+pub struct VectorGraphics {
     pub reserve1: u32,
     pub reserve2: u32,
     pub reserve3: u32,
@@ -1461,11 +1458,11 @@ pub struct VectorGraphicsInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytVectorGraphicsList {
-    pub infos: Vec<VectorGraphicsInfo>,
+pub struct VectorGraphicsList {
+    pub infos: Vec<VectorGraphics>,
 }
 
-impl BflytVectorGraphicsList {
+impl VectorGraphicsList {
     pub fn parse(cursor: &mut Cursor, section_start: usize) -> Result<Self, FormatError> {
         let vgl_base = section_start;
         let count = cursor.read_u32()?;
@@ -1483,7 +1480,7 @@ impl BflytVectorGraphicsList {
             let reserve2 = cursor.read_u32()?;
             let reserve3 = cursor.read_u32()?;
             let bnvg_name = cursor.read_null_terminated_string()?;
-            infos.push(VectorGraphicsInfo {
+            infos.push(VectorGraphics {
                 reserve1,
                 reserve2,
                 reserve3,
@@ -1520,12 +1517,12 @@ pub const GROUP_NAME_LEN: usize = 0x21;
 pub const GROUP_PANE_NAME_LEN: usize = 0x18;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytGroup {
+pub struct Group {
     pub group_name: String,
     pub child_names: Vec<String>,
 }
 
-impl BflytGroup {
+impl Group {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let group_name = cursor.read_fixed_string(GROUP_NAME_LEN)?;
         let _reserve0 = cursor.read_u8()?;
@@ -1552,7 +1549,7 @@ impl BflytGroup {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BflytControlSource {
+pub struct ControlSource {
     pub control_name: String,
     pub reserve0_name: String,
 
@@ -1563,7 +1560,7 @@ pub struct BflytControlSource {
     pub anim_names: Vec<String>,
 }
 
-impl BflytControlSource {
+impl ControlSource {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let section_start = cursor.pos - 8;
 

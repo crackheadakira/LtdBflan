@@ -1,4 +1,3 @@
-use num_enum::{FromPrimitive, IntoPrimitive};
 use serde::{Deserialize, Serialize};
 
 use crate::core::{Cursor, FormatError, Writer};
@@ -32,36 +31,121 @@ impl Color4f {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct Color4u8 {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl Color4u8 {
+    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        Ok(Self {
+            r: cursor.read_u8()?,
+            g: cursor.read_u8()?,
+            b: cursor.read_u8()?,
+            a: cursor.read_u8()?,
+        })
+    }
+    pub fn serialize(&self, writer: &mut Writer) {
+        writer.write_u8(self.r);
+        writer.write_u8(self.g);
+        writer.write_u8(self.b);
+        writer.write_u8(self.a);
+    }
+}
+
+impl From<Color4u8> for Color4f {
+    fn from(color: Color4u8) -> Self {
+        Self {
+            r: color.r as f32 / 255.0,
+            g: color.g as f32 / 255.0,
+            b: color.b as f32 / 255.0,
+            a: color.a as f32 / 255.0,
+        }
+    }
+}
+
+impl From<Color4f> for Color4u8 {
+    fn from(color: Color4f) -> Self {
+        let to_u8 = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+        Self {
+            r: to_u8(color.r),
+            g: to_u8(color.g),
+            b: to_u8(color.b),
+            a: to_u8(color.a),
+        }
+    }
+}
+
+impl From<[f32; 4]> for Color4f {
+    fn from(arr: [f32; 4]) -> Self {
+        Self {
+            r: arr[0],
+            g: arr[1],
+            b: arr[2],
+            a: arr[3],
+        }
+    }
+}
+
+impl From<Color4f> for [f32; 4] {
+    fn from(color: Color4f) -> Self {
+        [color.r, color.g, color.b, color.a]
+    }
+}
+
+impl From<[u8; 4]> for Color4u8 {
+    fn from(arr: [u8; 4]) -> Self {
+        Self {
+            r: arr[0],
+            g: arr[1],
+            b: arr[2],
+            a: arr[3],
+        }
+    }
+}
+
+impl From<Color4u8> for [u8; 4] {
+    fn from(color: Color4u8) -> Self {
+        [color.r, color.g, color.b, color.a]
+    }
+}
+
+impl From<Color4u8> for [f32; 4] {
+    #[inline]
+    fn from(color: Color4u8) -> Self {
+        [
+            color.r as f32 / 255.0,
+            color.g as f32 / 255.0,
+            color.b as f32 / 255.0,
+            color.a as f32 / 255.0,
+        ]
+    }
+}
+
+impl From<[f32; 4]> for Color4u8 {
+    #[inline]
+    fn from(arr: [f32; 4]) -> Self {
+        let to_u8 = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+        Self {
+            r: to_u8(arr[0]),
+            g: to_u8(arr[1]),
+            b: to_u8(arr[2]),
+            a: to_u8(arr[3]),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct Vector2f {
     pub x: f32,
     pub y: f32,
 }
 
 impl Vector2f {
-    pub fn new(x: f32, y: f32) -> Self {
-        Vector2f { x, y }
-    }
-
-    pub fn empty() -> Self {
-        Vector2f { x: 0.0, y: 0.0 }
-    }
-
-    pub fn max() -> Self {
-        Vector2f { x: 1.0, y: 1.0 }
-    }
-
-    pub fn add(self, operand: Self) -> Self {
-        Self {
-            x: self.x + operand.x,
-            y: self.y + operand.y,
-        }
-    }
-
-    pub fn multiply(self, operand: Self) -> Self {
-        Self {
-            x: self.x * operand.x,
-            y: self.y * operand.y,
-        }
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
     }
 
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
@@ -104,17 +188,6 @@ impl Vector3f {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, IntoPrimitive, FromPrimitive)]
-#[repr(u8)]
-pub enum Ui2dUserDataType {
-    String = 0,
-    S32 = 1,
-    Float = 2,
-    SystemData = 3,
-    #[num_enum(default)]
-    Invalid = 4,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct VertexPos {
     pub size_scale_width: f32,
@@ -139,5 +212,143 @@ impl VertexPos {
         writer.write_f32(self.size_scale_height);
         writer.write_f32(self.position_x_scale);
         writer.write_f32(self.position_y_scale);
+    }
+}
+
+impl std::ops::Add for Vector2f {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl std::ops::AddAssign for Vector2f {
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+    }
+}
+
+impl std::ops::Sub for Vector2f {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl std::ops::Mul for Vector2f {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self {
+        Self {
+            x: self.x * rhs.x,
+            y: self.y * rhs.y,
+        }
+    }
+}
+
+impl std::ops::Mul<f32> for Vector2f {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            x: self.x * rhs,
+            y: self.y * rhs,
+        }
+    }
+}
+
+impl From<[f32; 2]> for Vector2f {
+    fn from(arr: [f32; 2]) -> Self {
+        Self {
+            x: arr[0],
+            y: arr[1],
+        }
+    }
+}
+
+impl From<Vector2f> for [f32; 2] {
+    fn from(vec: Vector2f) -> [f32; 2] {
+        [vec.x, vec.y]
+    }
+}
+
+impl std::ops::Add for Vector3f {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
+        }
+    }
+}
+
+impl std::ops::AddAssign for Vector3f {
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+        self.z += rhs.z;
+    }
+}
+
+impl std::ops::Sub for Vector3f {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+            z: self.z - rhs.z,
+        }
+    }
+}
+
+impl std::ops::Mul for Vector3f {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self {
+        Self {
+            x: self.x * rhs.x,
+            y: self.y * rhs.y,
+            z: self.z * rhs.z,
+        }
+    }
+}
+
+impl std::ops::Mul<f32> for Vector3f {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            x: self.x * rhs,
+            y: self.y * rhs,
+            z: self.z * rhs,
+        }
+    }
+}
+
+impl From<[f32; 3]> for Vector3f {
+    fn from(arr: [f32; 3]) -> Self {
+        Self {
+            x: arr[0],
+            y: arr[1],
+            z: arr[2],
+        }
+    }
+}
+
+impl From<Vector3f> for [f32; 3] {
+    fn from(vec: Vector3f) -> [f32; 3] {
+        [vec.x, vec.y, vec.z]
     }
 }

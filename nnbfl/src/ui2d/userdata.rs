@@ -2,38 +2,47 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     core::{Cursor, FormatError, Writer},
-    ui2d::{systemdata::ResUi2dSystemDataArray, types::Ui2dUserDataType},
+    ui2d::systemdata::{LayoutData, PaneData, SystemData},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResUi2dUserDataSection {
-    pub user_data: Vec<ResUi2dUserData>,
+pub struct UserDataArray {
+    pub user_data: Vec<UserData>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResUi2dUserData {
-    pub data_type: Ui2dUserDataType,
-    pub data_array: Vec<ResUi2dUserDataInner>,
+pub struct UserData {
+    pub content: UserDataContent,
     pub o_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(untagged)]
-pub enum ResUi2dUserDataInner {
-    Float(f32),
-    S32(i32),
+pub enum UserDataContent {
     String(String),
-    SystemData(ResUi2dSystemDataArray),
+    S32(Vec<i32>),
+    Float(Vec<f32>),
+    SystemData(Vec<Vec<SystemData>>),
 }
 
-impl ResUi2dUserDataSection {
+impl UserDataContent {
+    pub fn type_tag(&self) -> u8 {
+        match self {
+            Self::String(_) => 0,
+            Self::S32(_) => 1,
+            Self::Float(_) => 2,
+            Self::SystemData(_) => 3,
+        }
+    }
+}
+
+impl UserDataArray {
     pub fn parse(cursor: &mut Cursor, is_pane: bool) -> Result<Self, FormatError> {
         let user_data_count = cursor.read_u16()?;
         let _reserve0 = cursor.read_u16()?;
         let mut user_data = Vec::new();
 
         for _ in 0..user_data_count {
-            user_data.push(ResUi2dUserData::parse(cursor, is_pane)?)
+            user_data.push(UserData::parse(cursor, is_pane)?)
         }
 
         Ok(Self { user_data })
@@ -51,86 +60,104 @@ impl ResUi2dUserDataSection {
             let name_ph = writer.write_placeholder_u32();
             let data_ph = writer.write_placeholder_u32();
 
-            let data_type_val = match data.data_type {
-                Ui2dUserDataType::String => 0,
-                Ui2dUserDataType::S32 => 1,
-                Ui2dUserDataType::Float => 2,
-                Ui2dUserDataType::SystemData => 3,
-                Ui2dUserDataType::Invalid => 4,
+            let count = match &data.content {
+                UserDataContent::String(s) => s.len() as u16,
+                UserDataContent::S32(v) => v.len() as u16,
+                UserDataContent::Float(v) => v.len() as u16,
+                UserDataContent::SystemData(v) => v.len() as u16,
             };
 
-            if data_type_val == 0 {
-                if let ResUi2dUserDataInner::String(str) = &data.data_array[0] {
-                    writer.write_u16(str.len() as u16)
-                }
-            } else {
-                writer.write_u16(data.data_array.len() as u16);
-            }
-
-            writer.write_u8(data_type_val);
+            writer.write_u16(count);
+            writer.write_u8(data.content.type_tag());
             writer.write_u8(0);
 
             slots.push((entry_base, name_ph, data_ph));
         }
 
-        let type_order: &[fn(&ResUi2dUserDataInner) -> bool] = &[
-            |i| matches!(i, ResUi2dUserDataInner::SystemData(_)),
-            |i| {
-                matches!(
-                    i,
-                    ResUi2dUserDataInner::Float(_) | ResUi2dUserDataInner::S32(_)
-                )
-            },
+        let type_order: &[fn(&UserDataContent) -> bool] = &[
+            |i| matches!(i, UserDataContent::SystemData(_)),
+            |i| matches!(i, UserDataContent::Float(_) | UserDataContent::S32(_)),
         ];
 
         for type_check in type_order {
             for (i, data) in self.user_data.iter().enumerate() {
-                if data.data_array.is_empty() {
-                    continue;
-                }
-                if !data.data_array.iter().any(type_check) {
+                if !type_check(&data.content) {
                     continue;
                 }
 
                 let (entry_base, _name_ph, data_ph) = slots[i];
                 writer.patch_u32(data_ph, (writer.pos() - entry_base) as u32);
 
-                for item in &data.data_array {
-                    match item {
-                        ResUi2dUserDataInner::Float(f) => writer.write_f32(*f),
-                        ResUi2dUserDataInner::S32(s) => writer.write_i32(*s),
-                        ResUi2dUserDataInner::SystemData(sys) => sys.serialize(writer),
-                        // strings are handled afterwards
-                        _ => {}
+                match &data.content {
+                    UserDataContent::Float(floats) => {
+                        for &f in floats {
+                            writer.write_f32(f)
+                        }
                     }
-                }
-            }
-        }
+                    UserDataContent::S32(ints) => {
+                        for &s in ints {
+                            writer.write_i32(s)
+                        }
+                    }
+                    UserDataContent::SystemData(blocks) => {
+                        writer.mark("SystemDataArray");
+                        for block in blocks {
+                            let count = block.len();
 
-        for (i, data) in self.user_data.iter().enumerate() {
-            if data.data_array.is_empty() {
-                let (_entry_base, _name_ph, data_ph) = slots[i];
-                writer.patch_u32(data_ph, 0);
+                            writer.write_u16(0);
+                            writer.write_u16(count as u16);
+
+                            let offset: u32 = if count > 1 { 0xC } else { 0x8 };
+                            writer.write_u32(offset);
+
+                            let size_ph = if count > 1 {
+                                Some(writer.write_placeholder_u32())
+                            } else {
+                                None
+                            };
+
+                            let items_start = writer.pos();
+                            for item in block {
+                                match item {
+                                    SystemData::Pane(pane) => pane.serialize(writer),
+                                    SystemData::Layout(layout) => layout.serialize(writer),
+                                }
+                            }
+
+                            if let Some(ph) = size_ph {
+                                let items_written = writer.pos() - items_start;
+
+                                // rounding up to next 8 byte boundary
+                                let block_size = (items_written + 7) & !7;
+                                writer.patch_u32(ph, block_size as u32);
+
+                                let padding = block_size - items_written;
+                                for _ in 0..padding {
+                                    writer.write_u8(0);
+                                }
+                            }
+                        }
+                    }
+                    // strings are handled afterwards
+                    _ => {}
+                }
             }
         }
 
         for (i, data) in self.user_data.iter().enumerate() {
             let (entry_base, name_ph, data_ph) = slots[i];
 
-            if data.data_type == Ui2dUserDataType::String {
-                if !data.data_array.is_empty() {
+            match &data.content {
+                UserDataContent::String(s) if !s.is_empty() => {
                     writer.patch_u32(data_ph, (writer.pos() - entry_base) as u32);
-                    for item in &data.data_array {
-                        if let ResUi2dUserDataInner::String(s) = item {
-                            writer.write_fixed_string(s, s.len());
-                            writer.write_u8(0);
-                        }
-                    }
-                } else {
-                    writer.patch_u32(data_ph, 0);
+                    writer.write_fixed_string(s, s.len());
+                    writer.write_u8(0);
                 }
-            } else if data.data_array.is_empty() {
-                writer.patch_u32(data_ph, 0);
+                UserDataContent::Float(v) if v.is_empty() => writer.patch_u32(data_ph, 0),
+                UserDataContent::S32(v) if v.is_empty() => writer.patch_u32(data_ph, 0),
+                UserDataContent::SystemData(v) if v.is_empty() => writer.patch_u32(data_ph, 0),
+                UserDataContent::String(_) => writer.patch_u32(data_ph, 0),
+                _ => {}
             }
 
             writer.patch_u32(name_ph, (writer.pos() - entry_base) as u32);
@@ -141,7 +168,7 @@ impl ResUi2dUserDataSection {
     }
 }
 
-impl ResUi2dUserData {
+impl UserData {
     pub fn parse(cursor: &mut Cursor, is_pane: bool) -> Result<Self, FormatError> {
         let base_offset = cursor.pos;
 
@@ -149,52 +176,88 @@ impl ResUi2dUserData {
         let data_array_offset = cursor.read_u32()?;
         let data_count = cursor.read_u16()?;
 
-        let data_type = cursor.read_u8()?.into();
+        let type_tag = cursor.read_u8()?;
         let _reserve0 = cursor.read_u8()?;
-        let mut data = Self {
-            data_type,
-            data_array: Vec::new(),
-            o_name: String::new(),
-        };
 
         let restore_point = cursor.pos;
 
-        if data_array_offset > 0 {
+        let content = if data_array_offset > 0 {
             cursor.seek(base_offset + data_array_offset as usize)?;
 
-            match data.data_type {
-                Ui2dUserDataType::Float => {
-                    for _ in 0..data_count {
-                        data.data_array
-                            .push(ResUi2dUserDataInner::Float(cursor.read_f32()?));
-                    }
-                }
-                Ui2dUserDataType::S32 => {
-                    for _ in 0..data_count {
-                        data.data_array
-                            .push(ResUi2dUserDataInner::S32(cursor.read_i32()?));
-                    }
-                }
-                Ui2dUserDataType::String => {
+            match type_tag {
+                0 => {
                     let str_data = cursor.read_string(data_count as usize)?;
-                    data.data_array.push(ResUi2dUserDataInner::String(str_data));
+                    UserDataContent::String(str_data)
                 }
-                Ui2dUserDataType::SystemData => {
+                1 => {
+                    let mut values = Vec::with_capacity(data_count as usize);
                     for _ in 0..data_count {
-                        let sys_data = ResUi2dSystemDataArray::parse(cursor, is_pane)?;
-                        data.data_array
-                            .push(ResUi2dUserDataInner::SystemData(sys_data));
+                        values.push(cursor.read_i32()?);
                     }
+
+                    UserDataContent::S32(values)
                 }
-                _ => {}
+                2 => {
+                    let mut values = Vec::with_capacity(data_count as usize);
+                    for _ in 0..data_count {
+                        values.push(cursor.read_f32()?);
+                    }
+
+                    UserDataContent::Float(values)
+                }
+                3 => {
+                    let mut blocks = Vec::with_capacity(data_count as usize);
+
+                    for _ in 0..data_count {
+                        let base_offset = cursor.pos;
+
+                        let _reserve0 = cursor.read_u16()?;
+                        let count = cursor.read_u16()?;
+                        let offset = cursor.read_u32()?;
+
+                        let post_header_point = cursor.pos;
+
+                        cursor.seek(base_offset + offset as usize)?;
+
+                        let mut data_array = Vec::new();
+
+                        for _ in 0..count {
+                            let data = if is_pane {
+                                SystemData::Pane(PaneData::parse(cursor)?)
+                            } else {
+                                SystemData::Layout(LayoutData::parse(cursor, post_header_point)?)
+                            };
+
+                            data_array.push(data);
+                        }
+
+                        blocks.push(data_array)
+                    }
+
+                    UserDataContent::SystemData(blocks)
+                }
+                _ => {
+                    return Err(FormatError::UnknownTag {
+                        enum_name: "UserData",
+                        tag: type_tag as u32,
+                        offset: cursor.pos,
+                    });
+                }
             }
-        }
+        } else {
+            match type_tag {
+                0 => UserDataContent::String(String::new()),
+                1 => UserDataContent::S32(Vec::new()),
+                2 => UserDataContent::Float(Vec::new()),
+                _ => UserDataContent::SystemData(Vec::new()),
+            }
+        };
 
         cursor.seek(base_offset + name_offset as usize)?;
-        data.o_name = cursor.read_null_terminated_string()?;
+        let o_name = cursor.read_null_terminated_string()?;
 
         cursor.seek(restore_point)?;
 
-        Ok(data)
+        Ok(Self { o_name, content })
     }
 }
