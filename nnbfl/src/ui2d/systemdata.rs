@@ -105,7 +105,7 @@ impl LayoutData {
         let res = match data_type {
             LayoutDataType::AnimTagName => {
                 let string_count = cursor.read_u32()?;
-                let mut strings = Vec::new();
+                let mut strings = Vec::with_capacity(string_count as usize);
 
                 for _ in 0..string_count {
                     let string_offset = cursor.read_u32()?;

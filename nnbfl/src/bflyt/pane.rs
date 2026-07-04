@@ -111,7 +111,7 @@ impl PicturePane {
         let texture_count = cursor.read_u8()?;
         let is_shape = cursor.read_u8()? != 0;
 
-        let mut texture_uvs = Vec::new();
+        let mut texture_uvs = Vec::with_capacity(texture_count as usize);
         for _ in 0..texture_count {
             texture_uvs.push(TextureUv::parse(cursor)?);
         }
@@ -485,7 +485,7 @@ impl WindowContent {
         let material_index = cursor.read_u16()?;
         let uv_coordinate_count = cursor.read_u8()?;
         let _reserve0 = cursor.read_u8()?;
-        let mut picture_uvs = Vec::new();
+        let mut picture_uvs = Vec::with_capacity(uv_coordinate_count as usize);
 
         for _ in 0..uv_coordinate_count {
             picture_uvs.push(TextureUv::parse(cursor)?);
@@ -587,12 +587,12 @@ impl WindowPane {
         let content = WindowContent::parse(cursor)?;
 
         cursor.seek(wnd_base + frame_offset_array_offset as usize)?;
-        let mut frame_offsets = Vec::new();
+        let mut frame_offsets = Vec::with_capacity(frame_count as usize);
         for _ in 0..frame_count {
             frame_offsets.push(cursor.read_u32()?);
         }
 
-        let mut frames = Vec::new();
+        let mut frames = Vec::with_capacity(frame_offsets.len());
         for offset in frame_offsets {
             cursor.seek(wnd_base + offset as usize)?;
             frames.push(WindowFrame::parse(cursor)?);
@@ -645,7 +645,7 @@ impl WindowPane {
         let frame_table_off = writer.pos() - wnd_base;
         writer.patch_u32(frame_offsets_pos, frame_table_off as u32);
 
-        let mut frame_off_placeholders = Vec::new();
+        let mut frame_off_placeholders = Vec::with_capacity(self.frames.len());
         for _ in &self.frames {
             frame_off_placeholders.push(writer.write_placeholder_u32());
         }
@@ -947,7 +947,7 @@ impl PartsPane {
 
         let props_start = cursor.pos;
 
-        let mut properties = Vec::new();
+        let mut properties = Vec::with_capacity(property_count as usize);
 
         for _ in 0..property_count {
             let property = PartsProperty::parse(cursor, base_offset - 8, is_pane)?;
@@ -974,7 +974,7 @@ impl PartsPane {
         writer.write_f32(self.magnify_x);
         writer.write_f32(self.magnify_y);
 
-        let mut patch_offsets = Vec::new();
+        let mut patch_offsets = Vec::with_capacity(self.properties.len());
         for prop in &self.properties {
             let (p, u, b) = prop.serialize_header(writer);
             patch_offsets.push((p, u, b, prop));

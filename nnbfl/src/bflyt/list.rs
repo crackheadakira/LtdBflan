@@ -56,12 +56,12 @@ impl TextureList {
         let _reserve0 = cursor.read_u16()?;
 
         let offsets_start = cursor.pos;
-        let mut offsets = Vec::new();
+        let mut offsets = Vec::with_capacity(texture_count as usize);
         for _ in 0..texture_count {
             offsets.push(cursor.read_u32()?);
         }
 
-        let mut textures = Vec::new();
+        let mut textures = Vec::with_capacity(offsets.len());
         for offset in offsets {
             cursor.seek(offsets_start + offset as usize)?;
             textures.push(cursor.read_null_terminated_string()?);
@@ -75,7 +75,7 @@ impl TextureList {
         writer.write_u16(0);
 
         let offsets_start = writer.pos();
-        let mut offset_placeholders = Vec::new();
+        let mut offset_placeholders = Vec::with_capacity(self.textures.len());
         for _ in &self.textures {
             offset_placeholders.push(writer.write_placeholder_u32());
         }
@@ -99,12 +99,12 @@ impl FontList {
         let _reserve0 = cursor.read_u16()?;
 
         let offsets_start = cursor.pos;
-        let mut offsets = Vec::new();
+        let mut offsets = Vec::with_capacity(font_count as usize);
         for _ in 0..font_count {
             offsets.push(cursor.read_u32()?);
         }
 
-        let mut fonts = Vec::new();
+        let mut fonts = Vec::with_capacity(offsets.len());
         for offset in offsets {
             cursor.seek(offsets_start + offset as usize)?;
             fonts.push(cursor.read_null_terminated_string()?);
@@ -118,7 +118,7 @@ impl FontList {
         writer.write_u16(0);
 
         let offsets_start = writer.pos();
-        let mut offset_placeholders = Vec::new();
+        let mut offset_placeholders = Vec::with_capacity(self.fonts.len());
         for _ in &self.fonts {
             offset_placeholders.push(writer.write_placeholder_u32());
         }
@@ -797,7 +797,7 @@ impl MaterialDetailedCombiner {
             color4: Color4u8::parse(c)?,
             color5: Color4u8::parse(c)?,
             stage_flags: c.read_u32()?,
-            entries: Vec::new(),
+            entries: Vec::with_capacity(count as usize),
         };
 
         for _ in 0..count {
@@ -1003,12 +1003,12 @@ impl Material {
         let color_count = cursor.read_u8()?;
 
         let color_data_base = mat_base + 0x20;
-        let mut color_offset_bytes = Vec::new();
+        let mut color_offset_bytes = Vec::with_capacity(color_count as usize);
         for _ in 0..color_count {
             color_offset_bytes.push(cursor.read_u8()?);
         }
 
-        let mut colors = Vec::new();
+        let mut colors = Vec::with_capacity(color_offset_bytes.len());
         for (i, &offset) in color_offset_bytes.iter().enumerate() {
             let is_float = ((color_types_byte >> i) & 1) != 0;
             let saved = cursor.pos;
@@ -1046,29 +1046,29 @@ impl Material {
 
         cursor.seek(after_color)?;
 
-        let mut tex_maps = Vec::new();
+        let mut tex_maps = Vec::with_capacity(material_info.tex_map_count as usize);
         for _ in 0..material_info.tex_map_count {
             tex_maps.push(MaterialTextureMap::parse(cursor)?);
         }
 
-        let mut tex_extensions = Vec::new();
+        let mut tex_extensions = Vec::with_capacity(material_info.tex_map_count as usize);
         if material_info.has_texture_extensions != 0 {
             for _ in 0..material_info.tex_map_count {
                 tex_extensions.push(MaterialTextureExtension::decode(cursor.read_u32()?));
             }
         }
 
-        let mut tex_srts = Vec::new();
+        let mut tex_srts = Vec::with_capacity(material_info.tex_srt_count as usize);
         for _ in 0..material_info.tex_srt_count {
             tex_srts.push(MaterialTextureSrt::parse(cursor)?);
         }
 
-        let mut tex_coord_gens = Vec::new();
+        let mut tex_coord_gens = Vec::with_capacity(material_info.tex_coord_gen_count as usize);
         for _ in 0..material_info.tex_coord_gen_count {
             tex_coord_gens.push(MaterialTexCoordGen::parse(cursor)?);
         }
 
-        let mut tev_combiners = Vec::new();
+        let mut tev_combiners = Vec::with_capacity(material_info.tev_combiner_count as usize);
         for _ in 0..material_info.tev_combiner_count {
             tev_combiners.push(MaterialTevCombiner::parse(cursor)?);
         }
@@ -1106,7 +1106,8 @@ impl Material {
             None
         };
 
-        let mut projection_tex_gens = Vec::new();
+        let mut projection_tex_gens =
+            Vec::with_capacity(material_info.projection_tex_gen_count as usize);
         for _ in 0..material_info.projection_tex_gen_count {
             projection_tex_gens.push(MaterialProjectionTexGen::parse(cursor)?);
         }
@@ -1123,12 +1124,14 @@ impl Material {
             None
         };
 
-        let mut vector_texture_infos = Vec::new();
+        let mut vector_texture_infos =
+            Vec::with_capacity(material_info.vector_texture_info_count as usize);
         for _ in 0..material_info.vector_texture_info_count {
             vector_texture_infos.push(MaterialVectorTextureInfo::parse(cursor)?);
         }
 
-        let mut brick_repeat_shader_infos = Vec::new();
+        let mut brick_repeat_shader_infos =
+            Vec::with_capacity(material_info.brick_repeat_shader_info_count as usize);
         for _ in 0..material_info.brick_repeat_shader_info_count {
             brick_repeat_shader_infos.push(MaterialBrickRepeatShaderInfo::parse(cursor)?);
         }
@@ -1281,13 +1284,13 @@ impl MaterialList {
         let material_count = cursor.read_u16()?;
         let _reserve0 = cursor.read_u16()?;
 
-        let mut offsets = Vec::new();
+        let mut offsets = Vec::with_capacity(material_count as usize);
         for _ in 0..material_count {
             offsets.push(cursor.read_u32()?);
         }
 
         let saved = cursor.pos;
-        let mut materials = Vec::new();
+        let mut materials = Vec::with_capacity(offsets.len());
 
         for offset in offsets {
             let mat_base = mat_list_base + offset as usize;
@@ -1304,7 +1307,7 @@ impl MaterialList {
         writer.write_u16(self.materials.len() as u16);
         writer.write_u16(0);
 
-        let mut offset_placeholders = Vec::new();
+        let mut offset_placeholders = Vec::with_capacity(self.materials.len());
         for _ in &self.materials {
             offset_placeholders.push(writer.write_placeholder_u32());
         }
@@ -1412,7 +1415,7 @@ impl CaptureTextureList {
     pub fn parse(cursor: &mut Cursor, section_start: usize) -> Result<Self, FormatError> {
         let count = cursor.read_u32()?;
 
-        let mut infos = Vec::new();
+        let mut infos = Vec::with_capacity(count as usize);
         for _ in 0..count {
             infos.push(CaptureTexture::parse(cursor, section_start)?);
         }
@@ -1467,13 +1470,13 @@ impl VectorGraphicsList {
         let vgl_base = section_start;
         let count = cursor.read_u32()?;
 
-        let mut offsets = Vec::new();
+        let mut offsets = Vec::with_capacity(count as usize);
         for _ in 0..count {
             offsets.push(cursor.read_u32()?);
         }
 
         let saved = cursor.pos;
-        let mut infos = Vec::new();
+        let mut infos = Vec::with_capacity(offsets.len());
         for offset in offsets {
             cursor.seek(vgl_base + offset as usize)?;
             let reserve1 = cursor.read_u32()?;
@@ -1497,7 +1500,7 @@ impl VectorGraphicsList {
         let vgl_base = section_start;
         writer.write_u32(self.infos.len() as u32);
 
-        let mut offset_placeholders = Vec::new();
+        let mut offset_placeholders = Vec::with_capacity(self.infos.len());
         for _ in &self.infos {
             offset_placeholders.push(writer.write_placeholder_u32());
         }
@@ -1527,7 +1530,7 @@ impl Group {
         let group_name = cursor.read_fixed_string(GROUP_NAME_LEN)?;
         let _reserve0 = cursor.read_u8()?;
         let child_count = cursor.read_u16()?;
-        let mut child_names = Vec::new();
+        let mut child_names = Vec::with_capacity(child_count as usize);
 
         for _ in 0..child_count {
             child_names.push(cursor.read_fixed_string(GROUP_PANE_NAME_LEN)?);

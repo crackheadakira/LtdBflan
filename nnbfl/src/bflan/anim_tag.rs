@@ -34,7 +34,7 @@ impl PaneAnimTag {
         let _reserve1 = cursor.read_u16()?;
 
         let mut o_name = String::new();
-        let mut groups = Vec::new();
+        let mut groups = Vec::with_capacity(group_count as usize);
         let mut user_data = None;
 
         if name_offset > 0 {

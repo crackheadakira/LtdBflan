@@ -96,7 +96,7 @@ impl AnimInfo {
 
         let out = match magic {
             AnimInfoType::ExtendedUserDataAnim => {
-                let mut data_array = Vec::new();
+                let mut data_array = Vec::with_capacity(anim_target_count as usize);
                 for _ in 0..anim_target_count {
                     let data = ExtendedUserDataAnim::parse(cursor)?;
                     data_array.push(data);
@@ -144,7 +144,7 @@ impl AnimInfo {
                 writer.write_u8(0);
                 writer.write_u16(0);
 
-                let mut target_offset_placeholders = Vec::new();
+                let mut target_offset_placeholders = Vec::with_capacity(targets.len());
                 for _ in targets {
                     target_offset_placeholders.push(writer.write_placeholder_u32());
                 }
@@ -308,7 +308,7 @@ impl PaneAnimInfo {
         let anim_content_offset_array_offset_pos = writer.write_placeholder_u32();
 
         let texture_offsets_start = writer.pos();
-        let mut texture_offset_placeholders = Vec::new();
+        let mut texture_offset_placeholders = Vec::with_capacity(self.textures.len());
 
         for _ in &self.textures {
             texture_offset_placeholders.push(writer.write_placeholder_u32());
@@ -328,7 +328,7 @@ impl PaneAnimInfo {
             content_array_offset as u32,
         );
 
-        let mut content_offset_placeholders = Vec::new();
+        let mut content_offset_placeholders = Vec::with_capacity(self.contents.len());
 
         for _ in &self.contents {
             content_offset_placeholders.push(writer.write_placeholder_u32());
@@ -411,7 +411,7 @@ impl AnimContent {
             writer.patch_u32(info_array_offset_pos, (writer.pos() - base_offset) as u32);
         }
 
-        let mut info_offset_placeholders = Vec::new();
+        let mut info_offset_placeholders = Vec::with_capacity(self.infos.len());
         for _ in &self.infos {
             info_offset_placeholders.push(writer.write_placeholder_u32());
         }

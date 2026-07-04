@@ -334,14 +334,14 @@ mod bflyt_roundtrip_tests {
     use crate::{
         bflyt::{
             flags::{BflytOrigins, PaneFlags, PaneFlagsEx},
-            list::{BflytFontList, BflytLayout, BflytTextureList},
+            list::{FontList, Layout, TextureList},
             pane::Pane,
         },
         core::{Cursor, Writer},
         ui2d::types::{Vector2f, Vector3f},
     };
 
-    fn roundtrip_layout(layout: &BflytLayout) -> BflytLayout {
+    fn roundtrip_layout(layout: &Layout) -> Layout {
         let mut w = Writer::new();
         layout.serialize(&mut w);
         let mut c = Cursor {
@@ -349,12 +349,12 @@ mod bflyt_roundtrip_tests {
             pos: 0,
             ..Default::default()
         };
-        BflytLayout::parse(&mut c).unwrap()
+        Layout::parse(&mut c).unwrap()
     }
 
     #[test]
     fn layout_basic_roundtrip() {
-        let layout = BflytLayout {
+        let layout = Layout {
             is_centered: true,
             width: 1280.0,
             height: 720.0,
@@ -372,7 +372,7 @@ mod bflyt_roundtrip_tests {
 
     #[test]
     fn layout_not_centered_roundtrip() {
-        let layout = BflytLayout {
+        let layout = Layout {
             is_centered: false,
             width: 640.0,
             height: 480.0,
@@ -387,7 +387,7 @@ mod bflyt_roundtrip_tests {
 
     #[test]
     fn layout_empty_name_roundtrip() {
-        let layout = BflytLayout {
+        let layout = Layout {
             is_centered: false,
             width: 0.0,
             height: 0.0,
@@ -399,7 +399,7 @@ mod bflyt_roundtrip_tests {
         assert_eq!(rt.name, "");
     }
 
-    fn roundtrip_texlist(t: &BflytTextureList) -> BflytTextureList {
+    fn roundtrip_texlist(t: &TextureList) -> TextureList {
         let mut w = Writer::new();
         t.serialize(&mut w);
         let mut c = Cursor {
@@ -408,12 +408,12 @@ mod bflyt_roundtrip_tests {
             ..Default::default()
         };
 
-        BflytTextureList::parse(&mut c).unwrap()
+        TextureList::parse(&mut c).unwrap()
     }
 
     #[test]
     fn texture_list_empty_roundtrip() {
-        let tl = BflytTextureList { textures: vec![] };
+        let tl = TextureList { textures: vec![] };
         let rt = roundtrip_texlist(&tl);
 
         assert!(rt.textures.is_empty());
@@ -421,7 +421,7 @@ mod bflyt_roundtrip_tests {
 
     #[test]
     fn texture_list_single_roundtrip() {
-        let tl = BflytTextureList {
+        let tl = TextureList {
             textures: vec!["DiffuseTexture".to_string()],
         };
         let rt = roundtrip_texlist(&tl);
@@ -436,7 +436,7 @@ mod bflyt_roundtrip_tests {
             "Tex_B".to_string(),
             "Tex_C".to_string(),
         ];
-        let tl = BflytTextureList {
+        let tl = TextureList {
             textures: names.clone(),
         };
         let rt = roundtrip_texlist(&tl);
@@ -444,7 +444,7 @@ mod bflyt_roundtrip_tests {
         assert_eq!(rt.textures, names);
     }
 
-    fn roundtrip_fontlist(f: &BflytFontList) -> BflytFontList {
+    fn roundtrip_fontlist(f: &FontList) -> FontList {
         let mut w = Writer::new();
         f.serialize(&mut w);
         let mut c = Cursor {
@@ -452,12 +452,12 @@ mod bflyt_roundtrip_tests {
             pos: 0,
             ..Default::default()
         };
-        BflytFontList::parse(&mut c).unwrap()
+        FontList::parse(&mut c).unwrap()
     }
 
     #[test]
     fn font_list_empty_roundtrip() {
-        let fl = BflytFontList { fonts: vec![] };
+        let fl = FontList { fonts: vec![] };
         let rt = roundtrip_fontlist(&fl);
 
         assert!(rt.fonts.is_empty());
@@ -465,7 +465,7 @@ mod bflyt_roundtrip_tests {
 
     #[test]
     fn font_list_single_roundtrip() {
-        let fl = BflytFontList {
+        let fl = FontList {
             fonts: vec!["NintendoStandard".to_string()],
         };
         let rt = roundtrip_fontlist(&fl);

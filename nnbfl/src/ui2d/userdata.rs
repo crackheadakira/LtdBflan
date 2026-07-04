@@ -39,7 +39,7 @@ impl UserDataArray {
     pub fn parse(cursor: &mut Cursor, is_pane: bool) -> Result<Self, FormatError> {
         let user_data_count = cursor.read_u16()?;
         let _reserve0 = cursor.read_u16()?;
-        let mut user_data = Vec::new();
+        let mut user_data = Vec::with_capacity(user_data_count as usize);
 
         for _ in 0..user_data_count {
             user_data.push(UserData::parse(cursor, is_pane)?)
@@ -53,7 +53,7 @@ impl UserDataArray {
         writer.write_u16(self.user_data.len() as u16);
         writer.write_u16(0);
 
-        let mut slots: Vec<(usize, usize, usize)> = Vec::new();
+        let mut slots: Vec<(usize, usize, usize)> = Vec::with_capacity(self.user_data.len());
 
         for data in &self.user_data {
             let entry_base = writer.pos();
@@ -219,7 +219,7 @@ impl UserData {
 
                         cursor.seek(base_offset + offset as usize)?;
 
-                        let mut data_array = Vec::new();
+                        let mut data_array = Vec::with_capacity(count as usize);
 
                         for _ in 0..count {
                             let data = if is_pane {
