@@ -49,6 +49,7 @@ impl Displaying for BflytSection {
             BflytSection::GroupStart => "GroupStart",
             BflytSection::GroupEnd => "GroupEnd",
             BflytSection::Unknown(_, _) => "Unknown",
+            BflytSection::ShapeInfoList(_) => "ShapeInfoList",
         }
     }
 

@@ -22,6 +22,7 @@ pub const MAGIC_GROUPSTART: u32 = tchar_code32(b"grs1");
 pub const MAGIC_GROUPEND: u32 = tchar_code32(b"gre1");
 pub const MAGIC_GROUP: u32 = tchar_code32(b"grp1");
 pub const MAGIC_CONTROLSOURCE: u32 = tchar_code32(b"cnt1");
+pub const MAGIC_SHAPEINFO: u32 = tchar_code32(b"spi1");
 
 pub fn section_name(section: &BflytSection) -> &'static str {
     match section {
@@ -47,6 +48,7 @@ pub fn section_name(section: &BflytSection) -> &'static str {
         BflytSection::PaneEnd => "Pane End",
         BflytSection::GroupStart => "Group Start",
         BflytSection::GroupEnd => "Group End",
+        BflytSection::ShapeInfoList(_) => "Shape Info List",
         BflytSection::Unknown(_, _) => "Unknown",
     }
 }

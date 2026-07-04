@@ -12,8 +12,11 @@ use nnbfl::{
 };
 
 use crate::{
-    anim_state::AnimPlayer, bflyt_view::BflytView, camera::Camera,
-    renderer::timeline::TimelineGeometry, traits::Displaying,
+    anim_state::AnimPlayer,
+    bflyt_view::BflytView,
+    camera::Camera,
+    renderer::timeline::{PendingKeyEdit, TimelineDrag, TimelineGeometry, TimelineLayout},
+    traits::Displaying,
 };
 
 pub const SUPPORTED_SARC_EXTENSIONS: &[&str] = &[
@@ -40,7 +43,10 @@ pub struct UiState {
 
     pub context_menu: Option<ContextMenuState>,
     pub archive_browser_open: bool,
+
     pub timeline_geometry: Option<TimelineGeometry>,
+    pub timeline_drag: Option<TimelineDrag>,
+    pub pending_key_edit: Option<PendingKeyEdit>,
 }
 
 pub struct ContextMenuState {
@@ -777,7 +783,7 @@ fn draw_timeline_panel(
             let row_h = crate::renderer::timeline::timeline_track_row_height();
             let avail = ui.available_rect_before_wrap();
 
-            let mut label_col_width = 100.0;
+            let mut label_col_width = 170.0;
             for (i, track) in tracks.iter().enumerate() {
                 let row_top = avail.min.y + RULER_HEIGHT + i as f32 * row_h;
                 if row_top > avail.max.y {
@@ -804,14 +810,76 @@ fn draw_timeline_panel(
             );
 
             let ppp = ui.ctx().pixels_per_point();
-            state.timeline_geometry = Some(crate::renderer::timeline::build_timeline_geometry(
-                anim.frame_count(),
-                anim.frame,
-                &tracks,
+            let graph_rect_px = (
                 graph_rect.min.x * ppp,
                 graph_rect.min.y * ppp,
                 graph_rect.width() * ppp,
                 graph_rect.height() * ppp,
+            );
+
+            let layout = TimelineLayout::new(
+                anim,
+                &tracks,
+                graph_rect_px.0,
+                graph_rect_px.1,
+                graph_rect_px.2,
+                graph_rect_px.3,
+            );
+
+            let graph_response = ui.interact(
+                graph_rect,
+                ui.id().with("timeline_graph"),
+                egui::Sense::click_and_drag(),
+            );
+
+            let current_pointer = graph_response
+                .hover_pos()
+                .or_else(|| graph_response.interact_pointer_pos());
+
+            let hovered_key = current_pointer.and_then(|pos| {
+                let pointer_px = [pos.x * ppp, pos.y * ppp];
+                crate::renderer::timeline::find_nearest_key(anim, &tracks, &layout, pointer_px)
+            });
+
+            if graph_response.drag_started() {
+                if let Some(target_key) = hovered_key.clone() {
+                    state.timeline_drag = Some(target_key);
+                }
+            }
+
+            if let Some(drag) = state.timeline_drag.clone()
+                && graph_response.dragged()
+                && let Some(pos) = graph_response.interact_pointer_pos()
+            {
+                let pointer_px = [pos.x * ppp, pos.y * ppp];
+                state.pending_key_edit = Some(PendingKeyEdit {
+                    frame: layout.x_to_frame(pointer_px[0]),
+                    value: layout.y_to_value(drag.row, pointer_px[1]),
+                    track: drag.track,
+                    key_idx: drag.key_idx,
+                });
+            }
+
+            if graph_response.drag_stopped() {
+                state.timeline_drag = None;
+            }
+
+            if graph_response.hovered() {
+                ui.ctx().set_cursor_icon(match () {
+                    _ if state.timeline_drag.is_some() => egui::CursorIcon::Grabbing,
+                    _ if hovered_key.is_some() => egui::CursorIcon::PointingHand,
+                    _ => egui::CursorIcon::Default,
+                });
+            }
+
+            state.timeline_geometry = Some(crate::renderer::timeline::build_timeline_geometry(
+                anim,
+                &tracks,
+                anim.frame,
+                graph_rect_px.0,
+                graph_rect_px.1,
+                graph_rect_px.2,
+                graph_rect_px.3,
             ));
 
             ui.allocate_rect(avail, egui::Sense::hover());

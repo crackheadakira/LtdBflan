@@ -98,6 +98,7 @@ pub struct PicturePane {
     pub material_index: u16,
     pub is_shape: bool,
     pub texture_uvs: Vec<TextureUv>,
+    pub shape_info_array_index: Option<u32>,
 }
 
 impl PicturePane {
@@ -116,6 +117,12 @@ impl PicturePane {
             texture_uvs.push(TextureUv::parse(cursor)?);
         }
 
+        let shape_info_array_index = if is_shape {
+            Some(cursor.read_u32()?)
+        } else {
+            None
+        };
+
         Ok(Self {
             base,
             top_left_vertex_color,
@@ -125,6 +132,7 @@ impl PicturePane {
             material_index,
             is_shape,
             texture_uvs,
+            shape_info_array_index,
         })
     }
 
@@ -141,6 +149,10 @@ impl PicturePane {
         writer.write_u8(self.is_shape.into());
         for uv in &self.texture_uvs {
             uv.serialize(writer);
+        }
+
+        if let Some(sa) = self.shape_info_array_index {
+            writer.write_u32(sa);
         }
     }
 }
@@ -851,6 +863,7 @@ pub struct PartsProperty {
     pub basic_usage_flag: BasePaneUsageFlags,
     pub material_usage_flag: MaterialUsageFlags,
     pub user_data_type: u8,
+    pub is_sentinel_override: bool,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub o_section: Option<BflytSection>,
@@ -877,11 +890,13 @@ impl PartsProperty {
             o_section: None,
             o_user_data: None,
             o_basic_info: None,
+            is_sentinel_override: false,
         };
 
         let pane_offset = cursor.read_u32()?;
         let user_data_offset = cursor.read_u32()?;
         let pane_basic_info_offset = cursor.read_u32()?;
+        property.is_sentinel_override = user_data_offset == 1;
 
         let restore_point = cursor.pos;
 
@@ -893,7 +908,7 @@ impl PartsProperty {
             cursor.seek(restore_point)?;
         }
 
-        if user_data_offset > 0 {
+        if user_data_offset > 1 {
             cursor.seek(last_parts_pane + user_data_offset as usize)?;
             let user_data = BflytSection::parse(cursor, is_pane, true)?;
 
@@ -998,6 +1013,10 @@ impl PartsPane {
                 let start = writer.pos();
                 data.serialize(writer);
                 writer.patch_u32(u_pos, (start - section_start) as u32);
+            } else if prop.is_sentinel_override {
+                writer.patch_u32(u_pos, 1);
+            } else {
+                writer.patch_u32(u_pos, 0);
             }
 
             if let Some(info) = &prop.o_basic_info {

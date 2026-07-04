@@ -295,6 +295,17 @@ impl GpuState {
             pixels_per_point: full_output.pixels_per_point,
         };
 
+        if let Some(geometry) = ui_state.timeline_geometry.take() {
+            self.timeline_renderer.upload(&self.device, &geometry);
+        } else {
+            self.timeline_renderer
+                .upload(&self.device, &Default::default());
+        }
+
+        if let Some(pending_key_edit) = ui_state.pending_key_edit.take() {
+            anim_player.apply_key_edit(&pending_key_edit);
+        }
+
         for (id, delta) in &full_output.textures_delta.set {
             self.egui_renderer
                 .update_texture(&self.device, &self.queue, *id, delta);
@@ -353,10 +364,7 @@ impl GpuState {
             self.egui_renderer
                 .render(&mut rpass, &paint_jobs, &screen_descriptor);
 
-            if let Some(geometry) = ui_state.timeline_geometry.take() {
-                self.timeline_renderer.upload(&self.device, &geometry);
-                self.timeline_renderer.render(&mut rpass);
-            }
+            self.timeline_renderer.render(&mut rpass);
         }
 
         self.queue.submit(std::iter::once(render_encoder.finish()));

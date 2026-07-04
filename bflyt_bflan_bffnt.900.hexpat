@@ -53,6 +53,7 @@ enum BflytSectionType : u32 {
     GroupEnd      = TCharCode32("gre1"),
     Group         = TCharCode32("grp1"),
     ControlSource = TCharCode32("cnt1"),
+    ShapeInfo = TCharCode32("spi1"),
 };
 
 /* User data section */
@@ -902,10 +903,10 @@ enum TevColorOp : u8 {
     InvAlpha,
     RRR,
     InvRRR,
-    GGG,
-    InvGGG,
-    BBB,
-    InvBBB,
+    GGG = 8,
+    InvGGG = 9,
+    BBB = 12,
+    InvBBB = 13,
 };
 
 enum TevScale : u8 {
@@ -1218,6 +1219,10 @@ struct ResBflytPicturePane : ResBflytPane {
     u8                texture_count;
     u8                is_shape;
     ResBflytTextureUv texture_uv_array[texture_count];
+    
+    if (is_shape == 1) {
+        u32 shape_info_array_index;
+    }
 
     c_real_size = c_real_size + 0x14 + 0x20 * texture_count;
 };
@@ -1302,6 +1307,40 @@ struct ResBflytTextBoxPane : ResBflytPane {
     }
 
     c_real_size = c_real_size + 0x54;
+};
+
+enum ShapeInfoType : u16 {
+    NormalQuad              = 0,
+    PrimitiveRoundRect      = 1,
+    PrimitiveCircle         = 2,
+};
+
+struct ResShapeInfoGfxPrimitiveRoundRect {
+    u32 radius;
+    u32 slice;
+};
+
+struct ResShapeInfoGfxPrimitiveCircle {
+    u32 slice;
+};
+
+struct ResBflytShapeInfo {
+    ShapeInfoType type;
+    u8 reserve0[2];
+    
+    if (type == ShapeInfoType::PrimitiveRoundRect) {
+        ResShapeInfoGfxPrimitiveRoundRect round_rect;
+    } else if (type == ShapeInfoType::PrimitiveCircle) {
+        ResShapeInfoGfxPrimitiveCircle circle;
+    }
+};
+
+struct ResShapeInfoList {
+    u16 count;
+    u8 reserve0[2];
+    u32 data_offset;
+    
+    ResBflytShapeInfo shapes[count];
 };
 
 /* Window pane */
@@ -1706,6 +1745,8 @@ struct ResUi2dSectionForEmbed {
         ResBflanPaneAnimTag pane_anim_tag;
     } else if (magic == BflanSectionType::PaneAnimInfo) {
         ResBflanPaneAnimInfo pane_anim_info;
+    } else if (magic == BflytSectionType::ShapeInfo) {
+        ResShapeInfoList pane_anim_info;
     }
 };
 
@@ -1778,6 +1819,8 @@ struct ResUi2dSection {
         ResBffntCharacterWidth character_width [[inline]];
     } else if (magic == BffntSectionType::CodeMap) {
         ResBffntCodeMap code_map [[inline]];
+    } else if (magic == BflytSectionType::ShapeInfo) {
+        ResShapeInfoList pane_anim_info;
     }
     
     if (magic == BflytSectionType::PaneStart) {

@@ -4,8 +4,8 @@ use crate::{
     bflyt::{
         constants::*,
         list::{
-            CaptureTextureList, ControlSource, FontList, Group, Layout, MaterialList, TextureList,
-            VectorGraphicsList,
+            CaptureTextureList, ControlSource, FontList, Group, Layout, MaterialList,
+            ShapeInfoList, TextureList, VectorGraphicsList,
         },
         pane::{AlignmentPane, Pane, PartsPane, PicturePane, TextBoxPane, WindowPane},
     },
@@ -24,6 +24,7 @@ pub enum BflytSection {
     MaterialList(MaterialList),
     CaptureTextureList(CaptureTextureList),
     VectorGraphicsList(VectorGraphicsList),
+    ShapeInfoList(ShapeInfoList),
     Pane(Pane),
     PicturePane(PicturePane),
     TextBoxPane(TextBoxPane),
@@ -137,6 +138,10 @@ impl BflytSection {
                 let s = ControlSource::parse(cursor)?;
                 BflytSection::ControlSource(s)
             }
+            MAGIC_SHAPEINFO => {
+                let s = ShapeInfoList::parse(cursor)?;
+                BflytSection::ShapeInfoList(s)
+            }
             _ => {
                 println!("Got unknown pane w/ magic: {magic}");
 
@@ -187,6 +192,7 @@ impl BflytSection {
             Self::Group(s) => s.serialize(writer),
             Self::ControlSource(s) => s.serialize(writer, section_start),
             Self::Unknown(_, data) => writer.write_bytes(data),
+            Self::ShapeInfoList(s) => s.serialize(writer, section_start),
             Self::PaneStart | Self::PaneEnd | Self::GroupStart | Self::GroupEnd => {}
         }
 
@@ -502,6 +508,7 @@ fn section_magic(section: &BflytSection) -> u32 {
         BflytSection::PaneEnd => MAGIC_PANEEND,
         BflytSection::GroupStart => MAGIC_GROUPSTART,
         BflytSection::GroupEnd => MAGIC_GROUPEND,
+        BflytSection::ShapeInfoList(_) => MAGIC_SHAPEINFO,
         BflytSection::Unknown(h, _) => h.magic,
     }
 }

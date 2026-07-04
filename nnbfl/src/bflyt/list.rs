@@ -590,10 +590,10 @@ pub enum TevColorOp {
     InvAlpha,
     RRR,
     InvRRR,
-    GGG,
-    InvGGG,
-    BBB,
-    InvBBB,
+    GGG = 8,
+    InvGGG = 9,
+    BBB = 12,
+    InvBBB = 13,
 }
 
 #[derive(
@@ -1711,5 +1711,104 @@ impl ControlSource {
         }
 
         writer.align(4);
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive,
+)]
+#[repr(u16)]
+pub enum ShapeInfoType {
+    #[default]
+    NormalQuad,
+    PrimitiveRoundRect,
+    PrimitiveCircle,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ShapeParam {
+    NormalQuad,
+    PrimitiveRoundRect { radius: u32, slice: u32 },
+    PrimitiveCircle { slice: u32 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShapeInfoList {
+    pub shapes: Vec<ShapeParam>,
+}
+
+impl ShapeInfoList {
+    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        let count = cursor.read_u16()? as usize;
+        let _padding = cursor.read_u16()?;
+        let _data_offset = cursor.read_u32()? as usize;
+
+        let mut shapes = Vec::with_capacity(count);
+
+        for _ in 0..count {
+            let type_raw = cursor.read_u16()?;
+            let _shape_padding = cursor.read_u16()?;
+
+            let shape_type = match type_raw {
+                0 => ShapeInfoType::NormalQuad,
+                1 => ShapeInfoType::PrimitiveRoundRect,
+                2 => ShapeInfoType::PrimitiveCircle,
+                _ => {
+                    return Err(FormatError::UnknownTag {
+                        enum_name: "ShapeInfoType",
+                        tag: type_raw as u32,
+                        offset: cursor.pos,
+                    });
+                }
+            };
+
+            let param = match shape_type {
+                ShapeInfoType::NormalQuad => ShapeParam::NormalQuad,
+                ShapeInfoType::PrimitiveRoundRect => {
+                    let radius = cursor.read_u32()?;
+                    let slice = cursor.read_u32()?;
+                    ShapeParam::PrimitiveRoundRect { radius, slice }
+                }
+                ShapeInfoType::PrimitiveCircle => {
+                    let slice = cursor.read_u32()?;
+                    ShapeParam::PrimitiveCircle { slice }
+                }
+            };
+
+            shapes.push(param);
+        }
+
+        Ok(Self { shapes })
+    }
+
+    pub fn serialize(&self, writer: &mut Writer, section_start: usize) {
+        let count = self.shapes.len();
+
+        writer.write_u16(count as u16);
+        writer.write_u16(0);
+        let data_offset_pos = writer.write_placeholder_u32();
+
+        let current_offset = writer.pos() - section_start;
+        writer.patch_u32(data_offset_pos, current_offset as u32);
+
+        for shape in &self.shapes {
+            match shape {
+                ShapeParam::NormalQuad => {
+                    writer.write_u16(ShapeInfoType::NormalQuad as u16);
+                    writer.write_u16(0);
+                }
+                ShapeParam::PrimitiveRoundRect { radius, slice } => {
+                    writer.write_u16(ShapeInfoType::PrimitiveRoundRect as u16);
+                    writer.write_u16(0);
+                    writer.write_u32(*radius);
+                    writer.write_u32(*slice);
+                }
+                ShapeParam::PrimitiveCircle { slice } => {
+                    writer.write_u16(ShapeInfoType::PrimitiveCircle as u16);
+                    writer.write_u16(0);
+                    writer.write_u32(*slice);
+                }
+            }
+        }
     }
 }

@@ -241,14 +241,163 @@ fn identity_matrix() -> [[f32; 4]; 4] {
     ]
 }
 
-const TIMELINE_RULER_HEIGHT: f32 = 22.0;
-const TIMELINE_ROW_HEIGHT: f32 = 26.0;
-const TIMELINE_ROW_GAP: f32 = 2.0;
-const TIMELINE_MARKER_RADIUS: f32 = 4.0;
+pub const TIMELINE_RULER_HEIGHT: f32 = 22.0;
+pub const TIMELINE_ROW_HEIGHT: f32 = 26.0;
+pub const TIMELINE_ROW_GAP: f32 = 2.0;
+pub const TIMELINE_MARKER_RADIUS: f32 = 4.0;
+pub const TIMELINE_HIT_RADIUS: f32 = 9.0;
 
+pub struct TimelineLayout {
+    pub rect_x: f32,
+    pub rect_y: f32,
+    pub rect_w: f32,
+    pub rect_h: f32,
+    pub frame_count: f32,
+    pub rows: Vec<(f32, f32, f32, f32)>,
+}
+
+impl TimelineLayout {
+    pub fn new(
+        anim: &AnimInstance,
+        tracks: &[TimelineTrack],
+        rect_x: f32,
+        rect_y: f32,
+        rect_w: f32,
+        rect_h: f32,
+    ) -> Self {
+        let rows_top = rect_y + TIMELINE_RULER_HEIGHT;
+        let rows = tracks
+            .iter()
+            .enumerate()
+            .map(|(i, track)| {
+                let top = rows_top + i as f32 * timeline_track_row_height();
+                let bottom = (top + TIMELINE_ROW_HEIGHT).min(rect_y + rect_h);
+                let (min_v, max_v) = anim
+                    .curve(track)
+                    .map(curve_value_range)
+                    .unwrap_or((0.0, 1.0));
+                (top, bottom, min_v, max_v)
+            })
+            .collect();
+
+        Self {
+            rect_x,
+            rect_y,
+            rect_w,
+            rect_h,
+            frame_count: anim.frame_count().max(1.0),
+            rows,
+        }
+    }
+
+    pub fn frame_to_x(&self, frame: f32) -> f32 {
+        self.rect_x + (frame / self.frame_count) * self.rect_w
+    }
+
+    pub fn x_to_frame(&self, x: f32) -> f32 {
+        ((x - self.rect_x) / self.rect_w * self.frame_count).clamp(0.0, self.frame_count)
+    }
+
+    pub fn value_to_y(&self, row: usize, value: f32) -> f32 {
+        let Some(&(top, bottom, min_v, max_v)) = self.rows.get(row) else {
+            return self.rect_y;
+        };
+        if (max_v - min_v).abs() < f32::EPSILON {
+            top + TIMELINE_ROW_HEIGHT * 0.5
+        } else {
+            let t = (value - min_v) / (max_v - min_v);
+            (bottom - t * TIMELINE_ROW_HEIGHT).clamp(top, bottom)
+        }
+    }
+
+    pub fn y_to_value(&self, row: usize, y: f32) -> f32 {
+        let Some(&(top, bottom, min_v, max_v)) = self.rows.get(row) else {
+            return 0.0;
+        };
+        let t = ((bottom - y) / (bottom - top).max(1.0)).clamp(0.0, 1.0);
+        min_v + t * (max_v - min_v)
+    }
+
+    pub fn row_at(&self, y: f32) -> Option<usize> {
+        self.rows
+            .iter()
+            .position(|&(top, bottom, _, _)| y >= top && y <= bottom)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingKeyEdit {
+    pub track: TimelineTrack,
+    pub key_idx: usize,
+    pub frame: f32,
+    pub value: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct TimelineDrag {
+    pub track: TimelineTrack,
+    pub key_idx: usize,
+    pub row: usize,
+}
+
+pub fn check_key_hit(
+    anim: &AnimInstance,
+    tracks: &[TimelineTrack],
+    layout: &TimelineLayout,
+    pointer_px: [f32; 2],
+) -> Option<(usize, usize)> {
+    let row = layout.row_at(pointer_px[1])?;
+    let track = tracks.get(row)?;
+    let curve = anim.curve(track)?;
+
+    let key_points: Vec<(f32, f32)> = match curve {
+        Curve::Constant(keys) => keys
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (i as f32, *v))
+            .collect(),
+        Curve::Step(keys) => keys.iter().map(|k| (k.frame, k.value as f32)).collect(),
+        Curve::Hermite(keys) => keys.iter().map(|k| (k.frame, k.value)).collect(),
+    };
+
+    let mut best: Option<(usize, f32)> = None;
+    let hit_radius_sq = TIMELINE_HIT_RADIUS * TIMELINE_HIT_RADIUS;
+
+    for (i, &(frame, value)) in key_points.iter().enumerate() {
+        let x = layout.frame_to_x(frame);
+        let y = layout.value_to_y(row, value);
+        let dist2 = (x - pointer_px[0]).powi(2) + (y - pointer_px[1]).powi(2);
+
+        if dist2 <= hit_radius_sq && best.is_none_or(|(_, best_dist2)| dist2 < best_dist2) {
+            best = Some((i, dist2));
+        }
+    }
+
+    best.map(|(key_idx, _)| (key_idx, row))
+}
+
+pub fn find_nearest_key(
+    anim: &AnimInstance,
+    tracks: &[TimelineTrack],
+    layout: &TimelineLayout,
+    pointer_px: [f32; 2],
+) -> Option<TimelineDrag> {
+    let (key_idx, row) = check_key_hit(anim, tracks, layout, pointer_px)?;
+    let track = tracks.get(row)?;
+
+    Some(TimelineDrag {
+        track: track.clone(),
+        key_idx,
+        row,
+    })
+}
+
+#[derive(Clone, Debug)]
 pub struct TimelineTrack {
     pub label: String,
-    pub curve: Curve,
+    pub content_idx: usize,
+    pub info_idx: usize,
+    pub target_idx: usize,
 }
 
 pub fn timeline_track_row_height() -> f32 {
@@ -259,17 +408,19 @@ pub fn collect_tracks_for_pane(anim: &AnimInstance, pane_label: &str) -> Vec<Tim
     let target_name = pane_label.trim_end_matches('\0');
     let mut out = Vec::new();
 
-    for content in &anim.bflan.anim_info.contents {
+    for (content_idx, content) in anim.bflan.anim_info.contents.iter().enumerate() {
         if content.name.trim_end_matches('\0') != target_name {
             continue;
         }
 
-        for info in &content.infos {
+        for (info_idx, info) in content.infos.iter().enumerate() {
             if let AnimInfo::Standard { targets, .. } = info {
-                for target in targets {
+                for (target_idx, target) in targets.iter().enumerate() {
                     out.push(TimelineTrack {
                         label: format!("{:?}", target.target),
-                        curve: target.curve.clone(),
+                        content_idx,
+                        info_idx,
+                        target_idx,
                     });
                 }
             }
@@ -280,15 +431,16 @@ pub fn collect_tracks_for_pane(anim: &AnimInstance, pane_label: &str) -> Vec<Tim
 }
 
 pub fn build_timeline_geometry(
-    frame_count: f32,
-    current_frame: f32,
+    anim: &AnimInstance,
     tracks: &[TimelineTrack],
+    current_frame: f32,
     rect_x: f32,
     rect_y: f32,
     rect_w: f32,
     rect_h: f32,
 ) -> TimelineGeometry {
     let mut geo = TimelineGeometry::default();
+    let frame_count = anim.frame_count().max(1.0);
 
     if rect_w <= 1.0 || rect_h <= 1.0 || frame_count <= 0.0 {
         return geo;
@@ -301,32 +453,26 @@ pub fn build_timeline_geometry(
         rect_h as u32,
     ));
 
-    let frame_to_x = |frame: f32| -> f32 { rect_x + (frame / frame_count) * rect_w };
+    let layout = TimelineLayout::new(anim, tracks, rect_x, rect_y, rect_w, rect_h);
 
     let ruler_h = TIMELINE_RULER_HEIGHT.min(rect_h);
-    draw_ruler(
-        &mut geo,
-        frame_count,
-        rect_x,
-        rect_y,
-        rect_w,
-        ruler_h,
-        &frame_to_x,
-    );
+    draw_ruler(&mut geo, rect_x, rect_y, rect_w, ruler_h, &layout);
 
-    let rows_top = rect_y + ruler_h;
     for (row_idx, track) in tracks.iter().enumerate() {
-        let row_top = rows_top + row_idx as f32 * timeline_track_row_height();
+        let Some(&(row_top, row_bottom, _, _)) = layout.rows.get(row_idx) else {
+            break;
+        };
+
         if row_top >= rect_y + rect_h {
             break;
         }
-        let row_bottom = (row_top + TIMELINE_ROW_HEIGHT).min(rect_y + rect_h);
 
         let bg = if row_idx % 2 == 0 {
             rgba(1.0, 1.0, 1.0, 0.03)
         } else {
             rgba(1.0, 1.0, 1.0, 0.06)
         };
+
         push_quad(
             &mut geo.tri_vertices,
             &mut geo.tri_indices,
@@ -335,26 +481,12 @@ pub fn build_timeline_geometry(
             bg,
         );
 
-        let (min_v, max_v) = curve_value_range(&track.curve);
-        let value_to_y = |value: f32| -> f32 {
-            if (max_v - min_v).abs() < f32::EPSILON {
-                row_top + TIMELINE_ROW_HEIGHT * 0.5
-            } else {
-                let t = (value - min_v) / (max_v - min_v);
-                (row_bottom - t * TIMELINE_ROW_HEIGHT).clamp(row_top, row_bottom)
-            }
-        };
-
-        draw_curve(
-            &mut geo,
-            &track.curve,
-            frame_count,
-            &frame_to_x,
-            &value_to_y,
-        );
+        if let Some(curve) = anim.curve(track) {
+            draw_curve(&mut geo, curve, row_idx, &layout);
+        }
     }
 
-    let px = frame_to_x(current_frame.clamp(0.0, frame_count));
+    let px = layout.frame_to_x(current_frame.clamp(0.0, frame_count));
     push_quad(
         &mut geo.tri_vertices,
         &mut geo.tri_indices,
@@ -368,24 +500,24 @@ pub fn build_timeline_geometry(
 
 fn draw_ruler(
     geo: &mut TimelineGeometry,
-    frame_count: f32,
     rect_x: f32,
     rect_y: f32,
     rect_w: f32,
     ruler_h: f32,
-    frame_to_x: &impl Fn(f32) -> f32,
+    layout: &TimelineLayout,
 ) {
-    let px_per_frame = rect_w / frame_count.max(1.0);
+    let px_per_frame = rect_w / layout.frame_count;
     let tick_step = if px_per_frame >= 8.0 {
         1
     } else {
         (8.0 / px_per_frame.max(0.001)).ceil() as i32
     };
+
     let major_every = (tick_step * 5).max(1);
 
     let mut frame = 0i32;
-    while (frame as f32) <= frame_count {
-        let x = frame_to_x(frame as f32);
+    while (frame as f32) <= layout.frame_count {
+        let x = layout.frame_to_x(frame as f32);
         let is_major = frame % major_every == 0;
         let y0 = rect_y + ruler_h - if is_major { 12.0 } else { 6.0 };
 
@@ -407,27 +539,23 @@ fn draw_ruler(
     );
 }
 
-fn draw_curve(
-    geo: &mut TimelineGeometry,
-    curve: &Curve,
-    frame_count: f32,
-    frame_to_x: &impl Fn(f32) -> f32,
-    value_to_y: &impl Fn(f32) -> f32,
-) {
+fn draw_curve(geo: &mut TimelineGeometry, curve: &Curve, row: usize, layout: &TimelineLayout) {
     let line_color = rgba(0.4, 0.85, 0.95, 1.0);
     let marker_color = rgba(1.0, 0.75, 0.25, 1.0);
+    let frame_count = layout.frame_count;
 
-    let samples = ((frame_count.max(1.0) * 2.0) as usize).clamp(2, 800);
+    let samples = ((frame_count * 2.0) as usize).clamp(2, 800);
     let mut prev: Option<[f32; 2]> = None;
 
     for i in 0..=samples {
         let frame = frame_count * (i as f32 / samples as f32);
         let value = eval_curve(curve, frame);
-        let point = [frame_to_x(frame), value_to_y(value)];
+        let point = [layout.frame_to_x(frame), layout.value_to_y(row, value)];
 
         if let Some(p) = prev {
             push_line(&mut geo.lines, p, point, line_color);
         }
+
         prev = Some(point);
     }
 
@@ -442,7 +570,8 @@ fn draw_curve(
     };
 
     for (frame, value) in key_points {
-        let center = [frame_to_x(frame), value_to_y(value)];
+        let center = [layout.frame_to_x(frame), layout.value_to_y(row, value)];
+
         push_diamond(
             &mut geo.tri_vertices,
             &mut geo.tri_indices,

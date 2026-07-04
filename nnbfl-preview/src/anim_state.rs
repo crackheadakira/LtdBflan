@@ -15,6 +15,7 @@ use nnbfl::{
 
 use crate::bflyt_view::BflytView;
 use crate::pane_tree::DirtyFlags;
+use crate::renderer::timeline::{PendingKeyEdit, TimelineTrack};
 use crate::traits::Displaying;
 
 fn eval_hermite(keys: &[nnbfl::bflan::curves::HermiteKey], frame: f32) -> f32 {
@@ -109,6 +110,36 @@ impl AnimInstance {
     pub fn toggle_looping(&mut self) {
         self.bflan.anim_info.is_looping = !self.bflan.anim_info.is_looping
     }
+
+    pub fn curve(&self, track: &TimelineTrack) -> Option<&Curve> {
+        let content = self.bflan.anim_info.contents.get(track.content_idx)?;
+        let info = content.infos.get(track.info_idx)?;
+        let AnimInfo::Standard { targets, .. } = info else {
+            return None;
+        };
+
+        Some(&targets.get(track.target_idx)?.curve)
+    }
+
+    pub fn target(&self, track: &TimelineTrack) -> Option<&nnbfl::bflan::targets::AnimTarget> {
+        let content = self.bflan.anim_info.contents.get(track.content_idx)?;
+        let info = content.infos.get(track.info_idx)?;
+        let AnimInfo::Standard { targets, .. } = info else {
+            return None;
+        };
+
+        targets.get(track.target_idx)
+    }
+
+    pub fn curve_mut(&mut self, track: &TimelineTrack) -> Option<&mut Curve> {
+        let content = self.bflan.anim_info.contents.get_mut(track.content_idx)?;
+        let info = content.infos.get_mut(track.info_idx)?;
+        let AnimInfo::Standard { targets, .. } = info else {
+            return None;
+        };
+
+        Some(&mut targets.get_mut(track.target_idx)?.curve)
+    }
 }
 
 fn find_next_anim(bflan: &Bflan) -> Option<String> {
@@ -186,6 +217,65 @@ impl AnimPlayer {
 
     pub fn is_playing(&self) -> bool {
         self.active.map(|i| self.anims[i].playing).unwrap_or(false)
+    }
+
+    pub fn apply_key_edit(&mut self, edit: &PendingKeyEdit) {
+        let Some(idx) = self.active else { return };
+        let Some(anim) = self.anims.get_mut(idx) else {
+            return;
+        };
+
+        let Some(curve) = anim.curve_mut(&edit.track) else {
+            return;
+        };
+
+        match curve {
+            Curve::Constant(keys) => {
+                if let Some(v) = keys.get_mut(edit.key_idx) {
+                    *v = edit.value;
+                }
+            }
+
+            Curve::Step(keys) => {
+                let min_frame = edit
+                    .key_idx
+                    .checked_sub(1)
+                    .and_then(|i| keys.get(i))
+                    .map(|k| k.frame + 0.01)
+                    .unwrap_or(0.0);
+
+                let max_frame = keys
+                    .get(edit.key_idx + 1)
+                    .map(|k| k.frame - 0.01)
+                    .unwrap_or(f32::MAX)
+                    .max(min_frame);
+
+                if let Some(k) = keys.get_mut(edit.key_idx) {
+                    k.frame = edit.frame.clamp(min_frame, max_frame);
+                    k.value = edit.value.round().clamp(0.0, u16::MAX as f32) as u16;
+                }
+            }
+
+            Curve::Hermite(keys) => {
+                let min_frame = edit
+                    .key_idx
+                    .checked_sub(1)
+                    .and_then(|i| keys.get(i))
+                    .map(|k| k.frame + 0.01)
+                    .unwrap_or(0.0);
+
+                let max_frame = keys
+                    .get(edit.key_idx + 1)
+                    .map(|k| k.frame - 0.01)
+                    .unwrap_or(f32::MAX)
+                    .max(min_frame);
+
+                if let Some(k) = keys.get_mut(edit.key_idx) {
+                    k.frame = edit.frame.clamp(min_frame, max_frame);
+                    k.value = edit.value;
+                }
+            }
+        }
     }
 }
 
