@@ -5,12 +5,12 @@ use nnbfl::{
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection},
         flags::{BflytOrigin, BflytParentOrigin, TexFilter, TexWrapMode},
-        list::{BflytFontList, BflytMaterialList, BflytTextureList, MaterialColorEntry, TexGenSrc},
-        pane::{BflytPane, BflytPartsPane, BflytPicturePane},
+        list::{FontList, MaterialColorEntry, MaterialList, TexGenSrc, TextureList},
+        pane::{Pane, PartsPane, PicturePane},
     },
     core::ReadWriteable,
     sarc::file::MagicFiles,
-    ui2d::{types::Vector2f, userdata::ResUi2dUserDataSection},
+    ui2d::{types::Vector2f, userdata::UserDataArray},
 };
 
 use crate::{
@@ -288,10 +288,10 @@ pub struct PaneTree {
     pub roots: Vec<PaneNode>,
 
     pub layout_size: Vector2f,
-    pub material_list: Option<BflytMaterialList>,
-    pub user_data: Option<ResUi2dUserDataSection>,
-    pub texture_list: Option<BflytTextureList>,
-    pub font_list: Option<BflytFontList>,
+    pub material_list: Option<MaterialList>,
+    pub user_data: Option<UserDataArray>,
+    pub texture_list: Option<TextureList>,
+    pub font_list: Option<FontList>,
     pub group_nodes: Vec<BflytNode>,
 
     pub file_name: String,
@@ -345,7 +345,11 @@ impl PaneTree {
 
     pub fn recompute_dirty(&mut self) {
         for root in &mut self.roots {
-            root.recompute(Vector2f::empty(), self.layout_size, Vector2f::max());
+            root.recompute(
+                Vector2f::default(),
+                self.layout_size,
+                Vector2f { x: 1.0, y: 1.0 },
+            );
         }
     }
 
@@ -597,9 +601,9 @@ impl PaneTree {
 
         let roots = builder.build_nodes(
             &pane_nodes,
-            Vector2f::empty(),
+            Vector2f::default(),
             layout_size,
-            Vector2f::max(),
+            Vector2f { x: 1.0, y: 1.0 },
             true,
             0,
         );
@@ -655,8 +659,8 @@ impl PaneTree {
 }
 
 struct Builder<'a> {
-    material_list: Option<&'a BflytMaterialList>,
-    sub_material_list: Option<BflytMaterialList>,
+    material_list: Option<&'a MaterialList>,
+    sub_material_list: Option<MaterialList>,
     blarc_dir: Option<&'a Path>,
     archive_entries: Option<&'a [ArchiveEntry]>,
     blarc_cache: &'a mut HashMap<String, Option<Bflyt>>,
@@ -849,7 +853,7 @@ impl<'a> Builder<'a> {
 
     fn resolve_parts(
         &mut self,
-        parts: &BflytPartsPane,
+        parts: &PartsPane,
         parent_node: &mut PaneNode,
         parent_visible: bool,
     ) {
@@ -921,8 +925,8 @@ impl<'a> Builder<'a> {
 
         let mut sub_children = self.build_nodes(
             &sub_nodes,
-            sub_parent_pos.add(parent_node.world_center),
-            sub_size.multiply(scale),
+            sub_parent_pos + parent_node.world_center,
+            sub_size * scale,
             scale,
             parent_visible,
             parent_node.depth + 1,
@@ -983,7 +987,7 @@ impl<'a> Builder<'a> {
 
     fn build_textured_quad(
         &self,
-        pic: &BflytPicturePane,
+        pic: &PicturePane,
         position: Vector2f,
         size: Vector2f,
         center: Vector2f,
@@ -1005,16 +1009,7 @@ impl<'a> Builder<'a> {
             return None;
         }
 
-        let vertex_color_to_f32 = |c: &nnbfl::bflyt::pane::Color4u8| -> [f32; 4] {
-            [
-                c.r as f32 / 255.0,
-                c.g as f32 / 255.0,
-                c.b as f32 / 255.0,
-                c.a as f32 / 255.0,
-            ]
-        };
-
-        let tl = vertex_color_to_f32(&pic.top_left_vertex_color);
+        let tl: [f32; 4] = pic.top_left_vertex_color.into();
         let tint = if is_visible {
             if tl[3] > 0.0 { tl } else { [1.0; 4] }
         } else {
@@ -1200,20 +1195,11 @@ impl<'a> Builder<'a> {
             detailed_combiner_material.stage_count = dc.entries.len().min(6) as u32;
             detailed_combiner_material.texture_count = texture_count;
 
-            let color_f32u = |c: &nnbfl::bflyt::pane::Color4u8| {
-                [
-                    c.r as f32 / 255.0,
-                    c.g as f32 / 255.0,
-                    c.b as f32 / 255.0,
-                    c.a as f32 / 255.0,
-                ]
-            };
-
-            detailed_combiner_material.constant_colors[0] = color_f32u(&dc.color1);
-            detailed_combiner_material.constant_colors[1] = color_f32u(&dc.color2);
-            detailed_combiner_material.constant_colors[2] = color_f32u(&dc.color3);
-            detailed_combiner_material.constant_colors[3] = color_f32u(&dc.color4);
-            detailed_combiner_material.constant_colors[4] = color_f32u(&dc.color5);
+            detailed_combiner_material.constant_colors[0] = dc.color1.into();
+            detailed_combiner_material.constant_colors[1] = dc.color2.into();
+            detailed_combiner_material.constant_colors[2] = dc.color3.into();
+            detailed_combiner_material.constant_colors[3] = dc.color4.into();
+            detailed_combiner_material.constant_colors[4] = dc.color5.into();
             detailed_combiner_material.constant_colors[5] = [0.0; 4];
             detailed_combiner_material.constant_colors[6] = [0.0; 4];
 
@@ -1315,7 +1301,7 @@ impl<'a> Builder<'a> {
 }
 
 fn resolve_rect(
-    pane: &BflytPane,
+    pane: &Pane,
     parent_pos: Vector2f,
     parent_size: Vector2f,
     parent_scale: Vector2f,

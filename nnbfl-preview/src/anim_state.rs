@@ -1,6 +1,6 @@
 use nnbfl::bflyt::flags::BflytOrigin;
 use nnbfl::bflyt::list::MaterialTextureSrt;
-use nnbfl::ui2d::userdata::ResUi2dUserDataInner;
+use nnbfl::ui2d::userdata::UserDataContent;
 use nnbfl::{
     bflan::{
         anim_info::{AnimContent, AnimInfo, AnimInfoType, AnimType, PaneAnimInfo},
@@ -115,7 +115,7 @@ fn find_next_anim(bflan: &Bflan) -> Option<String> {
     if let Some(ud) = &bflan.anim_tag.user_data {
         for entry in &ud.user_data {
             if entry.o_name == "CommandPlayEnd_Play"
-                && let Some(ResUi2dUserDataInner::String(value)) = entry.data_array.first()
+                && let UserDataContent::String(value) = &entry.content
             {
                 return Some(value.clone());
             }

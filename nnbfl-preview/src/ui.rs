@@ -5,13 +5,16 @@ use nnbfl::{
     bflan::{anim_info::AnimInfo, curves::Curve, targets::TargetIndex},
     bflyt::{
         file::BflytSection,
-        list::{BflytLayout, BflytMaterialList, MaterialBlendMode},
-        pane::BflytPane,
+        list::{Layout, MaterialBlendMode, MaterialList},
+        pane::Pane,
     },
     ui2d::types::{Vector2f, Vector3f},
 };
 
-use crate::{anim_state::AnimPlayer, bflyt_view::BflytView, camera::Camera, traits::Displaying};
+use crate::{
+    anim_state::AnimPlayer, bflyt_view::BflytView, camera::Camera,
+    renderer::timeline::TimelineGeometry, traits::Displaying,
+};
 
 pub const SUPPORTED_SARC_EXTENSIONS: &[&str] = &[
     "blarc",
@@ -37,6 +40,7 @@ pub struct UiState {
 
     pub context_menu: Option<ContextMenuState>,
     pub archive_browser_open: bool,
+    pub timeline_geometry: Option<TimelineGeometry>,
 }
 
 pub struct ContextMenuState {
@@ -163,7 +167,7 @@ pub fn draw_ui(
 
     draw_context_menu(ui, state, view);
 
-    egui::Panel::top("menu_bar").show_inside(ui, |ui| {
+    egui::Panel::top("menu_bar").show(ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Load File...").clicked() {
@@ -227,7 +231,7 @@ pub fn draw_ui(
 
     egui::Panel::left("pane_tree")
         .default_size(240.0)
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut state.sidebar_tab, SidebarTab::Panes, "Pane Tree");
                 ui.selectable_value(&mut state.sidebar_tab, SidebarTab::Materials, "Materials");
@@ -334,7 +338,7 @@ pub fn draw_ui(
         egui::Panel::right("right_control_panel")
             .default_size(300.0)
             .resizable(true)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.selectable_value(
                         &mut state.right_sidebar_tab,
@@ -568,6 +572,7 @@ pub fn draw_ui(
             });
     };
 
+    draw_timeline_panel(ui, view, state, anim_player);
     draw_archive_browser_window(ui, state, blarc_dir, archive_scan);
 }
 
@@ -715,6 +720,102 @@ fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: &Option<BflytView>)
     if close || clicked_outside || escape_pressed {
         state.context_menu = None;
     }
+}
+
+fn draw_timeline_panel(
+    ui: &mut Ui,
+    view: &Option<BflytView>,
+    state: &mut UiState,
+    anim_player: &AnimPlayer,
+) {
+    state.timeline_geometry = None;
+
+    let Some(anim) = anim_player.active.and_then(|i| anim_player.anims.get(i)) else {
+        return;
+    };
+
+    egui::Panel::bottom("timeline_panel")
+        .resizable(true)
+        .default_size(220.0)
+        .min_size(80.0)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("Timeline");
+                ui.separator();
+                ui.label(format!(
+                    "{} - frame {:.1} / {:.0}",
+                    anim.name,
+                    anim.frame,
+                    anim.frame_count()
+                ));
+            });
+
+            ui.separator();
+
+            let pane_label = state
+                .selected_pane
+                .zip(view.as_ref())
+                .and_then(|(idx, v)| v.tree.iter().find(|n| n.pane_idx == idx))
+                .map(|n| n.label.clone());
+
+            let Some(pane_label) = pane_label else {
+                ui.weak("Select a pane to see its animated tracks.");
+                return;
+            };
+
+            let tracks = crate::renderer::timeline::collect_tracks_for_pane(anim, &pane_label);
+            if tracks.is_empty() {
+                ui.weak(format!(
+                    "No animated tracks on '{}' in this animation.",
+                    pane_label.trim_end_matches('\0')
+                ));
+                return;
+            }
+
+            const RULER_HEIGHT: f32 = 22.0;
+
+            let row_h = crate::renderer::timeline::timeline_track_row_height();
+            let avail = ui.available_rect_before_wrap();
+
+            let mut label_col_width = 100.0;
+            for (i, track) in tracks.iter().enumerate() {
+                let row_top = avail.min.y + RULER_HEIGHT + i as f32 * row_h;
+                if row_top > avail.max.y {
+                    break;
+                }
+
+                let text_rect = ui.painter().text(
+                    egui::pos2(avail.min.x + 4.0, row_top + row_h * 0.5 - 2.0),
+                    egui::Align2::LEFT_CENTER,
+                    &track.label,
+                    egui::FontId::proportional(11.0),
+                    egui::Color32::from_gray(200),
+                );
+
+                let required_width = (text_rect.max.x - avail.min.x) + 16.0;
+                if required_width > label_col_width {
+                    label_col_width = required_width;
+                }
+            }
+
+            let graph_rect = egui::Rect::from_min_max(
+                egui::pos2(avail.min.x + label_col_width, avail.min.y),
+                avail.max,
+            );
+
+            let ppp = ui.ctx().pixels_per_point();
+            state.timeline_geometry = Some(crate::renderer::timeline::build_timeline_geometry(
+                anim.frame_count(),
+                anim.frame,
+                &tracks,
+                graph_rect.min.x * ppp,
+                graph_rect.min.y * ppp,
+                graph_rect.width() * ppp,
+                graph_rect.height() * ppp,
+            ));
+
+            ui.allocate_rect(avail, egui::Sense::hover());
+        });
 }
 
 fn draw_archive_browser_window(
@@ -989,7 +1090,7 @@ fn draw_pane_properties(ui: &mut Ui, pane: &mut crate::pane_tree::PaneNode) -> b
     changed
 }
 
-fn draw_layout_section(ui: &mut Ui, layout: &BflytLayout) {
+fn draw_layout_section(ui: &mut Ui, layout: &Layout) {
     draw_string(ui, "Name", &layout.name);
     draw_prop(ui, "Centered", layout.is_centered);
     draw_prop_f32(ui, "Width", layout.width);
@@ -998,7 +1099,7 @@ fn draw_layout_section(ui: &mut Ui, layout: &BflytLayout) {
     draw_prop_f32(ui, "Parts Height", layout.parts_height);
 }
 
-fn draw_pane_section(ui: &mut Ui, pane: &BflytPane) {
+fn draw_pane_section(ui: &mut Ui, pane: &Pane) {
     draw_string(ui, "Name", &pane.pane_name);
     draw_prop_debug(ui, "Origin X", pane.origin.origin_x);
     draw_prop_debug(ui, "Origin Y", pane.origin.origin_y);
@@ -1023,7 +1124,7 @@ fn draw_pane_section(ui: &mut Ui, pane: &BflytPane) {
     );
 }
 
-fn draw_material_list(ui: &mut Ui, list: &BflytMaterialList) {
+fn draw_material_list(ui: &mut Ui, list: &MaterialList) {
     ui.label(format!("Total Materials: {}", list.materials.len()));
     ui.add_space(4.0);
 

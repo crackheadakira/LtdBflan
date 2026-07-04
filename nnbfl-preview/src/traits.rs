@@ -1,10 +1,10 @@
-use nnbfl::bflyt::{file::BflytSection, pane::BflytPane};
+use nnbfl::bflyt::{file::BflytSection, pane::Pane};
 
 pub trait Displaying {
     fn section_color(&self) -> [f32; 4];
     fn kind_name(&self) -> &'static str;
-    fn get_base_pane(&self) -> Option<&BflytPane>;
-    fn get_base_pane_mut(&mut self) -> Option<&mut BflytPane>;
+    fn get_base_pane(&self) -> Option<&Pane>;
+    fn get_base_pane_mut(&mut self) -> Option<&mut Pane>;
     fn pane_name(&self) -> String;
 }
 
@@ -52,7 +52,7 @@ impl Displaying for BflytSection {
         }
     }
 
-    fn get_base_pane(&self) -> Option<&BflytPane> {
+    fn get_base_pane(&self) -> Option<&Pane> {
         match self {
             BflytSection::Pane(p)
             | BflytSection::BoundingPane(p)
@@ -67,7 +67,7 @@ impl Displaying for BflytSection {
         }
     }
 
-    fn get_base_pane_mut(&mut self) -> Option<&mut BflytPane> {
+    fn get_base_pane_mut(&mut self) -> Option<&mut Pane> {
         match self {
             BflytSection::Pane(p)
             | BflytSection::BoundingPane(p)

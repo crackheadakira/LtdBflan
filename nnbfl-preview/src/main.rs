@@ -15,7 +15,7 @@ use chinese_font::{FontError, setup_chinese_fonts};
 use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use nnbfl::{
     bflan::file::Bflan,
-    bflyt::{file::Bflyt, list::BflytLayout},
+    bflyt::{file::Bflyt, list::Layout},
     core::ReadWriteable,
     sarc::file::{MagicFiles, Sarc, SarcFile},
 };
@@ -37,7 +37,10 @@ use ui::{UiState, draw_ui};
 use crate::{
     anim_state::AnimPlayer,
     archive_browser::ArchiveScan,
-    renderer::selection::{Handle, SelectionRenderer, point_in_quad},
+    renderer::{
+        selection::{Handle, SelectionRenderer, point_in_quad},
+        timeline::TimelineRenderer,
+    },
     traits::Displaying,
     ui::{SUPPORTED_SARC_EXTENSIONS, UiAction},
 };
@@ -47,12 +50,14 @@ struct GpuState {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+
     grid_renderer: GridRenderer,
     pane_renderer: PaneRenderer,
     selection_renderer: SelectionRenderer,
+    egui_renderer: egui_wgpu::Renderer,
+    timeline_renderer: TimelineRenderer,
 
     texture_cache: TextureCache,
-    egui_renderer: egui_wgpu::Renderer,
 }
 
 impl GpuState {
@@ -115,10 +120,11 @@ impl GpuState {
         let selection_renderer = SelectionRenderer::new(&device, surface_format);
 
         let texture_cache = TextureCache::new();
+        let pane_renderer = PaneRenderer::new(&device, &queue, surface_format);
+        let timeline_renderer = TimelineRenderer::new(&device, surface_format);
 
         let egui_renderer =
             egui_wgpu::Renderer::new(&device, surface_format, RendererOptions::default());
-        let pane_renderer = PaneRenderer::new(&device, &queue, surface_format);
 
         Self {
             surface,
@@ -130,6 +136,7 @@ impl GpuState {
             texture_cache,
             egui_renderer,
             selection_renderer,
+            timeline_renderer,
         }
     }
 
@@ -162,6 +169,11 @@ impl GpuState {
         self.pane_renderer.update_projection(&self.queue, matrix);
         self.selection_renderer
             .update_projection(&self.queue, matrix);
+        self.timeline_renderer.update_projection(
+            &self.queue,
+            self.config.width as f32,
+            self.config.height as f32,
+        );
 
         let mut scissor_rect = None;
         if let Some(view) = bflyt_view
@@ -340,6 +352,11 @@ impl GpuState {
             let mut rpass = rpass.forget_lifetime();
             self.egui_renderer
                 .render(&mut rpass, &paint_jobs, &screen_descriptor);
+
+            if let Some(geometry) = ui_state.timeline_geometry.take() {
+                self.timeline_renderer.upload(&self.device, &geometry);
+                self.timeline_renderer.render(&mut rpass);
+            }
         }
 
         self.queue.submit(std::iter::once(render_encoder.finish()));
@@ -405,7 +422,7 @@ impl App {
             nodes.push(group_node.clone());
         }
 
-        let layout_header = BflytLayout {
+        let layout_header = Layout {
             is_centered: view.is_centered,
             width: view.tree.layout_size.x,
             height: view.tree.layout_size.y,
