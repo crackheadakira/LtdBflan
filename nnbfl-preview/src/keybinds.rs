@@ -23,6 +23,8 @@ pub enum Action {
     DuplicateSelected,
     Undo,
     Redo,
+    Open,
+    SetLayoutDirectory,
 }
 
 pub const BINDINGS: &[KeyBind] = &[
@@ -84,6 +86,22 @@ pub const BINDINGS: &[KeyBind] = &[
         action: Action::Redo,
         description: "Redo",
     },
+    KeyBind {
+        key: Key::O,
+        modifiers: Modifiers::COMMAND,
+        action: Action::Open,
+        description: "Open File",
+    },
+    KeyBind {
+        key: Key::O,
+        modifiers: Modifiers {
+            command: true,
+            shift: true,
+            ..Modifiers::NONE
+        },
+        action: Action::SetLayoutDirectory,
+        description: "Set Layout Directory",
+    },
 ];
 
 pub fn handle(ctx: &Context, state: &mut UiState, anim_player: &mut AnimPlayer) {
@@ -113,10 +131,6 @@ pub fn handle(ctx: &Context, state: &mut UiState, anim_player: &mut AnimPlayer) 
 
 fn apply(action: Action, state: &mut UiState, anim_player: &mut AnimPlayer) {
     match action {
-        Action::SaveAs => {
-            state.pending_action = Some(UiAction::SaveFile);
-        }
-
         Action::TogglePlayback => {
             if let Some(idx) = anim_player.active
                 && let Some(anim) = anim_player.anims.get_mut(idx)
@@ -147,12 +161,10 @@ fn apply(action: Action, state: &mut UiState, anim_player: &mut AnimPlayer) {
             }
         }
 
-        Action::Undo => {
-            state.pending_action = Some(UiAction::Undo);
-        }
-
-        Action::Redo => {
-            state.pending_action = Some(UiAction::Redo);
-        }
+        Action::Undo => state.pending_action = Some(UiAction::Undo),
+        Action::Redo => state.pending_action = Some(UiAction::Redo),
+        Action::Open => state.pending_action = Some(UiAction::LoadFile),
+        Action::SaveAs => state.pending_action = Some(UiAction::SaveFile),
+        Action::SetLayoutDirectory => state.pending_action = Some(UiAction::SetBlarcDir),
     }
 }

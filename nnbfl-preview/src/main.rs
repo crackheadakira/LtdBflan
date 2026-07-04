@@ -986,7 +986,11 @@ impl ApplicationHandler for App {
 
         if let Some(action) = self.ui_state.pending_action.take() {
             match action {
-                UiAction::SetBlarcDir(dir) => {
+                UiAction::SetBlarcDir => {
+                    let Some(dir) = rfd::FileDialog::new().pick_folder() else {
+                        return;
+                    };
+
                     self.blarc_dir = Some(dir);
                     self.blarc_textures_loaded = false;
                     if let Some(path) = self.bflyt_path.clone() {
@@ -1001,7 +1005,17 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                UiAction::LoadFile(path) => {
+                UiAction::LoadFile => {
+                    let Some(path) = rfd::FileDialog::new()
+                        .add_filter(
+                            "Supported files",
+                            &[SUPPORTED_SARC_EXTENSIONS, &["bflyt"]].concat(),
+                        )
+                        .pick_file()
+                    else {
+                        return;
+                    };
+
                     let path_str = path.to_string_lossy().to_lowercase();
 
                     let is_sarc = SUPPORTED_SARC_EXTENSIONS
@@ -1091,7 +1105,7 @@ impl ApplicationHandler for App {
                                 self.load_file_from_buffer(all_files);
                             } else {
                                 self.ui_state.error_message = Some(format!(
-                                    "Couldn't find a layout in '{}' anymore - the archive may have changed since it was scanned.",
+                                    "Couldn't find layout '{}' inside the archive payload.",
                                     entry.display_name
                                 ));
                             }

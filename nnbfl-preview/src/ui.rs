@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::collections::HashSet;
 
 use egui::Ui;
 use nnbfl::{
@@ -136,8 +136,8 @@ pub enum SidebarRightTab {
 }
 
 pub enum UiAction {
-    LoadFile(PathBuf),
-    SetBlarcDir(PathBuf),
+    LoadFile,
+    SetBlarcDir,
     StartArchiveScan,
     CancelArchiveScan,
     LoadArchiveEntry(crate::archive_browser::ArchiveEntry),
@@ -214,24 +214,15 @@ pub fn draw_ui(
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Load File...").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter(
-                            "Supported files",
-                            &[SUPPORTED_SARC_EXTENSIONS, &["bflyt"]].concat(),
-                        )
-                        .pick_file()
-                    {
-                        state.pending_action = Some(UiAction::LoadFile(path));
-                        state.hidden_panes.clear();
-                        state.selected_pane = None;
-                    }
+                    state.pending_action = Some(UiAction::LoadFile);
+                    state.hidden_panes.clear();
+                    state.selected_pane = None;
+
                     ui.close();
                 }
 
                 if ui.button("Set Layout Folder...").clicked() {
-                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                        state.pending_action = Some(UiAction::SetBlarcDir(dir));
-                    }
+                    state.pending_action = Some(UiAction::SetBlarcDir);
                     ui.close();
                 }
 
