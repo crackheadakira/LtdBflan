@@ -295,14 +295,14 @@ impl GpuState {
             pixels_per_point: full_output.pixels_per_point,
         };
 
-        if let Some(geometry) = ui_state.timeline_geometry.take() {
+        if let Some(geometry) = ui_state.timeline.geometry.take() {
             self.timeline_renderer.upload(&self.device, &geometry);
         } else {
             self.timeline_renderer
                 .upload(&self.device, &Default::default());
         }
 
-        if let Some(pending_key_edit) = ui_state.pending_key_edit.take() {
+        if let Some(pending_key_edit) = ui_state.timeline.pending_key_edit.take() {
             anim_player.apply_key_edit(&pending_key_edit);
         }
 
