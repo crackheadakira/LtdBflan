@@ -1175,7 +1175,9 @@ impl ApplicationHandler for App {
                         let dt = self.last_tick.elapsed().as_secs_f32();
                         self.last_tick = Instant::now();
 
-                        if let Some(next) = self.anim_player.tick(dt, 30.0) {
+                        if let Some(next) =
+                            self.anim_player.tick(dt, self.ui_state.timeline.frame_rate)
+                        {
                             self.anim_player.play(&next.clone());
                         }
 

@@ -50,7 +50,6 @@ pub struct UiState {
     pub timeline: TimelineState,
 }
 
-#[derive(Default)]
 pub struct TimelineState {
     pub geometry: Option<TimelineGeometry>,
     pub drag: Option<TimelineDrag>,
@@ -61,6 +60,22 @@ pub struct TimelineState {
     /// First visible frame from the left edge of the graph.
     pub pan_frame: f32,
     pub panning: bool,
+    pub frame_rate: f32,
+}
+
+impl Default for TimelineState {
+    fn default() -> Self {
+        Self {
+            geometry: None,
+            drag: None,
+            pending_key_edit: None,
+            expanded_anim_panes: HashSet::new(),
+            zoom: 0.0,
+            pan_frame: 0.0,
+            panning: false,
+            frame_rate: 30.0,
+        }
+    }
 }
 
 pub struct ContextMenuState {
@@ -768,13 +783,20 @@ fn draw_timeline_panel(ui: &mut Ui, state: &mut UiState, anim_player: &AnimPlaye
                     "{} - frame {:.1} / {frame_count:.0}",
                     anim.name, anim.frame
                 ));
-                ui.separator();
 
-                ui.label(format!("Zoom {zoom:.1}x"));
-                if ui.small_button("Fit").clicked() {
-                    state.timeline.zoom = 1.0;
-                    state.timeline.pan_frame = 0.0;
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add(egui::DragValue::new(&mut state.timeline.frame_rate).speed(1));
+                    ui.label("FPS:");
+
+                    ui.separator();
+
+                    if ui.small_button("Fit").clicked() {
+                        state.timeline.zoom = 1.0;
+                        state.timeline.pan_frame = 0.0;
+                    }
+
+                    ui.label(format!("Zoom {zoom:.1}x"));
+                });
             });
 
             ui.separator();
