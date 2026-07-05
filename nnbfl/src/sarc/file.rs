@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::core::{Cursor, FormatError, ReadWriteable, Writer, tchar_code32};
+use crate::core::{Cursor, FileReadWriteable, FormatError, ReadWriteable, Writer, tchar_code32};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Sarc {
@@ -12,16 +12,12 @@ pub struct Sarc {
     pub files: Vec<SarcFile>,
 }
 
-impl ReadWriteable for Sarc {
+impl FileReadWriteable for Sarc {
     const EXTENSION: &'static str = "blarc";
+}
 
-    fn parse(file: &[u8]) -> Result<Self, FormatError> {
-        let mut cursor = Cursor {
-            data: file,
-            pos: 0,
-            ..Default::default()
-        };
-
+impl ReadWriteable for Sarc {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let magic = cursor.read_u32()?;
         if magic != tchar_code32(b"SARC") {
             return Err(FormatError::InvalidMagic {
@@ -98,15 +94,15 @@ impl ReadWriteable for Sarc {
         for entry in fat_entries {
             let data_offset = (data_start_offset + entry.data_start) as usize;
             let data_length = (entry.data_end - entry.data_start) as usize;
-            let file_bytes = file[data_offset..(data_offset + data_length)].to_vec();
+            let file_bytes = cursor.data[data_offset..(data_offset + data_length)].to_vec();
 
-            let name = if entry.name_table_offset > 0 || file[sfnt_pool_start] != 0 {
+            let name = if entry.name_table_offset > 0 || cursor.data[sfnt_pool_start] != 0 {
                 let str_start = sfnt_pool_start + entry.name_table_offset as usize;
                 let mut str_bytes = Vec::new();
                 let mut current_pos = str_start;
 
-                while current_pos < file.len() && file[current_pos] != 0 {
-                    str_bytes.push(file[current_pos]);
+                while current_pos < cursor.data.len() && cursor.data[current_pos] != 0 {
+                    str_bytes.push(cursor.data[current_pos]);
                     current_pos += 1;
                 }
 
@@ -132,9 +128,7 @@ impl ReadWriteable for Sarc {
         })
     }
 
-    fn write(&self) -> Writer {
-        let mut writer = Writer::new();
-
+    fn write(&self, writer: &mut Writer) {
         let mut sorted_files = self.files.clone();
         sorted_files.sort_by_key(|file| file.hash);
 
@@ -242,8 +236,6 @@ impl ReadWriteable for Sarc {
 
         let actual_total_size = writer.pos() as u32;
         writer.patch_u32(total_size_patch, actual_total_size);
-
-        writer
     }
 }
 

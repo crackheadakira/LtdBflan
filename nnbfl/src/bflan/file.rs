@@ -2,7 +2,8 @@ use crate::{
     bflan::{anim_info::PaneAnimInfo, anim_tag::PaneAnimTag, constants::*},
     bflyt::constants::*,
     core::{
-        Cursor, FormatError, ReadWriteable, SectionHeader, VersionFormat, Writer, tchar_code32,
+        Cursor, FileReadWriteable, FormatError, ReadWriteable, SectionHeader, VersionFormat,
+        Writer, tchar_code32,
     },
     ui2d::userdata::UserDataArray,
 };
@@ -16,16 +17,12 @@ pub struct Bflan {
     pub user_data: Option<UserDataArray>,
 }
 
-impl ReadWriteable for Bflan {
+impl FileReadWriteable for Bflan {
     const EXTENSION: &'static str = "bflan";
+}
 
-    fn parse(file: &[u8]) -> Result<Self, FormatError> {
-        let mut cursor = Cursor {
-            data: file,
-            pos: 0,
-            ..Default::default()
-        };
-
+impl ReadWriteable for Bflan {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let magic = cursor.read_u32()?;
         if magic != tchar_code32(b"FLAN") {
             return Err(FormatError::InvalidMagic {
@@ -37,15 +34,15 @@ impl ReadWriteable for Bflan {
 
         let endianness = cursor.read_u16()?;
         let header_size = cursor.read_u16()?;
-        let version = VersionFormat::parse(&mut cursor)?;
+        let version = VersionFormat::parse(cursor)?;
         cursor.version = version;
         let _file_size = cursor.read_u32()?;
         let section_count = cursor.read_u32()?;
 
-        if (header_size as usize) > file.len() {
+        if (header_size as usize) > cursor.data.len() {
             return Err(FormatError::InvalidHeaderSize {
                 specified_size: header_size as usize,
-                actual_size: file.len(),
+                actual_size: cursor.data.len(),
             });
         }
 
@@ -54,7 +51,7 @@ impl ReadWriteable for Bflan {
         let mut user_data = None;
 
         for _ in 0..section_count {
-            let section = BflanSections::parse(&mut cursor)?;
+            let section = BflanSections::parse(cursor)?;
 
             match section {
                 BflanSections::PaneAnimTag(t) => anim_tag = Some(t),
@@ -81,15 +78,14 @@ impl ReadWriteable for Bflan {
         })
     }
 
-    fn write(&self) -> Writer {
-        let mut writer = Writer::new();
+    fn write(&self, writer: &mut Writer) {
         writer.version = self.version;
 
         writer.mark("File header");
         writer.write_bytes(b"FLAN");
         writer.write_u16(self.endianness);
         let header_size = writer.write_placeholder_u16();
-        self.version.serialize(&mut writer);
+        self.version.serialize(writer);
 
         let file_size_pos = writer.write_placeholder_u32();
         let mut section_count = 2;
@@ -98,18 +94,16 @@ impl ReadWriteable for Bflan {
 
         writer.patch_u16(header_size, writer.pos() as u16);
 
-        BflanSectionsRef::PaneAnimTag(&self.anim_tag).serialize(&mut writer);
-        BflanSectionsRef::PaneAnimInfo(&self.anim_info).serialize(&mut writer);
+        BflanSectionsRef::PaneAnimTag(&self.anim_tag).serialize(writer);
+        BflanSectionsRef::PaneAnimInfo(&self.anim_info).serialize(writer);
 
         // TODO: is user data here, or earlier?
         if let Some(user_data) = &self.user_data {
-            BflanSectionsRef::UserData(user_data).serialize(&mut writer);
+            BflanSectionsRef::UserData(user_data).serialize(writer);
         }
 
         let total_size = writer.pos() as u32;
         writer.patch_u32(file_size_pos, total_size);
-
-        writer
     }
 }
 

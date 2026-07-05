@@ -8,7 +8,7 @@ use nnbfl::{
         list::{CaptureTextureList, FontList, Material, MaterialList, TextureList},
         pane::{Pane, PartsPane, PicturePane},
     },
-    core::ReadWriteable,
+    core::FileReadWriteable,
     sarc::file::MagicFiles,
     ui2d::{types::Vector2f, userdata::UserDataArray},
 };
@@ -983,7 +983,7 @@ impl<'a> Builder<'a> {
             if let Some(assets) = assets {
                 let bflyt_res = assets.iter().find_map(|f| {
                     if let MagicFiles::Bflyt(bytes) = f {
-                        Bflyt::parse(bytes).ok()
+                        Bflyt::parse_file(bytes).ok()
                     } else {
                         None
                     }

@@ -14,10 +14,29 @@ pub const fn tchar_code32(b: &[u8; 4]) -> u32 {
 }
 
 pub trait ReadWriteable: Sized + serde::Serialize + serde::de::DeserializeOwned {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError>;
+    fn write(&self, writer: &mut Writer);
+}
+
+pub trait FileReadWriteable: ReadWriteable {
     const EXTENSION: &'static str;
 
-    fn parse(file: &[u8]) -> Result<Self, FormatError>;
-    fn write(&self) -> writer::Writer;
+    fn parse_file(file: &[u8]) -> Result<Self, FormatError> {
+        let mut cursor = Cursor {
+            data: file,
+            pos: 0,
+            ..Default::default()
+        };
+
+        Self::parse(&mut cursor)
+    }
+
+    fn write_file(&self) -> Writer {
+        let mut writer = Writer::new();
+        self.write(&mut writer);
+
+        writer
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone, Copy)]

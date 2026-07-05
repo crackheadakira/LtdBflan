@@ -830,7 +830,7 @@ fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: &Option<BflytView>)
         .as_ref()
         .and_then(|v| v.tree.iter().find(|n| n.pane_idx == pane_idx))
         .map(|n| n.label.trim_end_matches('\0').to_string())
-        .unwrap_or_else(|| "Pane".to_string());
+        .unwrap_or_else(|| "NullPane".to_string());
 
     let mut close = false;
 

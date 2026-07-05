@@ -20,7 +20,7 @@ use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use nnbfl::{
     bflan::file::Bflan,
     bflyt::{file::Bflyt, list::Layout},
-    core::ReadWriteable,
+    core::FileReadWriteable,
     sarc::file::{MagicFiles, Sarc, SarcFile},
 };
 use pollster::FutureExt;
@@ -689,7 +689,7 @@ impl App {
     fn load_file_from_buffer(&mut self, all_files: Vec<MagicFiles>) {
         let bflyt_result = all_files.iter().find_map(|file| {
             if let MagicFiles::Bflyt(bytes) = file {
-                Some(Bflyt::parse(bytes))
+                Some(Bflyt::parse_file(bytes))
             } else {
                 None
             }
@@ -732,7 +732,7 @@ impl App {
                     view.tree.discovered_bntx_buffers.push(bytes);
                 }
                 MagicFiles::Bflan(bytes) => {
-                    if let Ok(bflan) = Bflan::parse(&bytes) {
+                    if let Ok(bflan) = Bflan::parse_file(&bytes) {
                         self.anim_player.load(bflan);
                     }
                 }
@@ -874,7 +874,7 @@ pub fn extract_all_files_recursive(data: Vec<u8>, out_files: &mut Vec<MagicFiles
         },
 
         MagicFiles::Sarc(sarc_bytes) => {
-            if let Ok(sarc) = Sarc::parse(&sarc_bytes) {
+            if let Ok(sarc) = Sarc::parse_file(&sarc_bytes) {
                 for file in sarc.files {
                     extract_all_files_recursive(file.data, out_files);
                 }
@@ -1071,7 +1071,7 @@ impl ApplicationHandler for App {
 
                         if let Some(target_path) = dialog.save_file() {
                             if let Some(baked_bflyt) = self.bake_bflyt() {
-                                let writer = baked_bflyt.write();
+                                let writer = baked_bflyt.write_file();
 
                                 match std::fs::write(&target_path, &writer.buffer) {
                                     Ok(_) => {

@@ -6,7 +6,7 @@ use std::process::exit;
 
 use crate::bflan::file::Bflan;
 use crate::bflyt::file::Bflyt;
-use crate::core::{NnbflError, ReadWriteable, Writer};
+use crate::core::{FileReadWriteable, NnbflError, Writer};
 
 mod bflan;
 mod bflyt;
@@ -92,7 +92,7 @@ impl Format {
 }
 
 impl Action {
-    fn handle<T: ReadWriteable>(&self) -> Result<(), NnbflError> {
+    fn handle<T: FileReadWriteable>(&self) -> Result<(), NnbflError> {
         match self {
             Self::Extract { input, output } | Self::Pack { input, output } => {
                 validate_input(input)?;
@@ -146,8 +146,8 @@ impl Action {
                     source: e,
                 })?;
 
-                let parsed_a = T::parse(&bytes_a).map_err(NnbflError::Format)?;
-                let writer_a = parsed_a.write();
+                let parsed_a = T::parse_file(&bytes_a).map_err(NnbflError::Format)?;
+                let writer_a = parsed_a.write_file();
 
                 let file_name_a = input_a
                     .file_name()
@@ -168,7 +168,11 @@ impl Action {
 }
 
 impl Command {
-    pub fn route<T: ReadWriteable>(&self, input: &Path, output: &Path) -> Result<(), NnbflError> {
+    pub fn route<T: FileReadWriteable>(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> Result<(), NnbflError> {
         match self {
             Self::Extract => extract_file::<T>(input, output),
             Self::Pack => pack_file::<T>(input, output),
@@ -191,7 +195,7 @@ fn validate_input(input: &Path) -> Result<(), NnbflError> {
     Ok(())
 }
 
-fn process_command<T: ReadWriteable>(
+fn process_command<T: FileReadWriteable>(
     command: Command,
     input_path: &Path,
     output_path: &Path,
@@ -210,7 +214,7 @@ fn process_command<T: ReadWriteable>(
     }
 }
 
-fn test_roundtrip<T: ReadWriteable>(
+fn test_roundtrip<T: FileReadWriteable>(
     input_dir: &Path,
     files: Vec<PathBuf>,
     verbose: bool,
@@ -252,7 +256,7 @@ fn test_roundtrip<T: ReadWriteable>(
             }
         };
 
-        let writer_result = T::parse(&file_in).map(|f| f.write());
+        let writer_result = T::parse_file(&file_in).map(|f| f.write_file());
 
         let writer = match writer_result {
             Ok(w) => w,
@@ -365,13 +369,16 @@ fn find_files(dir: &Path, target_ext: &str, files: &mut Vec<PathBuf>) -> Result<
     Ok(())
 }
 
-fn extract_file<T: ReadWriteable>(input_path: &Path, output_path: &Path) -> Result<(), NnbflError> {
+fn extract_file<T: FileReadWriteable>(
+    input_path: &Path,
+    output_path: &Path,
+) -> Result<(), NnbflError> {
     let file_in = fs::read(input_path).map_err(|e| NnbflError::Io {
         path: input_path.to_path_buf(),
         source: e,
     })?;
 
-    let parsed = T::parse(&file_in).map_err(NnbflError::Format)?;
+    let parsed = T::parse_file(&file_in).map_err(NnbflError::Format)?;
     let json =
         serde_json::to_string_pretty(&parsed).map_err(|e| NnbflError::Serialization(e.into()))?;
 
@@ -384,14 +391,17 @@ fn extract_file<T: ReadWriteable>(input_path: &Path, output_path: &Path) -> Resu
     Ok(())
 }
 
-fn pack_file<T: ReadWriteable>(input_path: &Path, output_path: &Path) -> Result<(), NnbflError> {
+fn pack_file<T: FileReadWriteable>(
+    input_path: &Path,
+    output_path: &Path,
+) -> Result<(), NnbflError> {
     let json = fs::read_to_string(input_path).map_err(|e| NnbflError::Io {
         path: input_path.to_path_buf(),
         source: e,
     })?;
 
     let parsed: T = serde_json::from_str(&json).map_err(|e| NnbflError::Serialization(e.into()))?;
-    let out = parsed.write().buffer;
+    let out = parsed.write_file().buffer;
 
     fs::write(output_path, out).map_err(|e| NnbflError::Io {
         path: output_path.to_path_buf(),
@@ -402,7 +412,7 @@ fn pack_file<T: ReadWriteable>(input_path: &Path, output_path: &Path) -> Result<
     Ok(())
 }
 
-fn process_batch<T: ReadWriteable>(
+fn process_batch<T: FileReadWriteable>(
     command: Command,
     in_dir: &Path,
     out_dir: &Path,

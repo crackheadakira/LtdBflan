@@ -10,7 +10,8 @@ use crate::{
         pane::{AlignmentPane, Pane, PartsPane, PicturePane, TextBoxPane, WindowPane},
     },
     core::{
-        Cursor, FormatError, ReadWriteable, SectionHeader, VersionFormat, Writer, tchar_code32,
+        Cursor, FileReadWriteable, FormatError, ReadWriteable, SectionHeader, VersionFormat,
+        Writer, tchar_code32,
     },
     ui2d::userdata::UserDataArray,
 };
@@ -218,16 +219,12 @@ pub struct Bflyt {
     pub nodes: Vec<BflytNode>,
 }
 
-impl ReadWriteable for Bflyt {
+impl FileReadWriteable for Bflyt {
     const EXTENSION: &'static str = "bflyt";
+}
 
-    fn parse(file: &[u8]) -> Result<Self, FormatError> {
-        let mut cursor = Cursor {
-            data: file,
-            pos: 0,
-            ..Default::default()
-        };
-
+impl ReadWriteable for Bflyt {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let magic = cursor.read_u32()?;
         if magic != tchar_code32(b"FLYT") {
             return Err(FormatError::InvalidMagic {
@@ -239,16 +236,16 @@ impl ReadWriteable for Bflyt {
 
         let endianness = cursor.read_u16()?;
         let header_size = cursor.read_u16()?;
-        let version = VersionFormat::parse(&mut cursor)?;
+        let version = VersionFormat::parse(cursor)?;
         cursor.version = version;
 
         let _file_size = cursor.read_u32()?;
         let section_count = cursor.read_u32()?;
 
-        if (header_size as usize) > file.len() {
+        if (header_size as usize) > cursor.data.len() {
             return Err(FormatError::InvalidHeaderSize {
                 specified_size: header_size as usize,
-                actual_size: file.len(),
+                actual_size: cursor.data.len(),
             });
         }
 
@@ -266,14 +263,13 @@ impl ReadWriteable for Bflyt {
         let mut has_entered_hierarchy = false;
         let mut last_was_pane = false;
         for i in 0..section_count {
-            let section =
-                BflytSection::parse(&mut cursor, &mut last_was_pane, false).map_err(|e| {
-                    FormatError::SectionCountMismatch {
-                        expected: section_count,
-                        actual: i,
-                        source: Box::new(e),
-                    }
-                })?;
+            let section = BflytSection::parse(cursor, &mut last_was_pane, false).map_err(|e| {
+                FormatError::SectionCountMismatch {
+                    expected: section_count,
+                    actual: i,
+                    source: Box::new(e),
+                }
+            })?;
 
             match section {
                 BflytSection::Layout(l) => {
@@ -396,18 +392,17 @@ impl ReadWriteable for Bflyt {
         Ok(bflyt)
     }
 
-    fn write(&self) -> Writer {
+    fn write(&self, writer: &mut Writer) {
         let mut this = self.clone();
         this.rebuild_indices();
 
-        let mut writer = Writer::new();
         writer.version = this.version;
 
         writer.mark("File header");
         writer.write_bytes(b"FLYT");
         writer.write_u16(this.endianness);
         let header_size = writer.write_placeholder_u16();
-        this.version.serialize(&mut writer);
+        this.version.serialize(writer);
 
         let file_size_pos = writer.write_placeholder_u32();
         let mut total_sections = this.nodes.iter().map(|n| n.section_count()).sum();
@@ -421,36 +416,34 @@ impl ReadWriteable for Bflyt {
         writer.write_u32(total_sections);
         writer.patch_u16(header_size, writer.pos() as u16);
 
-        BflytSection::Layout(this.layout.clone()).serialize(&mut writer);
+        BflytSection::Layout(this.layout.clone()).serialize(writer);
 
         if let Some(usd) = &this.user_data {
-            BflytSection::UserData(usd.clone()).serialize(&mut writer);
+            BflytSection::UserData(usd.clone()).serialize(writer);
         }
 
         if let Some(t) = &this.texture_list {
-            BflytSection::TextureList(t.clone()).serialize(&mut writer);
+            BflytSection::TextureList(t.clone()).serialize(writer);
         }
 
         if let Some(f) = &this.font_list {
-            BflytSection::FontList(f.clone()).serialize(&mut writer);
+            BflytSection::FontList(f.clone()).serialize(writer);
         }
 
         if let Some(m) = &this.material_list {
-            BflytSection::MaterialList(m.clone()).serialize(&mut writer);
+            BflytSection::MaterialList(m.clone()).serialize(writer);
         }
 
         if let Some(ctl) = &this.capture_texture_list {
-            BflytSection::CaptureTextureList(ctl.clone()).serialize(&mut writer);
+            BflytSection::CaptureTextureList(ctl.clone()).serialize(writer);
         }
 
         for node in &this.nodes {
-            node.serialize(&mut writer);
+            node.serialize(writer);
         }
 
         let total = writer.pos() as u32;
         writer.patch_u32(file_size_pos, total);
-
-        writer
     }
 }
 

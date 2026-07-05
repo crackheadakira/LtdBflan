@@ -33,7 +33,7 @@ impl Displaying for BflytSection {
             BflytSection::MaterialList(_) => "MaterialList",
             BflytSection::CaptureTextureList(_) => "CaptureTextureList",
             BflytSection::VectorGraphicsList(_) => "VectorGraphicsList",
-            BflytSection::Pane(_) => "Pane",
+            BflytSection::Pane(_) => "NullPane",
             BflytSection::PicturePane(_) => "PicturePane",
             BflytSection::TextBoxPane(_) => "TextBoxPane",
             BflytSection::WindowPane(_) => "WindowPane",

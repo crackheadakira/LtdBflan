@@ -559,12 +559,12 @@ mod bflyt_roundtrip_tests {
 mod bflyt_file_tests {
     use crate::{
         bflyt::file::Bflyt,
-        core::{FormatError, ReadWriteable},
+        core::{FileReadWriteable, FormatError},
     };
 
     #[test]
     fn parse_empty_bytes_errors() {
-        let result = Bflyt::parse(&[]);
+        let result = Bflyt::parse_file(&[]);
         assert!(result.is_err());
     }
 
@@ -572,7 +572,7 @@ mod bflyt_file_tests {
     fn parse_wrong_magic_errors() {
         let mut data = vec![0u8; 32];
         data[0..4].copy_from_slice(b"XXXX");
-        let result = Bflyt::parse(&data);
+        let result = Bflyt::parse_file(&data);
         match result.unwrap_err() {
             FormatError::InvalidMagic { expected, .. } => assert_eq!(expected, "FLYT"),
             other => panic!("unexpected error: {other:?}"),
@@ -586,7 +586,7 @@ mod bflyt_file_tests {
         data[0..4].copy_from_slice(&tchar_code32(b"FLYT").to_le_bytes());
         data[4..6].copy_from_slice(&0xFFFEu16.to_le_bytes());
         data[6..8].copy_from_slice(&0xFFFFu16.to_le_bytes());
-        let result = Bflyt::parse(&data);
+        let result = Bflyt::parse_file(&data);
         match result.unwrap_err() {
             FormatError::InvalidHeaderSize {
                 specified_size,
@@ -603,19 +603,19 @@ mod bflyt_file_tests {
 mod bflan_file_tests {
     use crate::{
         bflan::file::Bflan,
-        core::{FormatError, ReadWriteable},
+        core::{FileReadWriteable, FormatError},
     };
 
     #[test]
     fn parse_empty_bytes_errors() {
-        assert!(Bflan::parse(&[]).is_err());
+        assert!(Bflan::parse_file(&[]).is_err());
     }
 
     #[test]
     fn parse_wrong_magic_errors() {
         let mut data = vec![0u8; 32];
         data[0..4].copy_from_slice(b"XXXX");
-        match Bflan::parse(&data).unwrap_err() {
+        match Bflan::parse_file(&data).unwrap_err() {
             FormatError::InvalidMagic { expected, .. } => assert_eq!(expected, "FLAN"),
             other => panic!("unexpected error: {other:?}"),
         }
@@ -628,7 +628,7 @@ mod bflan_file_tests {
         data[0..4].copy_from_slice(&tchar_code32(b"FLAN").to_le_bytes());
         data[4..6].copy_from_slice(&0xFFFEu16.to_le_bytes());
         data[6..8].copy_from_slice(&0xFFFFu16.to_le_bytes());
-        match Bflan::parse(&data).unwrap_err() {
+        match Bflan::parse_file(&data).unwrap_err() {
             FormatError::InvalidHeaderSize { .. } => {}
             other => panic!("unexpected error: {other:?}"),
         }

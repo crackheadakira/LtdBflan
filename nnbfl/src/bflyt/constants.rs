@@ -33,7 +33,7 @@ pub fn section_name(section: &BflytSection) -> &'static str {
         BflytSection::MaterialList(_) => "Material List",
         BflytSection::CaptureTextureList(_) => "Capture Texture List",
         BflytSection::VectorGraphicsList(_) => "Vector Graphics List",
-        BflytSection::Pane(_) => "Pane",
+        BflytSection::Pane(_) => "NullPane",
         BflytSection::PicturePane(_) => "Picture Pane",
         BflytSection::TextBoxPane(_) => "Text Box Pane",
         BflytSection::WindowPane(_) => "Window Pane",

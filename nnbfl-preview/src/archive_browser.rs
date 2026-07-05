@@ -9,7 +9,7 @@ use std::{
 };
 
 use nnbfl::{
-    core::ReadWriteable,
+    core::FileReadWriteable,
     sarc::file::{MagicFiles, Sarc, SarcFile},
 };
 
@@ -294,7 +294,7 @@ fn walk_sarc_for_packages(
         return;
     };
 
-    let sarc = match Sarc::parse(&sarc_bytes) {
+    let sarc = match Sarc::parse_file(&sarc_bytes) {
         Ok(sarc) => sarc,
         Err(err) => {
             log::warn!(
@@ -361,7 +361,7 @@ pub fn resolve_nested_package_bytes(
             return None;
         };
 
-        let sarc = Sarc::parse(&sarc_bytes).ok()?;
+        let sarc = Sarc::parse_file(&sarc_bytes).ok()?;
         let child = sarc.files.get(idx)?;
         data = unwrap_compression(child.data.clone(), origin, 0)?;
     }
