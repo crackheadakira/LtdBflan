@@ -6,7 +6,7 @@ use nnbfl::{
         file::{Bflyt, BflytNode, BflytSection, PaneElement},
         flags::{BflytOrigin, BflytParentOrigin},
         list::{CaptureTextureList, FontList, Material, MaterialList, TextureList},
-        pane::{Pane, PartsPane, PicturePane},
+        pane::{BasePaneUsageFlags, Pane, PartsPane, PartsPaneBasicInfo, PicturePane},
     },
     core::FileReadWriteable,
     sarc::file::MagicFiles,
@@ -207,6 +207,20 @@ impl PaneNode {
         for child in &mut self.children {
             child.mark_transform_dirty();
         }
+    }
+
+    pub fn find_descendant_by_label_mut(&mut self, label: &str) -> Option<&mut PaneNode> {
+        for child in &mut self.children {
+            if child.label.trim_end_matches('\0') == label {
+                return Some(child);
+            }
+
+            if let Some(found) = child.find_descendant_by_label_mut(label) {
+                return Some(found);
+            }
+        }
+
+        None
     }
 
     pub fn recompute(
@@ -1016,12 +1030,34 @@ impl<'a> Builder<'a> {
                 continue;
             }
 
+            if let Some(info) = &prop.o_basic_info {
+                fn find_mut<'a>(nodes: &'a mut [PaneNode], name: &str) -> Option<&'a mut PaneNode> {
+                    for node in nodes.iter_mut() {
+                        if node.label.trim_end_matches('\0') == name {
+                            return Some(node);
+                        }
+                        if let Some(found) = find_mut(&mut node.children, name) {
+                            return Some(found);
+                        }
+                    }
+                    None
+                }
+
+                if let Some(target) = find_mut(&mut sub_children, prop_name) {
+                    apply_basic_info_override(target, &prop.basic_usage_flag, info);
+                } else {
+                    log::warn!(
+                        "PartsPane '{layout_name}': override target '{prop_name}' not found"
+                    );
+                }
+            }
+
             let Some(override_section) = &prop.o_section else {
                 continue;
             };
 
             fn apply_override(
-                nodes: &mut [PaneNode],
+                nodes: &mut Vec<PaneNode>,
                 prop_name: &str,
                 override_section: &BflytSection,
                 builder: &Builder,
@@ -1179,4 +1215,48 @@ fn load_bflyt_from_blarc_dir(blarc_dir: &Path, layout_name: &str) -> Option<Vec<
     }
 
     Some(all_files)
+}
+
+pub fn apply_basic_info_override(
+    node: &mut PaneNode,
+    flags: &BasePaneUsageFlags,
+    info: &PartsPaneBasicInfo,
+) {
+    if flags.is_visible_set {
+        node.visible = flags.is_visible_true;
+    }
+
+    if let Some(base) = node.section.get_base_pane_mut() {
+        if flags.is_visible_set {
+            base.pane_flags.is_visible = flags.is_visible_true;
+        }
+
+        if flags.has_translate {
+            base.translation.x = info.translation_x;
+            base.translation.y = info.translation_y;
+            base.translation.z = info.translation_z;
+        }
+
+        if flags.has_size {
+            base.size.x = info.size_x;
+            base.size.y = info.size_y;
+        }
+
+        if flags.has_scale {
+            base.scale.x = info.scale_x;
+            base.scale.y = info.scale_y;
+        }
+
+        if flags.has_rotate {
+            base.rotation.x = info.rotation_x;
+            base.rotation.y = info.rotation_y;
+            base.rotation.z = info.rotation_z;
+        }
+
+        if flags.has_alpha {
+            base.alpha = info.pane_alpha;
+        }
+    }
+
+    node.mark_transform_dirty();
 }

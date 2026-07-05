@@ -487,7 +487,7 @@ impl App {
             return false;
         };
 
-        if node.plain_quad.is_parts_root {
+        if node.plain_quad.is_parts_root || node.parts_source.is_some() {
             return false;
         };
 
@@ -674,6 +674,7 @@ impl App {
             if !node.visible
                 || self.ui_state.hidden_panes.contains(&node.pane_idx)
                     | node.plain_quad.is_parts_root
+                    | node.parts_source.is_some()
             {
                 continue;
             }
@@ -837,6 +838,21 @@ impl App {
         let Some(view) = &mut self.bflyt_view else {
             return;
         };
+
+        let target_idx = match &edit {
+            edit_history::PaneEdit::Delete { target_idx } => Some(*target_idx),
+            edit_history::PaneEdit::Duplicate { source_idx } => Some(*source_idx),
+            edit_history::PaneEdit::Insert { .. } => None,
+        };
+        if let Some(idx) = target_idx
+            && view
+                .tree
+                .iter()
+                .find(|n| n.pane_idx == idx)
+                .is_some_and(|n| n.parts_source.is_some())
+        {
+            return;
+        }
 
         let resulting_idx = view.history.perform(&mut view.tree, edit);
         if resulting_idx.is_some() {

@@ -332,10 +332,18 @@ pub fn draw_ui(
                                         ui.add_space(indent);
 
                                         let selected = state.selected_pane == Some(i);
-                                        let label = egui::RichText::new(format!(
-                                            "[{}] {}",
-                                            node.kind, node.label
-                                        ));
+                                        let is_parts_content = node.parts_source.is_some();
+
+                                        let label_text = if is_parts_content {
+                                            format!("[{}] {} (linked)", node.kind, node.label)
+                                        } else {
+                                            format!("[{}] {}", node.kind, node.label)
+                                        };
+                                        let label = if is_parts_content {
+                                            egui::RichText::new(label_text).weak()
+                                        } else {
+                                            egui::RichText::new(label_text)
+                                        };
 
                                         let is_hidden = state.hidden_panes.contains(&i);
 
@@ -823,15 +831,19 @@ fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: &Option<BflytView>)
     let Some(menu) = &state.context_menu else {
         return;
     };
+
     let pane_idx = menu.pane_idx;
     let pos = menu.pos;
 
-    let label = view
+    let node = view
         .as_ref()
-        .and_then(|v| v.tree.iter().find(|n| n.pane_idx == pane_idx))
-        .map(|n| n.label.trim_end_matches('\0').to_string())
-        .unwrap_or_else(|| "NullPane".to_string());
+        .and_then(|v| v.tree.iter().find(|n| n.pane_idx == pane_idx));
 
+    let label = node
+        .map(|n| n.label.trim_end_matches('\0').to_string())
+        .unwrap_or_else(|| "Pane".to_string());
+
+    let is_parts_content = node.is_some_and(|n| n.parts_source.is_some());
     let mut close = false;
 
     let area_response = egui::Area::new(egui::Id::new("pane_context_menu"))
@@ -850,10 +862,32 @@ fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: &Option<BflytView>)
                     } else {
                         state.hidden_panes.insert(pane_idx);
                     }
+
                     close = true;
                 }
 
                 ui.separator();
+
+                if is_parts_content {
+                    ui.weak("Part of a linked layout - edit it via the");
+                    ui.weak("PartsPane's overrides, not directly.");
+                } else {
+                    if ui.button("Duplicate").clicked() {
+                        state.pending_action = Some(UiAction::DuplicatePane(pane_idx));
+                        close = true;
+                    }
+
+                    if ui
+                        .add(egui::Button::new(
+                            egui::RichText::new("Delete")
+                                .color(egui::Color32::from_rgb(224, 96, 96)),
+                        ))
+                        .clicked()
+                    {
+                        state.pending_action = Some(UiAction::DeletePane(pane_idx));
+                        close = true;
+                    }
+                }
             });
         });
 
