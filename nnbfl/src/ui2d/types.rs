@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::core::{Cursor, FormatError, Writer};
+use crate::core::{Cursor, FormatError, ReadWriteable, Writer};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct Color4f {
@@ -10,8 +10,8 @@ pub struct Color4f {
     pub a: f32,
 }
 
-impl Color4f {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for Color4f {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             r: cursor.read_f32()?,
             g: cursor.read_f32()?,
@@ -20,7 +20,7 @@ impl Color4f {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("Color4f");
 
         writer.write_f32(self.r);
@@ -38,8 +38,8 @@ pub struct Color4u8 {
     pub a: u8,
 }
 
-impl Color4u8 {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for Color4u8 {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             r: cursor.read_u8()?,
             g: cursor.read_u8()?,
@@ -47,7 +47,8 @@ impl Color4u8 {
             a: cursor.read_u8()?,
         })
     }
-    pub fn serialize(&self, writer: &mut Writer) {
+
+    fn write(&self, writer: &mut Writer) {
         writer.write_u8(self.r);
         writer.write_u8(self.g);
         writer.write_u8(self.b);
@@ -147,15 +148,17 @@ impl Vector2f {
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
+}
 
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for Vector2f {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             x: cursor.read_f32()?,
             y: cursor.read_f32()?,
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("Vector2f");
 
         writer.write_f32(self.x);
@@ -170,8 +173,8 @@ pub struct Vector3f {
     pub z: f32,
 }
 
-impl Vector3f {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for Vector3f {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             x: cursor.read_f32()?,
             y: cursor.read_f32()?,
@@ -179,7 +182,7 @@ impl Vector3f {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("Vector3f");
 
         writer.write_f32(self.x);
@@ -196,8 +199,8 @@ pub struct VertexPos {
     pub position_y_scale: f32,
 }
 
-impl VertexPos {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for VertexPos {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             size_scale_width: cursor.read_f32()?,
             size_scale_height: cursor.read_f32()?,
@@ -206,7 +209,7 @@ impl VertexPos {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("VertexPos");
         writer.write_f32(self.size_scale_width);
         writer.write_f32(self.size_scale_height);

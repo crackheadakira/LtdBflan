@@ -4,6 +4,7 @@ pub struct Writer {
     pub buffer: Vec<u8>,
     pub breadcrumbs: Vec<(usize, String)>,
     pub version: VersionFormat,
+    pub section_start: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -18,7 +19,17 @@ impl Writer {
             buffer: Vec::with_capacity(65536),
             breadcrumbs: Vec::new(),
             version: VersionFormat::default(),
+            section_start: None,
         }
+    }
+
+    pub fn ctx_section_start<T>(&self) -> usize {
+        self.section_start.unwrap_or_else(|| {
+            let full_name = std::any::type_name::<T>();
+            let short_name = full_name.split("::").last().unwrap_or(full_name);
+            
+            panic!("CRITICAL: Failed to serialize {short_name} because the parent block did not establish a section_start context.");
+        })
     }
 
     pub fn mark(&mut self, name: &str) {

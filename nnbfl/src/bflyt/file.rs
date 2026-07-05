@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     bflyt::{
-        constants::*,
+        constants::{section_magic, section_name},
         list::{
             CaptureTextureList, ControlSource, FontList, Group, Layout, MaterialList,
             ShapeInfoList, TextureList, VectorGraphicsList,
@@ -10,8 +10,8 @@ use crate::{
         pane::{AlignmentPane, Pane, PartsPane, PicturePane, TextBoxPane, WindowPane},
     },
     core::{
-        Cursor, FileReadWriteable, FormatError, ReadWriteable, SectionHeader, VersionFormat,
-        Writer, tchar_code32,
+        Cursor, FileReadWriteable, FormatError, ReadWriteable, SectionHeader, SectionMagic,
+        VersionFormat, Writer, tchar_code32,
     },
     ui2d::userdata::UserDataArray,
 };
@@ -45,159 +45,178 @@ pub enum BflytSection {
     Unknown(SectionHeader, Vec<u8>),
 }
 
-impl BflytSection {
-    pub fn parse(
-        cursor: &mut Cursor,
-        last_was_pane: &mut bool,
-        is_embed: bool,
-    ) -> Result<Self, FormatError> {
+impl ReadWriteable for BflytSection {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let section_start = cursor.pos;
-        let magic = cursor.read_u32()?;
-        let section_size = cursor.read_u32()?;
-        let end = section_start + section_size as usize;
+        let header = SectionHeader::parse(cursor)?;
+        let end = section_start + header.section_size as usize;
+        cursor.section_start = Some(section_start);
 
-        let section = match magic {
-            MAGIC_USERDATA => {
-                let s = UserDataArray::parse(cursor, *last_was_pane)?;
+        let section = match header.magic {
+            SectionMagic::UserData => {
+                let s = UserDataArray::parse(cursor)?;
                 BflytSection::UserData(s)
             }
-            MAGIC_LAYOUT => {
+            SectionMagic::Layout => {
                 let s = Layout::parse(cursor)?;
-                if !is_embed {
-                    *last_was_pane = false;
+
+                if !cursor.is_embed {
+                    cursor.last_was_pane = false;
                 }
+
                 BflytSection::Layout(s)
             }
-            MAGIC_TEXTURELIST => {
+            SectionMagic::TextureList => {
                 let s = TextureList::parse(cursor)?;
                 BflytSection::TextureList(s)
             }
-            MAGIC_FONTLIST => {
+            SectionMagic::FontList => {
                 let s = FontList::parse(cursor)?;
                 BflytSection::FontList(s)
             }
-            MAGIC_MATERIALLIST => {
-                let s = MaterialList::parse(cursor, section_start)?;
+            SectionMagic::MaterialList => {
+                let s = MaterialList::parse(cursor)?;
                 BflytSection::MaterialList(s)
             }
-            MAGIC_CAPTURETEXTURELIST => {
-                let s = CaptureTextureList::parse(cursor, section_start)?;
+            SectionMagic::CaptureTextureList => {
+                let s = CaptureTextureList::parse(cursor)?;
                 BflytSection::CaptureTextureList(s)
             }
-            MAGIC_VECTORGRAPHICSLIST => {
-                let s = VectorGraphicsList::parse(cursor, section_start)?;
+            SectionMagic::VectorGraphicsList => {
+                let s = VectorGraphicsList::parse(cursor)?;
                 BflytSection::VectorGraphicsList(s)
             }
-            MAGIC_PANESTART => BflytSection::PaneStart,
-            MAGIC_PANEEND => BflytSection::PaneEnd,
-            MAGIC_GROUPSTART => BflytSection::GroupStart,
-            MAGIC_GROUPEND => BflytSection::GroupEnd,
-            MAGIC_PANE => {
+            SectionMagic::PaneStart => BflytSection::PaneStart,
+            SectionMagic::PaneEnd => BflytSection::PaneEnd,
+            SectionMagic::GroupStart => BflytSection::GroupStart,
+            SectionMagic::GroupEnd => BflytSection::GroupEnd,
+            SectionMagic::Pane => {
                 let s = Pane::parse(cursor)?;
-                if !is_embed {
-                    *last_was_pane = true;
+
+                if !cursor.is_embed {
+                    cursor.last_was_pane = true;
                 }
+
                 BflytSection::Pane(s)
             }
-            MAGIC_PICTUREPANE => {
+            SectionMagic::PicturePane => {
                 let s = PicturePane::parse(cursor)?;
                 BflytSection::PicturePane(s)
             }
-            MAGIC_TEXTBOXPANE => {
-                let s = TextBoxPane::parse(cursor, section_start)?;
+            SectionMagic::TextBoxPane => {
+                let s = TextBoxPane::parse(cursor)?;
                 BflytSection::TextBoxPane(s)
             }
-            MAGIC_WINDOWPANE => {
+            SectionMagic::WindowPane => {
                 let s = WindowPane::parse(cursor)?;
                 BflytSection::WindowPane(s)
             }
-            MAGIC_PARTSPANE => {
-                let s = PartsPane::parse(cursor, last_was_pane)?;
+            SectionMagic::PartsPane => {
+                let s = PartsPane::parse(cursor)?;
                 BflytSection::PartsPane(s)
             }
-            MAGIC_ALIGNMENTPANE => {
+            SectionMagic::AlignmentPane => {
                 let s = AlignmentPane::parse(cursor)?;
                 BflytSection::AlignmentPane(s)
             }
-            MAGIC_CAPTUREPANE => {
+            SectionMagic::CapturePane => {
                 let s = Pane::parse(cursor)?;
                 BflytSection::CapturePane(s)
             }
-            MAGIC_BOUNDINGPANE => {
+            SectionMagic::BoundingPane => {
                 let s = Pane::parse(cursor)?;
                 BflytSection::BoundingPane(s)
             }
-            MAGIC_SCISSORPANE => {
+            SectionMagic::ScissorPane => {
                 let s = Pane::parse(cursor)?;
                 BflytSection::ScissorPane(s)
             }
-            MAGIC_GROUP => {
+            SectionMagic::Group => {
                 let s = Group::parse(cursor)?;
                 BflytSection::Group(s)
             }
-            MAGIC_CONTROLSOURCE => {
+            SectionMagic::ControlSource => {
                 let s = ControlSource::parse(cursor)?;
                 BflytSection::ControlSource(s)
             }
-            MAGIC_SHAPEINFO => {
+            SectionMagic::ShapeInfo => {
                 let s = ShapeInfoList::parse(cursor)?;
                 BflytSection::ShapeInfoList(s)
             }
             _ => {
-                println!("Got unknown pane w/ magic: {magic}");
+                println!("Got unknown pane w/ magic: {:?}", header.magic);
 
-                let data_size = (section_size as usize).saturating_sub(8);
+                let data_size = (header.section_size as usize).saturating_sub(8);
                 let data = cursor
                     .read_bytes(data_size.min(end.saturating_sub(cursor.pos)))?
                     .to_vec();
 
-                BflytSection::Unknown(
-                    SectionHeader {
-                        magic,
-                        size: section_size,
-                    },
-                    data,
-                )
+                BflytSection::Unknown(header, data)
             }
         };
 
         cursor.seek(end)?;
+        cursor.is_embed = false;
+        cursor.section_start = None;
 
         Ok(section)
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         let section_start = writer.pos();
         let magic = section_magic(self);
+        writer.section_start = Some(section_start);
 
-        writer.write_u32(magic);
+        writer.write_u32(magic.into());
         let size_pos = writer.write_placeholder_u32();
 
         writer.mark(&format!("BflytSection {}", section_name(self)));
 
         match self {
-            Self::UserData(s) => s.serialize(writer),
-            Self::Layout(s) => s.serialize(writer),
-            Self::TextureList(s) => s.serialize(writer),
-            Self::FontList(s) => s.serialize(writer),
-            Self::MaterialList(s) => s.serialize(writer, section_start),
-            Self::CaptureTextureList(s) => s.serialize(writer, section_start),
-            Self::VectorGraphicsList(s) => s.serialize(writer, section_start),
-            Self::Pane(s) | Self::BoundingPane(s) | Self::ScissorPane(s) => s.serialize(writer),
-            Self::PicturePane(s) => s.serialize(writer),
-            Self::TextBoxPane(s) => s.serialize(writer, section_start),
-            Self::WindowPane(s) => s.serialize(writer),
-            Self::PartsPane(s) => s.serialize(writer, section_start),
-            Self::AlignmentPane(s) => s.serialize(writer),
-            Self::CapturePane(s) => s.serialize(writer),
-            Self::Group(s) => s.serialize(writer),
-            Self::ControlSource(s) => s.serialize(writer, section_start),
+            Self::UserData(s) => s.write(writer),
+            Self::Layout(s) => s.write(writer),
+            Self::TextureList(s) => s.write(writer),
+            Self::FontList(s) => s.write(writer),
+            Self::MaterialList(s) => s.write(writer),
+            Self::CaptureTextureList(s) => s.write(writer),
+            Self::VectorGraphicsList(s) => s.write(writer),
+            Self::Pane(s) | Self::BoundingPane(s) | Self::ScissorPane(s) => s.write(writer),
+            Self::PicturePane(s) => s.write(writer),
+            Self::TextBoxPane(s) => s.write(writer),
+            Self::WindowPane(s) => s.write(writer),
+            Self::PartsPane(s) => s.write(writer),
+            Self::AlignmentPane(s) => s.write(writer),
+            Self::CapturePane(s) => s.write(writer),
+            Self::Group(s) => s.write(writer),
+            Self::ControlSource(s) => s.write(writer),
+            Self::ShapeInfoList(s) => s.write(writer),
             Self::Unknown(_, data) => writer.write_bytes(data),
-            Self::ShapeInfoList(s) => s.serialize(writer, section_start),
             Self::PaneStart | Self::PaneEnd | Self::GroupStart | Self::GroupEnd => {}
         }
 
         writer.align(4);
+        writer.section_start = None;
+
+        let size = (writer.pos() - section_start) as u32;
+        writer.patch_u32(size_pos, size);
+    }
+}
+
+impl BflytSection {
+    pub fn write_raw_block<F>(writer: &mut Writer, magic: SectionMagic, write_body: F)
+    where
+        F: FnOnce(&mut Writer),
+    {
+        let section_start = writer.pos();
+        writer.section_start = Some(section_start);
+
+        writer.write_u32(magic as u32);
+        let size_pos = writer.write_placeholder_u32();
+
+        write_body(writer);
+
+        writer.align(4);
+        writer.section_start = None;
 
         let size = (writer.pos() - section_start) as u32;
         writer.patch_u32(size_pos, size);
@@ -261,15 +280,13 @@ impl ReadWriteable for Bflyt {
         let mut tree_stack = vec![Vec::new()];
 
         let mut has_entered_hierarchy = false;
-        let mut last_was_pane = false;
         for i in 0..section_count {
-            let section = BflytSection::parse(cursor, &mut last_was_pane, false).map_err(|e| {
-                FormatError::SectionCountMismatch {
+            let section =
+                BflytSection::parse(cursor).map_err(|e| FormatError::SectionCountMismatch {
                     expected: section_count,
                     actual: i,
                     source: Box::new(e),
-                }
-            })?;
+                })?;
 
             match section {
                 BflytSection::Layout(l) => {
@@ -393,52 +410,52 @@ impl ReadWriteable for Bflyt {
     }
 
     fn write(&self, writer: &mut Writer) {
-        let mut this = self.clone();
-        this.rebuild_indices();
-
-        writer.version = this.version;
+        self.rebuild_indices();
+        writer.version = self.version;
 
         writer.mark("File header");
         writer.write_bytes(b"FLYT");
-        writer.write_u16(this.endianness);
+        writer.write_u16(self.endianness);
         let header_size = writer.write_placeholder_u16();
-        this.version.serialize(writer);
+        self.version.write(writer);
 
         let file_size_pos = writer.write_placeholder_u32();
-        let mut total_sections = this.nodes.iter().map(|n| n.section_count()).sum();
+        let mut total_sections = self.nodes.iter().map(|n| n.section_count()).sum();
         total_sections += 1;
-        total_sections += this.user_data.is_some() as u32;
-        total_sections += this.texture_list.is_some() as u32;
-        total_sections += this.font_list.is_some() as u32;
-        total_sections += this.material_list.is_some() as u32;
-        total_sections += this.capture_texture_list.is_some() as u32;
+        total_sections += self.user_data.is_some() as u32;
+        total_sections += self.texture_list.is_some() as u32;
+        total_sections += self.font_list.is_some() as u32;
+        total_sections += self.material_list.is_some() as u32;
+        total_sections += self.capture_texture_list.is_some() as u32;
 
         writer.write_u32(total_sections);
         writer.patch_u16(header_size, writer.pos() as u16);
 
-        BflytSection::Layout(this.layout.clone()).serialize(writer);
+        BflytSection::write_raw_block(writer, SectionMagic::Layout, |w| self.layout.write(w));
 
-        if let Some(usd) = &this.user_data {
-            BflytSection::UserData(usd.clone()).serialize(writer);
+        if let Some(usd) = &self.user_data {
+            BflytSection::write_raw_block(writer, SectionMagic::UserData, |w| usd.write(w));
         }
 
-        if let Some(t) = &this.texture_list {
-            BflytSection::TextureList(t.clone()).serialize(writer);
+        if let Some(t) = &self.texture_list {
+            BflytSection::write_raw_block(writer, SectionMagic::TextureList, |w| t.write(w));
         }
 
-        if let Some(f) = &this.font_list {
-            BflytSection::FontList(f.clone()).serialize(writer);
+        if let Some(f) = &self.font_list {
+            BflytSection::write_raw_block(writer, SectionMagic::FontList, |w| f.write(w));
         }
 
-        if let Some(m) = &this.material_list {
-            BflytSection::MaterialList(m.clone()).serialize(writer);
+        if let Some(m) = &self.material_list {
+            BflytSection::write_raw_block(writer, SectionMagic::MaterialList, |w| m.write(w));
         }
 
-        if let Some(ctl) = &this.capture_texture_list {
-            BflytSection::CaptureTextureList(ctl.clone()).serialize(writer);
+        if let Some(ctl) = &self.capture_texture_list {
+            BflytSection::write_raw_block(writer, SectionMagic::CaptureTextureList, |w| {
+                ctl.write(w)
+            });
         }
 
-        for node in &this.nodes {
+        for node in &self.nodes {
             node.serialize(writer);
         }
 
@@ -458,7 +475,7 @@ impl Bflyt {
         if let Some(ml) = &mut self.material_list {
             for mat in &mut ml.materials {
                 for tm in &mut mat.tex_maps {
-                    if let Some(name) = textures.get(tm.texture_index as usize) {
+                    if let Some(name) = textures.get(tm.texture_index.get() as usize) {
                         tm.texture_name = name.to_string();
                     }
                 }
@@ -466,20 +483,21 @@ impl Bflyt {
         }
     }
 
-    fn rebuild_indices(&mut self) {
+    fn rebuild_indices(&self) {
         let Some(t_list) = &self.texture_list else {
             return;
         };
-
         let textures = &t_list.textures;
 
-        if let Some(ml) = &mut self.material_list {
-            for mat in &mut ml.materials {
-                for tm in &mut mat.tex_maps {
-                    tm.texture_index = textures
+        if let Some(ml) = &self.material_list {
+            for mat in &ml.materials {
+                for tm in &mat.tex_maps {
+                    let idx = textures
                         .iter()
                         .position(|t| t == &tm.texture_name)
                         .unwrap_or(0) as u16;
+
+                    tm.texture_index.set(idx);
                 }
             }
         }
@@ -500,31 +518,31 @@ pub enum BflytNode {
 impl BflytNode {
     pub fn serialize(&self, writer: &mut Writer) {
         match self {
-            Self::Section(section) => section.serialize(writer),
+            Self::Section(section) => section.write(writer),
 
             Self::PaneWithUserData { pane, user_data } => {
-                pane.serialize(writer);
-                BflytSection::UserData(user_data.clone()).serialize(writer);
+                pane.write(writer);
+                BflytSection::UserData(user_data.clone()).write(writer);
             }
 
             Self::Panes(children) => {
-                BflytSection::PaneStart.serialize(writer);
+                BflytSection::PaneStart.write(writer);
 
                 for child in children {
                     child.serialize(writer);
                 }
 
-                BflytSection::PaneEnd.serialize(writer);
+                BflytSection::PaneEnd.write(writer);
             }
 
             Self::Groups(children) => {
-                BflytSection::GroupStart.serialize(writer);
+                BflytSection::GroupStart.write(writer);
 
                 for child in children {
                     child.serialize(writer);
                 }
 
-                BflytSection::GroupEnd.serialize(writer);
+                BflytSection::GroupEnd.write(writer);
             }
         }
     }
@@ -537,34 +555,5 @@ impl BflytNode {
                 2 + children.iter().map(|c| c.section_count()).sum::<u32>()
             }
         }
-    }
-}
-
-fn section_magic(section: &BflytSection) -> u32 {
-    match section {
-        BflytSection::UserData(_) => MAGIC_USERDATA,
-        BflytSection::Layout(_) => MAGIC_LAYOUT,
-        BflytSection::TextureList(_) => MAGIC_TEXTURELIST,
-        BflytSection::FontList(_) => MAGIC_FONTLIST,
-        BflytSection::MaterialList(_) => MAGIC_MATERIALLIST,
-        BflytSection::CaptureTextureList(_) => MAGIC_CAPTURETEXTURELIST,
-        BflytSection::VectorGraphicsList(_) => MAGIC_VECTORGRAPHICSLIST,
-        BflytSection::Pane(_) => MAGIC_PANE,
-        BflytSection::PicturePane(_) => MAGIC_PICTUREPANE,
-        BflytSection::TextBoxPane(_) => MAGIC_TEXTBOXPANE,
-        BflytSection::WindowPane(_) => MAGIC_WINDOWPANE,
-        BflytSection::PartsPane(_) => MAGIC_PARTSPANE,
-        BflytSection::AlignmentPane(_) => MAGIC_ALIGNMENTPANE,
-        BflytSection::CapturePane(_) => MAGIC_CAPTUREPANE,
-        BflytSection::BoundingPane(_) => MAGIC_BOUNDINGPANE,
-        BflytSection::ScissorPane(_) => MAGIC_SCISSORPANE,
-        BflytSection::Group(_) => MAGIC_GROUP,
-        BflytSection::ControlSource(_) => MAGIC_CONTROLSOURCE,
-        BflytSection::PaneStart => MAGIC_PANESTART,
-        BflytSection::PaneEnd => MAGIC_PANEEND,
-        BflytSection::GroupStart => MAGIC_GROUPSTART,
-        BflytSection::GroupEnd => MAGIC_GROUPEND,
-        BflytSection::ShapeInfoList(_) => MAGIC_SHAPEINFO,
-        BflytSection::Unknown(h, _) => h.magic,
     }
 }

@@ -297,7 +297,10 @@ mod tchar_tests {
 
 #[cfg(test)]
 mod flag_tests {
-    use crate::bflyt::flags::{BflytOrigins, PaneFlagsEx};
+    use crate::{
+        bflyt::flags::{BflytOrigins, PaneFlagsEx},
+        core::BitPackable,
+    };
 
     #[test]
     fn bflyt_origins_roundtrip_all_zeros() {
@@ -337,13 +340,13 @@ mod bflyt_roundtrip_tests {
             list::{FontList, Layout, TextureList},
             pane::Pane,
         },
-        core::{Cursor, Writer},
+        core::{BitPackable, Cursor, ReadWriteable, Writer},
         ui2d::types::{Vector2f, Vector3f},
     };
 
     fn roundtrip_layout(layout: &Layout) -> Layout {
         let mut w = Writer::new();
-        layout.serialize(&mut w);
+        layout.write(&mut w);
         let mut c = Cursor {
             data: &w.buffer,
             pos: 0,
@@ -401,7 +404,7 @@ mod bflyt_roundtrip_tests {
 
     fn roundtrip_texlist(t: &TextureList) -> TextureList {
         let mut w = Writer::new();
-        t.serialize(&mut w);
+        t.write(&mut w);
         let mut c = Cursor {
             data: &w.buffer,
             pos: 0,
@@ -446,7 +449,7 @@ mod bflyt_roundtrip_tests {
 
     fn roundtrip_fontlist(f: &FontList) -> FontList {
         let mut w = Writer::new();
-        f.serialize(&mut w);
+        f.write(&mut w);
         let mut c = Cursor {
             data: &w.buffer,
             pos: 0,
@@ -507,7 +510,7 @@ mod bflyt_roundtrip_tests {
 
     fn roundtrip_pane(p: &Pane) -> Pane {
         let mut w = Writer::new();
-        p.serialize(&mut w);
+        p.write(&mut w);
         let mut c = Cursor {
             data: &w.buffer,
             pos: 0,

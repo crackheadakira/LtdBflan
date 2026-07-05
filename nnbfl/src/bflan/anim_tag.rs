@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    bflyt::constants::MAGIC_USERDATA,
-    core::{Cursor, FormatError, Writer},
+    core::{Cursor, FormatError, ReadWriteable, SectionMagic, Writer},
     ui2d::userdata::UserDataArray,
 };
 
@@ -20,8 +19,10 @@ pub struct PaneAnimTag {
     pub user_data: Option<UserDataArray>,
 }
 
-impl PaneAnimTag {
-    pub fn parse(cursor: &mut Cursor, section_start: usize) -> Result<Self, FormatError> {
+impl ReadWriteable for PaneAnimTag {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        let section_start = cursor.ctx_section_start::<Self>()?;
+
         let tag_order = cursor.read_u16()?;
         let group_count = cursor.read_u16()?;
         let name_offset = cursor.read_u32()?;
@@ -55,11 +56,12 @@ impl PaneAnimTag {
         if user_data_section_offset > 0 {
             cursor.seek(section_start + user_data_section_offset as usize)?;
 
-            let embed_magic = cursor.read_u32()?;
+            let embed_magic: SectionMagic = cursor.read_u32()?.into();
             let _embed_size = cursor.read_u32()?;
 
-            if embed_magic == MAGIC_USERDATA {
-                user_data = Some(UserDataArray::parse(cursor, false)?);
+            if embed_magic == SectionMagic::UserData {
+                cursor.last_was_pane = false;
+                user_data = Some(UserDataArray::parse(cursor)?);
             }
         }
 
@@ -74,7 +76,9 @@ impl PaneAnimTag {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer, section_start: usize) {
+    fn write(&self, writer: &mut Writer) {
+        let section_start = writer.ctx_section_start::<Self>();
+
         writer.mark("PaneAnimTag");
         writer.write_u16(self.tag_order);
         writer.write_u16(self.groups.len() as u16);
@@ -105,10 +109,10 @@ impl PaneAnimTag {
             writer.patch_u32(user_data_offset_pos, (writer.pos() - section_start) as u32);
 
             let embed_start = writer.pos();
-            writer.write_u32(MAGIC_USERDATA);
+            writer.write_u32(SectionMagic::UserData.into());
             let embed_size_pos = writer.write_placeholder_u32();
 
-            user_data.serialize(writer);
+            user_data.write(writer);
 
             let embed_size = (writer.pos() - embed_start) as u32;
             writer.patch_u32(embed_size_pos, embed_size);

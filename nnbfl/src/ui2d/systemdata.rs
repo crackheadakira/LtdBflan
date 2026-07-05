@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     bflyt::flags::{DropShadowFlags, TexOptions},
-    core::{Cursor, FormatError, Writer},
+    core::{BitPackable, Cursor, FormatError, ReadWriteable, Writer},
     ui2d::types::{Color4f, VertexPos},
 };
 
@@ -44,8 +44,8 @@ pub enum PaneData {
     MaskTexture(MaskTexture),
 }
 
-impl PaneData {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for PaneData {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let offset = cursor.pos;
         let data_type: PaneDataType = cursor.read_u32()?.into();
 
@@ -68,7 +68,7 @@ impl PaneData {
         Ok(res)
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("PaneDataType");
 
         let type_id: u32 = match self {
@@ -83,11 +83,11 @@ impl PaneData {
         writer.write_u32(type_id);
 
         match self {
-            PaneData::VertexPos0(v) | PaneData::VertexPos1(v) => v.serialize(writer),
-            PaneData::Alignment(a) => a.serialize(writer),
-            PaneData::MaskTexture(m) => m.serialize(writer),
-            PaneData::DropShadow(d) => d.serialize(writer),
-            PaneData::ProceduralShape(p) => p.serialize(writer),
+            PaneData::VertexPos0(v) | PaneData::VertexPos1(v) => v.write(writer),
+            PaneData::Alignment(a) => a.write(writer),
+            PaneData::MaskTexture(m) => m.write(writer),
+            PaneData::DropShadow(d) => d.write(writer),
+            PaneData::ProceduralShape(p) => p.write(writer),
         }
     }
 }
@@ -98,8 +98,10 @@ pub enum LayoutData {
     Unknown,
 }
 
-impl LayoutData {
-    pub fn parse(cursor: &mut Cursor, base_offset: usize) -> Result<Self, FormatError> {
+impl ReadWriteable for LayoutData {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        let section_start = cursor.ctx_section_start::<Self>()?;
+
         let data_type: LayoutDataType = cursor.read_u32()?.into();
 
         let res = match data_type {
@@ -111,7 +113,7 @@ impl LayoutData {
                     let string_offset = cursor.read_u32()?;
                     let restore_point = cursor.pos;
 
-                    cursor.seek(base_offset + string_offset as usize)?;
+                    cursor.seek(section_start + string_offset as usize)?;
                     let string = cursor.read_null_terminated_string()?;
 
                     cursor.seek(restore_point)?;
@@ -127,7 +129,7 @@ impl LayoutData {
         Ok(res)
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         match self {
             LayoutData::AnimTagName(strings) => {
                 let base_offset = writer.pos();
@@ -172,15 +174,15 @@ pub struct Alignment {
     pub margin: f32,
 }
 
-impl Alignment {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for Alignment {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             options: cursor.read_u32()?,
             margin: cursor.read_f32()?,
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("System Data Alignment");
         writer.write_u32(self.options);
         writer.write_f32(self.margin);
@@ -226,8 +228,8 @@ pub struct DropShadow {
     pub drop_shadow_size: f32,
 }
 
-impl DropShadow {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for DropShadow {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let texture_id = cursor.read_u16()?;
         let u_options = TexOptions::decode(cursor.read_u8()?);
         let v_options = TexOptions::decode(cursor.read_u8()?);
@@ -287,7 +289,7 @@ impl DropShadow {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("Drop Shadow");
         writer.write_u16(self.texture_id);
         writer.write_u8(self.u_options.encode());
@@ -307,13 +309,13 @@ impl DropShadow {
         writer.write_u64(0);
 
         writer.write_f32(self.stroke_size);
-        self.stroke_color.serialize(writer);
+        self.stroke_color.write(writer);
 
-        self.outer_glow_color.serialize(writer);
+        self.outer_glow_color.write(writer);
         writer.write_f32(self.outer_glow_spread);
         writer.write_f32(self.outer_glow_size);
 
-        self.drop_shadow_color.serialize(writer);
+        self.drop_shadow_color.write(writer);
         writer.write_f32(self.drop_shadow_angle);
         writer.write_f32(self.drop_shadow_distance);
         writer.write_f32(self.drop_shadow_spread);
@@ -340,8 +342,8 @@ pub struct MaskTexture {
     pub scale: [f32; 2],
 }
 
-impl MaskTexture {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for MaskTexture {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let flags = cursor.read_u8()?;
         let _reserve0 = [cursor.read_u8()?, cursor.read_u8()?, cursor.read_u8()?];
         let texture_id = cursor.read_u16()?;
@@ -373,7 +375,7 @@ impl MaskTexture {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("Mask Texture");
 
         writer.write_u8(self.flags);
@@ -433,8 +435,8 @@ pub struct ProceduralShape {
     pub drop_shadow_transform: [f32; 3],
 }
 
-impl ProceduralShape {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for ProceduralShape {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let options = cursor.read_u8()?;
         let color0_options = cursor.read_u8()?;
         let inner_shadow_options = cursor.read_u8()?;
@@ -518,7 +520,7 @@ impl ProceduralShape {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("Procedural Shape");
         writer.write_u8(self.options);
         writer.write_u8(self.color0_options);
@@ -542,25 +544,25 @@ impl ProceduralShape {
 
         writer.write_f32(self.inner_stroke_size);
 
-        self.color0.serialize(writer);
-        self.inner_shadow_color.serialize(writer);
+        self.color0.write(writer);
+        self.inner_shadow_color.write(writer);
 
         for &f in &self.inner_shadow_transform {
             writer.write_f32(f);
         }
 
-        self.color_overlay.serialize(writer);
+        self.color_overlay.write(writer);
 
         for &f in &self.gradation_weights {
             writer.write_f32(f);
         }
 
         for c in &self.gradation_color_array {
-            c.serialize(writer);
+            c.write(writer);
         }
 
         writer.write_f32(self.gradation_rotation);
-        self.drop_shadow_color.serialize(writer);
+        self.drop_shadow_color.write(writer);
 
         for &f in &self.drop_shadow_transform {
             writer.write_f32(f);

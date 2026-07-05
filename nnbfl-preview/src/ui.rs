@@ -1500,7 +1500,7 @@ fn draw_material_list(ui: &mut Ui, list: &MaterialList) {
                                         draw_prop(
                                             ui,
                                             &format!("[{i}] Vector Tex"),
-                                            ext.is_vecture_texture,
+                                            ext.is_vector_texture,
                                         );
                                     },
                                 );

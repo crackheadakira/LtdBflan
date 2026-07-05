@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{Cursor, FormatError, Writer},
+    core::{Cursor, FormatError, ReadWriteable, Writer},
     ui2d::systemdata::{LayoutData, PaneData, SystemData},
 };
 
@@ -35,20 +35,20 @@ impl UserDataContent {
     }
 }
 
-impl UserDataArray {
-    pub fn parse(cursor: &mut Cursor, is_pane: bool) -> Result<Self, FormatError> {
+impl ReadWriteable for UserDataArray {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let user_data_count = cursor.read_u16()?;
         let _reserve0 = cursor.read_u16()?;
         let mut user_data = Vec::with_capacity(user_data_count as usize);
 
         for _ in 0..user_data_count {
-            user_data.push(UserData::parse(cursor, is_pane)?)
+            user_data.push(UserData::parse(cursor)?)
         }
 
         Ok(Self { user_data })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("UserData (section)");
         writer.write_u16(self.user_data.len() as u16);
         writer.write_u16(0);
@@ -119,8 +119,8 @@ impl UserDataArray {
                             let items_start = writer.pos();
                             for item in block {
                                 match item {
-                                    SystemData::Pane(pane) => pane.serialize(writer),
-                                    SystemData::Layout(layout) => layout.serialize(writer),
+                                    SystemData::Pane(pane) => pane.write(writer),
+                                    SystemData::Layout(layout) => layout.write(writer),
                                 }
                             }
 
@@ -169,7 +169,7 @@ impl UserDataArray {
 }
 
 impl UserData {
-    pub fn parse(cursor: &mut Cursor, is_pane: bool) -> Result<Self, FormatError> {
+    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let base_offset = cursor.pos;
 
         let name_offset = cursor.read_u32()?;
@@ -215,23 +215,23 @@ impl UserData {
                         let count = cursor.read_u16()?;
                         let offset = cursor.read_u32()?;
 
-                        let post_header_point = cursor.pos;
-
+                        cursor.section_start = Some(cursor.pos);
                         cursor.seek(base_offset + offset as usize)?;
 
                         let mut data_array = Vec::with_capacity(count as usize);
 
                         for _ in 0..count {
-                            let data = if is_pane {
+                            let data = if cursor.last_was_pane {
                                 SystemData::Pane(PaneData::parse(cursor)?)
                             } else {
-                                SystemData::Layout(LayoutData::parse(cursor, post_header_point)?)
+                                SystemData::Layout(LayoutData::parse(cursor)?)
                             };
 
                             data_array.push(data);
                         }
 
-                        blocks.push(data_array)
+                        blocks.push(data_array);
+                        cursor.section_start = None;
                     }
 
                     UserDataContent::SystemData(blocks)

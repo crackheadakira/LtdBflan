@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     bflan::targets::AnimTarget,
-    core::{Cursor, FormatError, Placeholder32, Writer, tchar_code32},
+    core::{Cursor, FormatError, Placeholder32, ReadWriteable, Writer, tchar_code32},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -83,8 +83,10 @@ pub enum AnimInfo {
     },
 }
 
-impl AnimInfo {
-    pub fn parse(cursor: &mut Cursor, base_offset: usize) -> Result<Self, FormatError> {
+impl ReadWriteable for AnimInfo {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        let base_offset = cursor.ctx_section_start::<Self>()?;
+
         cursor.seek(base_offset)?;
 
         let magic_val = cursor.read_u32()?;
@@ -115,11 +117,9 @@ impl AnimInfo {
 
                 let mut targets = Vec::with_capacity(anim_target_count as usize);
                 for offset in target_offsets {
-                    targets.push(AnimTarget::parse(
-                        cursor,
-                        base_offset + offset as usize,
-                        &magic,
-                    )?);
+                    cursor.section_start = Some(base_offset + offset as usize);
+                    targets.push(AnimTarget::parse(cursor, &magic)?);
+                    cursor.section_start = None;
                 }
 
                 Self::Standard {
@@ -132,7 +132,9 @@ impl AnimInfo {
         Ok(out)
     }
 
-    pub fn serialize(&self, writer: &mut Writer, base_offset: usize) {
+    fn write(&self, writer: &mut Writer) {
+        let base_offset = writer.ctx_section_start::<Self>();
+
         writer.mark("AnimInfo");
 
         match self {
@@ -155,7 +157,9 @@ impl AnimInfo {
                     let relative_offset = target_base - base_offset;
                     writer.patch_u32(target_offset_placeholders[i], relative_offset as u32);
 
-                    target.serialize(writer, target_base);
+                    writer.section_start = Some(target_base);
+                    target.write(writer);
+                    writer.section_start = None;
                 }
             }
             AnimInfo::ExtendedUserData { anim_type, data } => {
@@ -167,7 +171,7 @@ impl AnimInfo {
                 writer.write_u16(0);
 
                 for data in data.iter() {
-                    data.serialize(writer);
+                    data.write(writer);
                 }
             }
         }
@@ -187,8 +191,8 @@ pub struct ExtendedUserDataAnim {
     pub key: String,
 }
 
-impl ExtendedUserDataAnim {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for ExtendedUserDataAnim {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let header_size = cursor.read_u32()?;
         let unk_1 = cursor.read_u16()?;
         let unk_2 = cursor.read_u16()?;
@@ -225,7 +229,7 @@ impl ExtendedUserDataAnim {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("ExtendedUserDataAnim");
 
         writer.write_u32(self.header_size);
@@ -257,8 +261,10 @@ pub struct PaneAnimInfo {
     pub contents: Vec<AnimContent>,
 }
 
-impl PaneAnimInfo {
-    pub fn parse(cursor: &mut Cursor, section_start: usize) -> Result<Self, FormatError> {
+impl ReadWriteable for PaneAnimInfo {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        let section_start = cursor.ctx_section_start::<Self>()?;
+
         let frame_count = cursor.read_u16()?;
         let is_looping = cursor.read_u8()? != 0;
         let _reserve0 = cursor.read_u8()?;
@@ -286,7 +292,9 @@ impl PaneAnimInfo {
 
         let mut contents = Vec::with_capacity(anim_content_count as usize);
         for offset in content_offsets {
-            contents.push(AnimContent::parse(cursor, section_start + offset as usize)?);
+            cursor.section_start = Some(section_start + offset as usize);
+            contents.push(AnimContent::parse(cursor)?);
+            cursor.section_start = None
         }
 
         Ok(Self {
@@ -297,7 +305,9 @@ impl PaneAnimInfo {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer, section_start: usize) {
+    fn write(&self, writer: &mut Writer) {
+        let section_start = writer.ctx_section_start::<Self>();
+
         writer.mark("PaneAnimInfo");
         writer.write_u16(self.frame_count);
         writer.write_u8(if self.is_looping { 1 } else { 0 });
@@ -340,7 +350,9 @@ impl PaneAnimInfo {
             let relative_offset = content_base - section_start;
             writer.patch_u32(content_offset_placeholders[i], relative_offset as u32);
 
-            content.serialize(writer, content_base);
+            writer.section_start = Some(content_base);
+            content.write(writer);
+            writer.section_start = None;
         }
     }
 }
@@ -351,8 +363,10 @@ pub struct AnimContent {
     pub anim_type: AnimType,
     pub infos: Vec<AnimInfo>,
 }
-impl AnimContent {
-    pub fn parse(cursor: &mut Cursor, base_offset: usize) -> Result<Self, FormatError> {
+
+impl ReadWriteable for AnimContent {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        let base_offset = cursor.ctx_section_start::<Self>()?;
         cursor.seek(base_offset)?;
 
         let name = cursor.read_fixed_string(0x1C)?;
@@ -374,7 +388,9 @@ impl AnimContent {
 
         let mut infos = Vec::with_capacity(anim_info_count as usize);
         for offset in info_offsets {
-            infos.push(AnimInfo::parse(cursor, base_offset + offset as usize)?);
+            cursor.section_start = Some(base_offset + offset as usize);
+            infos.push(AnimInfo::parse(cursor)?);
+            cursor.section_start = None;
         }
 
         Ok(Self {
@@ -384,7 +400,8 @@ impl AnimContent {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer, base_offset: usize) {
+    fn write(&self, writer: &mut Writer) {
+        let base_offset = writer.ctx_section_start::<Self>();
         writer.mark("AnimContent");
 
         writer.write_fixed_string(&self.name, 0x1C);
@@ -424,7 +441,9 @@ impl AnimContent {
                 (info_base - base_offset) as u32,
             );
 
-            info.serialize(writer, info_base);
+            writer.section_start = Some(info_base);
+            info.write(writer);
+            writer.section_start = None;
         }
 
         if matches!(self.anim_type, AnimType::User) {

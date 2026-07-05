@@ -7,7 +7,7 @@ use crate::{
         file::BflytSection,
         flags::{BflytOrigins, PaneFlags, PaneFlagsEx, TextPaneFlags, WindowFlags},
     },
-    core::{Cursor, FormatError, Placeholder32, Writer},
+    core::{BitPackable, Cursor, FormatError, Placeholder32, ReadWriteable, Writer},
     ui2d::types::{Color4u8, Vector2f, Vector3f},
 };
 
@@ -28,8 +28,8 @@ pub struct Pane {
     pub size: Vector2f,
 }
 
-impl Pane {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for Pane {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             pane_flags: PaneFlags::decode(cursor.read_u8()?),
             origin: BflytOrigins::decode(cursor.read_u8()?),
@@ -44,7 +44,7 @@ impl Pane {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("Pane (generic)");
 
         writer.write_u8(self.pane_flags.encode());
@@ -53,10 +53,10 @@ impl Pane {
         writer.write_u8(self.flag_ex.encode());
         writer.write_fixed_string(&self.pane_name, PANE_NAME_LEN);
         writer.write_fixed_string(&self.user_name, USER_NAME_LEN);
-        self.translation.serialize(writer);
-        self.rotation.serialize(writer);
-        self.scale.serialize(writer);
-        self.size.serialize(writer);
+        self.translation.write(writer);
+        self.rotation.write(writer);
+        self.scale.write(writer);
+        self.size.write(writer);
     }
 }
 
@@ -68,8 +68,8 @@ pub struct TextureUv {
     pub bottom_right: Vector2f,
 }
 
-impl TextureUv {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for TextureUv {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             top_left: Vector2f::parse(cursor)?,
             top_right: Vector2f::parse(cursor)?,
@@ -78,13 +78,13 @@ impl TextureUv {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("TextureUv");
 
-        self.top_left.serialize(writer);
-        self.top_right.serialize(writer);
-        self.bottom_left.serialize(writer);
-        self.bottom_right.serialize(writer);
+        self.top_left.write(writer);
+        self.top_right.write(writer);
+        self.bottom_left.write(writer);
+        self.bottom_right.write(writer);
     }
 }
 
@@ -101,8 +101,8 @@ pub struct PicturePane {
     pub shape_info_array_index: Option<u32>,
 }
 
-impl PicturePane {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for PicturePane {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let base = Pane::parse(cursor)?;
         let top_left_vertex_color = Color4u8::parse(cursor)?;
         let top_right_vertex_color = Color4u8::parse(cursor)?;
@@ -136,19 +136,20 @@ impl PicturePane {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
-        self.base.serialize(writer);
+    fn write(&self, writer: &mut Writer) {
+        self.base.write(writer);
         writer.mark("PicturePane");
 
-        self.top_left_vertex_color.serialize(writer);
-        self.top_right_vertex_color.serialize(writer);
-        self.bottom_left_vertex_color.serialize(writer);
-        self.bottom_right_vertex_color.serialize(writer);
+        self.top_left_vertex_color.write(writer);
+        self.top_right_vertex_color.write(writer);
+        self.bottom_left_vertex_color.write(writer);
+        self.bottom_right_vertex_color.write(writer);
         writer.write_u16(self.material_index);
         writer.write_u8(self.texture_uvs.len() as u8);
         writer.write_u8(self.is_shape.into());
+
         for uv in &self.texture_uvs {
-            uv.serialize(writer);
+            uv.write(writer);
         }
 
         if let Some(sa) = self.shape_info_array_index {
@@ -204,8 +205,8 @@ pub struct PerCharacterTransform {
     pub anim_info: Option<AnimInfo>,
 }
 
-impl PerCharacterTransform {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for PerCharacterTransform {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let eval_time_offset = cursor.read_f32()?;
         let eval_time_width = cursor.read_f32()?;
         let loop_type = cursor.read_u8()?.into();
@@ -238,12 +239,15 @@ impl PerCharacterTransform {
         };
 
         if transform.has_anim_info != 0 {
-            transform.anim_info = Some(AnimInfo::parse(cursor, cursor.pos)?);
+            cursor.section_start = Some(cursor.pos);
+            transform.anim_info = Some(AnimInfo::parse(cursor)?);
+            cursor.section_start = None;
         }
 
         Ok(transform)
     }
-    pub fn serialize(&self, writer: &mut Writer) {
+
+    fn write(&self, writer: &mut Writer) {
         writer.mark("PerCharacterTransform");
 
         writer.write_f32(self.eval_time_offset);
@@ -264,7 +268,9 @@ impl PerCharacterTransform {
         }
 
         if let Some(anim_info) = &self.anim_info {
-            anim_info.serialize(writer, writer.pos());
+            writer.section_start = Some(writer.pos());
+            anim_info.write(writer);
+            writer.section_start = None;
         }
     }
 }
@@ -310,8 +316,9 @@ pub struct TextBoxPane {
     pub per_character_transform: Option<PerCharacterTransform>,
 }
 
-impl TextBoxPane {
-    pub fn parse(cursor: &mut Cursor, section_start: usize) -> Result<Self, FormatError> {
+impl ReadWriteable for TextBoxPane {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        let section_start = cursor.ctx_section_start::<Self>()?;
         let base = Pane::parse(cursor)?;
         let txt1_base = section_start + 8;
 
@@ -413,9 +420,10 @@ impl TextBoxPane {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer, section_start: usize) {
+    fn write(&self, writer: &mut Writer) {
+        let section_start = writer.ctx_section_start::<Self>();
         let txt1_base = section_start + 8;
-        self.base.serialize(writer);
+        self.base.write(writer);
         writer.mark("TextBoxPane");
 
         writer.write_u16(self.text_buffer_size);
@@ -428,8 +436,8 @@ impl TextBoxPane {
         writer.write_f32(self.italic_tilt);
 
         let text_offset_pos = writer.write_placeholder_u32();
-        self.font_top_color.serialize(writer);
-        self.font_bottom_color.serialize(writer);
+        self.font_top_color.write(writer);
+        self.font_bottom_color.write(writer);
         writer.write_f32(self.font_size_x);
         writer.write_f32(self.font_size_y);
         writer.write_f32(self.character_space);
@@ -439,8 +447,8 @@ impl TextBoxPane {
         writer.write_f32(self.shadow_translation_y);
         writer.write_f32(self.shadow_size_x);
         writer.write_f32(self.shadow_size_y);
-        self.shadow_top_color.serialize(writer);
-        self.shadow_bottom_color.serialize(writer);
+        self.shadow_top_color.write(writer);
+        self.shadow_bottom_color.write(writer);
         writer.write_f32(self.shadow_italic_tilt);
         writer.write_u32(self.line_transform_offset);
         let per_char_offset_pos = writer.write_placeholder_u32();
@@ -470,7 +478,7 @@ impl TextBoxPane {
             let offset = writer.pos() - txt1_base + 8;
 
             writer.patch_u32(per_char_offset_pos, offset as u32);
-            transform.serialize(writer);
+            transform.write(writer);
         } else {
             writer.patch_u32(per_char_offset_pos, 0);
         }
@@ -488,8 +496,8 @@ pub struct WindowContent {
     pub picture_uvs: Vec<TextureUv>,
 }
 
-impl WindowContent {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for WindowContent {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let top_left_vertex_color = Color4u8::parse(cursor)?;
         let top_right_vertex_color = Color4u8::parse(cursor)?;
         let bottom_left_vertex_color = Color4u8::parse(cursor)?;
@@ -514,19 +522,19 @@ impl WindowContent {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("WindowContent");
 
-        self.top_left_vertex_color.serialize(writer);
-        self.top_right_vertex_color.serialize(writer);
-        self.bottom_left_vertex_color.serialize(writer);
-        self.bottom_right_vertex_color.serialize(writer);
+        self.top_left_vertex_color.write(writer);
+        self.top_right_vertex_color.write(writer);
+        self.bottom_left_vertex_color.write(writer);
+        self.bottom_right_vertex_color.write(writer);
         writer.write_u16(self.material_index);
         writer.write_u8(self.picture_uvs.len() as u8);
         writer.write_u8(0);
 
         for uv in &self.picture_uvs {
-            uv.serialize(writer);
+            uv.write(writer);
         }
     }
 }
@@ -537,8 +545,8 @@ pub struct WindowFrame {
     pub texture_flip_mode: u8,
 }
 
-impl WindowFrame {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for WindowFrame {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let out = Self {
             material_index: cursor.read_u16()?,
             texture_flip_mode: cursor.read_u8()?,
@@ -549,7 +557,7 @@ impl WindowFrame {
         Ok(out)
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("WindowFrame");
         writer.write_u16(self.material_index);
         writer.write_u8(self.texture_flip_mode);
@@ -574,8 +582,8 @@ pub struct WindowPane {
     pub frames: Vec<WindowFrame>,
 }
 
-impl WindowPane {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for WindowPane {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let wnd_base = cursor.pos - 8;
         let base = Pane::parse(cursor)?;
 
@@ -629,9 +637,9 @@ impl WindowPane {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         let wnd_base = writer.pos() - 8;
-        self.base.serialize(writer);
+        self.base.write(writer);
         writer.mark("WindowPane");
 
         writer.write_u16(self.inflation_left as u16);
@@ -651,7 +659,7 @@ impl WindowPane {
 
         let content_off = writer.pos() - wnd_base;
         writer.patch_u32(content_offset_pos, content_off as u32);
-        self.content.serialize(writer);
+        self.content.write(writer);
         writer.align(4);
 
         let frame_table_off = writer.pos() - wnd_base;
@@ -665,7 +673,7 @@ impl WindowPane {
         for (i, frame) in self.frames.iter().enumerate() {
             let frame_off = writer.pos() - wnd_base;
             writer.patch_u32(frame_off_placeholders[i], frame_off as u32);
-            frame.serialize(writer);
+            frame.write(writer);
         }
     }
 }
@@ -686,8 +694,8 @@ pub struct PartsPaneBasicInfo {
     pub pane_alpha: u8,
 }
 
-impl PartsPaneBasicInfo {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for PartsPaneBasicInfo {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let out = Self {
             user_name: cursor.read_fixed_string(USER_NAME_LEN)?,
             translation_x: cursor.read_f32()?,
@@ -707,7 +715,7 @@ impl PartsPaneBasicInfo {
         Ok(out)
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.mark("PaneBasicInfo");
         writer.write_fixed_string(&self.user_name, USER_NAME_LEN);
         writer.write_f32(self.translation_x);
@@ -734,8 +742,8 @@ pub struct TextBoxUsageFlags {
     pub use_shadow: bool,
 }
 
-impl TextBoxUsageFlags {
-    pub fn parse(flags: u8) -> Self {
+impl BitPackable<u8> for TextBoxUsageFlags {
+    fn decode(flags: u8) -> Self {
         Self {
             use_text: (flags & 0x01) != 0,
             use_position: (flags & 0x02) != 0,
@@ -743,17 +751,20 @@ impl TextBoxUsageFlags {
         }
     }
 
-    pub fn pack_flags(&self) -> u8 {
+    fn encode(&self) -> u8 {
         let mut flags = 0u8;
         if self.use_text {
             flags |= 0x01;
         }
+
         if self.use_position {
             flags |= 0x02;
         }
+
         if self.use_shadow {
             flags |= 0x04;
         }
+
         flags
     }
 }
@@ -770,8 +781,8 @@ pub struct BasePaneUsageFlags {
     pub has_alpha: bool,
 }
 
-impl BasePaneUsageFlags {
-    pub fn parse(flags: u8) -> Self {
+impl BitPackable<u8> for BasePaneUsageFlags {
+    fn decode(flags: u8) -> Self {
         Self {
             is_visible_set: (flags & 0x01) != 0,
             is_visible_true: (flags & 0x02) != 0,
@@ -784,7 +795,7 @@ impl BasePaneUsageFlags {
         }
     }
 
-    pub fn pack_flags(&self) -> u8 {
+    fn encode(&self) -> u8 {
         let mut flags = 0u8;
         if self.is_visible_set {
             flags |= 0x01;
@@ -829,8 +840,8 @@ pub struct MaterialUsageFlags {
     pub use_picture_procedural_shape: bool,
 }
 
-impl MaterialUsageFlags {
-    pub fn parse(flags: u8) -> Self {
+impl BitPackable<u8> for MaterialUsageFlags {
+    fn decode(flags: u8) -> Self {
         Self {
             use_color_blend: (flags & 0x01) != 0,
             use_texture: (flags & 0x02) != 0,
@@ -838,7 +849,7 @@ impl MaterialUsageFlags {
         }
     }
 
-    pub fn pack_flags(&self) -> u8 {
+    fn encode(&self) -> u8 {
         let mut flags = 0u8;
         if self.use_color_blend {
             flags |= 0x01;
@@ -876,16 +887,14 @@ pub struct PartsProperty {
 }
 
 impl PartsProperty {
-    pub fn parse(
-        cursor: &mut Cursor,
-        last_parts_pane: usize,
-        is_pane: &mut bool,
-    ) -> Result<Self, FormatError> {
+    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        let last_parts_pane = cursor.ctx_section_start::<Self>()?;
+
         let mut property = Self {
             property_name: cursor.read_fixed_string(PANE_NAME_LEN)?,
-            usage_flag: TextBoxUsageFlags::parse(cursor.read_u8()?),
-            basic_usage_flag: BasePaneUsageFlags::parse(cursor.read_u8()?),
-            material_usage_flag: MaterialUsageFlags::parse(cursor.read_u8()?),
+            usage_flag: TextBoxUsageFlags::decode(cursor.read_u8()?),
+            basic_usage_flag: BasePaneUsageFlags::decode(cursor.read_u8()?),
+            material_usage_flag: MaterialUsageFlags::decode(cursor.read_u8()?),
             user_data_type: cursor.read_u8()?,
             o_section: None,
             o_user_data: None,
@@ -902,7 +911,9 @@ impl PartsProperty {
 
         if pane_offset > 0 {
             cursor.seek(last_parts_pane + pane_offset as usize)?;
-            let pane = BflytSection::parse(cursor, is_pane, true)?;
+
+            cursor.is_embed = true;
+            let pane = BflytSection::parse(cursor)?;
 
             property.o_section = Some(pane);
             cursor.seek(restore_point)?;
@@ -910,7 +921,9 @@ impl PartsProperty {
 
         if user_data_offset > 1 {
             cursor.seek(last_parts_pane + user_data_offset as usize)?;
-            let user_data = BflytSection::parse(cursor, is_pane, true)?;
+
+            cursor.is_embed = true;
+            let user_data = BflytSection::parse(cursor)?;
 
             property.o_user_data = Some(user_data);
             cursor.seek(restore_point)?;
@@ -932,9 +945,9 @@ impl PartsProperty {
         writer: &mut Writer,
     ) -> (Placeholder32, Placeholder32, Placeholder32) {
         writer.write_fixed_string(&self.property_name, PANE_NAME_LEN);
-        writer.write_u8(self.usage_flag.pack_flags());
-        writer.write_u8(self.basic_usage_flag.pack_flags());
-        writer.write_u8(self.material_usage_flag.pack_flags());
+        writer.write_u8(self.usage_flag.encode());
+        writer.write_u8(self.basic_usage_flag.encode());
+        writer.write_u8(self.material_usage_flag.encode());
         writer.write_u8(self.user_data_type);
 
         let pane_pos = writer.write_placeholder_u32();
@@ -954,8 +967,8 @@ pub struct PartsPane {
     pub o_layout_name: String,
 }
 
-impl PartsPane {
-    pub fn parse(cursor: &mut Cursor, is_pane: &mut bool) -> Result<Self, FormatError> {
+impl ReadWriteable for PartsPane {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let base_offset = cursor.pos;
         let base = Pane::parse(cursor)?;
 
@@ -968,7 +981,9 @@ impl PartsPane {
         let mut properties = Vec::with_capacity(property_count as usize);
 
         for _ in 0..property_count {
-            let property = PartsProperty::parse(cursor, base_offset - 8, is_pane)?;
+            cursor.section_start = Some(base_offset - 8);
+            let property = PartsProperty::parse(cursor)?;
+            cursor.section_start = None;
             properties.push(property);
         }
 
@@ -984,8 +999,9 @@ impl PartsPane {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer, section_start: usize) {
-        self.base.serialize(writer);
+    fn write(&self, writer: &mut Writer) {
+        let section_start = writer.ctx_section_start::<Self>();
+        self.base.write(writer);
         writer.mark("PartsPane");
 
         writer.write_u32(self.properties.len() as u32);
@@ -1005,13 +1021,13 @@ impl PartsPane {
             if let Some(section) = &prop.o_section {
                 let start = writer.pos();
 
-                section.serialize(writer);
+                section.write(writer);
                 writer.patch_u32(p_pos, (start - section_start) as u32);
             }
 
             if let Some(data) = &prop.o_user_data {
                 let start = writer.pos();
-                data.serialize(writer);
+                data.write(writer);
                 writer.patch_u32(u_pos, (start - section_start) as u32);
             } else if prop.is_sentinel_override {
                 writer.patch_u32(u_pos, 1);
@@ -1021,7 +1037,7 @@ impl PartsPane {
 
             if let Some(info) = &prop.o_basic_info {
                 let start = writer.pos();
-                info.serialize(writer);
+                info.write(writer);
                 writer.patch_u32(b_pos, (start - section_start) as u32);
             }
         }
@@ -1037,8 +1053,8 @@ pub struct AlignmentPane {
     pub is_vertical_alignment: bool,
 }
 
-impl AlignmentPane {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for AlignmentPane {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let base = Pane::parse(cursor)?;
 
         let out = Self {
@@ -1053,8 +1069,9 @@ impl AlignmentPane {
 
         Ok(out)
     }
-    pub fn serialize(&self, writer: &mut Writer) {
-        self.base.serialize(writer);
+
+    fn write(&self, writer: &mut Writer) {
+        self.base.write(writer);
         writer.mark("AlignmentPane");
 
         writer.write_u32(self.direction);

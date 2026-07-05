@@ -1,6 +1,8 @@
 use num_enum::{FromPrimitive, IntoPrimitive};
 use serde::{Deserialize, Serialize};
 
+use crate::core::BitPackable;
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive)]
 #[repr(u8)]
 pub enum BflytOrigin {
@@ -27,8 +29,8 @@ pub struct BflytOrigins {
     pub parent_origin_y: BflytParentOrigin,
 }
 
-impl BflytOrigins {
-    pub fn decode(raw: u8) -> Self {
+impl BitPackable<u8> for BflytOrigins {
+    fn decode(raw: u8) -> Self {
         Self {
             origin_x: (raw & 0x03).into(),
             origin_y: ((raw >> 2) & 0x03).into(),
@@ -37,7 +39,7 @@ impl BflytOrigins {
         }
     }
 
-    pub fn encode(&self) -> u8 {
+    fn encode(&self) -> u8 {
         let mut raw = 0u8;
 
         raw |= (self.origin_x as u8) & 0x03;
@@ -61,8 +63,8 @@ pub struct PaneFlags {
     pub is_constant_buffer_ready: bool,
 }
 
-impl PaneFlags {
-    pub fn decode(raw: u8) -> Self {
+impl BitPackable<u8> for PaneFlags {
+    fn decode(raw: u8) -> Self {
         Self {
             is_visible: (raw & 0x01) != 0,
             influenced_alpha: ((raw >> 1) & 0x01) != 0,
@@ -75,7 +77,7 @@ impl PaneFlags {
         }
     }
 
-    pub fn encode(&self) -> u8 {
+    fn encode(&self) -> u8 {
         let mut raw = 0u8;
 
         if self.is_visible {
@@ -122,8 +124,8 @@ pub struct PaneFlagsEx {
     pub reserve0: u8,
 }
 
-impl PaneFlagsEx {
-    pub fn decode(raw: u8) -> Self {
+impl BitPackable<u8> for PaneFlagsEx {
+    fn decode(raw: u8) -> Self {
         Self {
             is_no_scale_by_parts: (raw & 0x01) != 0,
             is_scale_size_by_parts_root: ((raw >> 1) & 0x01) != 0,
@@ -132,7 +134,7 @@ impl PaneFlagsEx {
         }
     }
 
-    pub fn encode(&self) -> u8 {
+    fn encode(&self) -> u8 {
         let mut raw = 0u8;
 
         if self.is_no_scale_by_parts {
@@ -170,8 +172,8 @@ pub struct TextPaneFlags {
     pub is_per_character_transform_split_insert_space: bool,
 }
 
-impl TextPaneFlags {
-    pub fn decode(raw: u16) -> Self {
+impl BitPackable<u16> for TextPaneFlags {
+    fn decode(raw: u16) -> Self {
         Self {
             is_enable_shadow: (raw & (1 << 0)) != 0,
             is_limit_glyph_count_to_length: (raw & (1 << 1)) != 0,
@@ -191,7 +193,7 @@ impl TextPaneFlags {
         }
     }
 
-    pub fn encode(&self) -> u16 {
+    fn encode(&self) -> u16 {
         let mut raw = 0u16;
 
         if self.is_enable_shadow {
@@ -274,8 +276,8 @@ pub struct WindowFlags {
     pub not_draw_content: bool,
 }
 
-impl WindowFlags {
-    pub fn decode(raw: u8) -> Self {
+impl BitPackable<u8> for WindowFlags {
+    fn decode(raw: u8) -> Self {
         let kind_bits = (raw >> 2) & 0x03;
         Self {
             use_layout_material: (raw & 0x01) != 0,
@@ -290,7 +292,7 @@ impl WindowFlags {
         }
     }
 
-    pub fn encode(&self) -> u8 {
+    fn encode(&self) -> u8 {
         let mut raw = 0u8;
         if self.use_layout_material {
             raw |= 1 << 0;
@@ -345,15 +347,15 @@ pub struct TexOptions {
     pub filter_mode: TexFilter,
 }
 
-impl TexOptions {
-    pub fn decode(raw: u8) -> Self {
+impl BitPackable<u8> for TexOptions {
+    fn decode(raw: u8) -> Self {
         Self {
             wrap_mode: (raw & 0x03).into(),
             filter_mode: (raw >> 2).into(),
         }
     }
 
-    pub fn encode(&self) -> u8 {
+    fn encode(&self) -> u8 {
         (self.wrap_mode as u8 & 0x03) | ((self.filter_mode as u8 & 0x3F) << 2)
     }
 }
@@ -369,8 +371,8 @@ pub struct DropShadowFlags {
     pub is_degamma_enabled: bool,
 }
 
-impl DropShadowFlags {
-    pub fn decode(raw: u8) -> Self {
+impl BitPackable<u8> for DropShadowFlags {
+    fn decode(raw: u8) -> Self {
         Self {
             is_stroke_enabled: (raw & 0x01) != 0,
             is_outer_glow_enabled: ((raw >> 1) & 0x01) != 0,
@@ -382,26 +384,32 @@ impl DropShadowFlags {
         }
     }
 
-    pub fn encode(&self) -> u8 {
+    fn encode(&self) -> u8 {
         let mut raw = 0u8;
         if self.is_stroke_enabled {
             raw |= 1 << 0;
         }
+
         if self.is_outer_glow_enabled {
             raw |= 1 << 1;
         }
+
         if self.is_drop_shadow_enabled {
             raw |= 1 << 2;
         }
+
         if self.is_knockout {
             raw |= 1 << 3;
         }
+
         if self.is_only_effect {
             raw |= 1 << 4;
         }
+
         if self.is_static_rendering {
             raw |= 1 << 5;
         }
+
         if self.is_degamma_enabled {
             raw |= 1 << 6;
         }

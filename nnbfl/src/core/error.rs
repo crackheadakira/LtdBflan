@@ -73,6 +73,12 @@ pub enum FormatError {
     )]
     MissingLayout,
 
+    #[error("Missing parsing context '{expected}' at byte offset {offset}")]
+    MissingContext {
+        expected: &'static str,
+        offset: usize,
+    },
+
     #[error(
         "Unknown or unsupported enum tag 0x{tag:08X} for type '{enum_name}' at offset 0x{offset:X}"
     )]

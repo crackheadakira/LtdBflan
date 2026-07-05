@@ -1,9 +1,8 @@
 use crate::{
-    bflan::{anim_info::PaneAnimInfo, anim_tag::PaneAnimTag, constants::*},
-    bflyt::constants::*,
+    bflan::{anim_info::PaneAnimInfo, anim_tag::PaneAnimTag},
     core::{
-        Cursor, FileReadWriteable, FormatError, ReadWriteable, SectionHeader, VersionFormat,
-        Writer, tchar_code32,
+        Cursor, FileReadWriteable, FormatError, ReadWriteable, SectionHeader, SectionMagic,
+        VersionFormat, Writer, tchar_code32,
     },
     ui2d::userdata::UserDataArray,
 };
@@ -85,11 +84,12 @@ impl ReadWriteable for Bflan {
         writer.write_bytes(b"FLAN");
         writer.write_u16(self.endianness);
         let header_size = writer.write_placeholder_u16();
-        self.version.serialize(writer);
+        self.version.write(writer);
 
         let file_size_pos = writer.write_placeholder_u32();
         let mut section_count = 2;
         section_count += self.user_data.is_some() as u32;
+
         writer.write_u32(section_count);
 
         writer.patch_u16(header_size, writer.pos() as u16);
@@ -118,20 +118,26 @@ pub enum BflanSections {
 impl BflanSections {
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let section_start = cursor.pos;
+        cursor.section_start = Some(section_start);
 
         let header = SectionHeader::parse(cursor)?;
         let section = match header.magic {
-            MAGIC_USERDATA => Self::UserData(UserDataArray::parse(cursor, false)?),
-            MAGIC_ANIMTAG => Self::PaneAnimTag(PaneAnimTag::parse(cursor, section_start)?),
-            MAGIC_ANIMINFO => Self::PaneAnimInfo(PaneAnimInfo::parse(cursor, section_start)?),
+            SectionMagic::UserData => {
+                cursor.last_was_pane = false;
+                Self::UserData(UserDataArray::parse(cursor)?)
+            }
+            SectionMagic::AnimTag => Self::PaneAnimTag(PaneAnimTag::parse(cursor)?),
+            SectionMagic::AnimInfo => Self::PaneAnimInfo(PaneAnimInfo::parse(cursor)?),
             _ => {
-                let remaining_payload = (header.size - 8) as usize;
+                let remaining_payload = (header.section_size - 8) as usize;
                 let data = cursor.read_bytes(remaining_payload)?.to_vec();
                 Self::Unknown(header, data)
             }
         };
 
-        cursor.seek(section_start + header.size as usize)?;
+        cursor.section_start = None;
+
+        cursor.seek(section_start + header.section_size as usize)?;
 
         Ok(section)
     }
@@ -146,24 +152,27 @@ enum BflanSectionsRef<'a> {
 impl<'a> BflanSectionsRef<'a> {
     pub fn serialize(&self, writer: &mut Writer) {
         let section_start = writer.pos();
+        writer.section_start = Some(section_start);
 
         writer.mark("Section (header)");
         match self {
-            Self::UserData(_) => writer.write_u32(MAGIC_USERDATA),
-            Self::PaneAnimTag(_) => writer.write_u32(MAGIC_ANIMTAG),
-            Self::PaneAnimInfo(_) => writer.write_u32(MAGIC_ANIMINFO),
+            Self::UserData(_) => writer.write_u32(SectionMagic::UserData.into()),
+            Self::PaneAnimTag(_) => writer.write_u32(SectionMagic::AnimTag.into()),
+            Self::PaneAnimInfo(_) => writer.write_u32(SectionMagic::AnimInfo.into()),
         }
 
         let size_pos = writer.write_placeholder_u32();
 
         writer.mark("Section (data)");
         match self {
-            Self::UserData(data) => data.serialize(writer),
-            Self::PaneAnimTag(tag) => tag.serialize(writer, section_start),
-            Self::PaneAnimInfo(info) => info.serialize(writer, section_start),
+            Self::UserData(data) => data.write(writer),
+            Self::PaneAnimTag(tag) => tag.write(writer),
+            Self::PaneAnimInfo(info) => info.write(writer),
         }
 
         writer.align(4);
+
+        writer.section_start = None;
 
         let size = (writer.pos() - section_start) as u32;
         writer.patch_u32(size_pos, size);

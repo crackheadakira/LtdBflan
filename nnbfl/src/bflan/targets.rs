@@ -14,11 +14,9 @@ pub struct AnimTarget {
 }
 
 impl AnimTarget {
-    pub fn parse(
-        cursor: &mut Cursor,
-        base_offset: usize,
-        parent_magic: &AnimInfoType,
-    ) -> Result<Self, FormatError> {
+    pub fn parse(cursor: &mut Cursor, parent_magic: &AnimInfoType) -> Result<Self, FormatError> {
+        let base_offset = cursor.ctx_section_start::<Self>()?;
+
         cursor.seek(base_offset)?;
 
         let layer = cursor.read_u8()?;
@@ -42,7 +40,9 @@ impl AnimTarget {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer, base_offset: usize) {
+    pub fn write(&self, writer: &mut Writer) {
+        let base_offset = writer.ctx_section_start::<Self>();
+
         writer.mark("AnimTarget");
         writer.write_u8(self.layer);
         writer.write_u8(self.target.to_raw());

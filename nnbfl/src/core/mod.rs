@@ -6,11 +6,16 @@ mod writer;
 
 pub use cursor::Cursor;
 pub use error::{FormatError, NnbflError};
-pub use section::SectionHeader;
+pub use section::{SectionHeader, SectionMagic};
 pub use writer::{Placeholder16, Placeholder32, Writer};
 
 pub const fn tchar_code32(b: &[u8; 4]) -> u32 {
     (b[0] as u32) | ((b[1] as u32) << 8) | ((b[2] as u32) << 16) | ((b[3] as u32) << 24)
+}
+
+pub trait BitPackable<T> {
+    fn decode(raw: T) -> Self;
+    fn encode(&self) -> T;
 }
 
 pub trait ReadWriteable: Sized + serde::Serialize + serde::de::DeserializeOwned {
@@ -46,8 +51,8 @@ pub struct VersionFormat {
     pub micro: u16,
 }
 
-impl VersionFormat {
-    pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+impl ReadWriteable for VersionFormat {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(VersionFormat {
             micro: cursor.read_u16()?,
             minor: cursor.read_u8()?,
@@ -55,7 +60,7 @@ impl VersionFormat {
         })
     }
 
-    pub fn serialize(&self, writer: &mut Writer) {
+    fn write(&self, writer: &mut Writer) {
         writer.write_u16(self.micro);
         writer.write_u8(self.minor);
         writer.write_u8(self.major);

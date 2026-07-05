@@ -140,7 +140,7 @@ impl DrawUi for Material {
 
                     changed |= ui
                         .checkbox(
-                            &mut tex_ext.is_vecture_texture,
+                            &mut tex_ext.is_vector_texture,
                             format!("Is Texture {} Vector", idx + 1),
                         )
                         .clicked();
