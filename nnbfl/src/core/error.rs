@@ -87,6 +87,9 @@ pub enum FormatError {
         tag: u32,
         offset: usize,
     },
+
+    #[error("Invalid layout hierarchy: {0}")]
+    InvalidHierarchyChange(&'static str),
 }
 
 #[derive(Error, Debug)]

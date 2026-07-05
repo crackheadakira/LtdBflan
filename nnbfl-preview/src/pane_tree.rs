@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path};
 use bitflags::bitflags;
 use nnbfl::{
     bflyt::{
-        file::{Bflyt, BflytNode, BflytSection},
+        file::{Bflyt, BflytNode, BflytSection, PaneElement},
         flags::{BflytOrigin, BflytParentOrigin},
         list::{CaptureTextureList, FontList, Material, MaterialList, TextureList},
         pane::{Pane, PartsPane, PicturePane},
@@ -164,31 +164,19 @@ impl PaneNode {
 
         let mut baked_section = self.section.clone();
         if let Some(base) = baked_section.get_base_pane_mut() {
-            // when serializing it seems parent visibility isn't taken into account
-            // base.pane_flags.is_visible = self.visible;
             base.pane_name = self.label.clone();
         }
 
-        if let Some(usd) = &self.user_data {
-            out.push(BflytNode::PaneWithUserData {
-                pane: baked_section,
-                user_data: usd.clone(),
-            });
-        } else {
-            out.push(BflytNode::Section(baked_section));
+        let mut child_nodes = Vec::new();
+        for child in &self.children {
+            child.flatten_to_bflyt_nodes(&mut child_nodes);
         }
 
-        if !self.children.is_empty() {
-            let mut child_nodes = Vec::new();
-
-            for child in &self.children {
-                child.flatten_to_bflyt_nodes(&mut child_nodes);
-            }
-
-            if !child_nodes.is_empty() {
-                out.push(BflytNode::Panes(child_nodes));
-            }
-        }
+        out.push(BflytNode::Pane(PaneElement {
+            data: baked_section,
+            user_data: self.user_data.clone(),
+            children: child_nodes,
+        }));
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &PaneNode> {
@@ -663,11 +651,11 @@ impl PaneTree {
         let mut group_nodes = Vec::new();
 
         for node in file.nodes {
-            match &node {
-                BflytNode::Groups(_) => {
+            match node {
+                BflytNode::Group(_) => {
                     group_nodes.push(node);
                 }
-                BflytNode::Section(BflytSection::Group(_)) => {
+                BflytNode::RootSection(BflytSection::Group(_)) => {
                     group_nodes.push(node);
                 }
                 _ => {
@@ -775,75 +763,48 @@ impl<'a> Builder<'a> {
         depth: usize,
     ) -> Vec<PaneNode> {
         let mut out = Vec::new();
-        let mut last_rect = (parent_pos, parent_size);
-        let mut last_scale = parent_scale;
-        let mut last_visible = parent_visible;
 
         for node in nodes {
             match node {
-                BflytNode::PaneWithUserData { pane, user_data } => {
+                BflytNode::Pane(pane_el) => {
                     if let Some(mut pane_node) = self.build_node(
-                        pane,
+                        &pane_el.data,
                         parent_pos,
                         parent_size,
                         parent_scale,
                         parent_visible,
                         depth,
                     ) {
-                        pane_node.user_data = Some(user_data.clone());
+                        pane_node.user_data = pane_el.user_data.clone();
 
-                        last_rect = (pane_node.world_pos, pane_node.world_size);
-                        if let Some(base) = pane.get_base_pane() {
-                            last_visible = parent_visible && base.pane_flags.is_visible;
-                            last_scale = Vector2f {
+                        let mut current_visible = parent_visible;
+                        let mut current_scale = parent_scale;
+
+                        if let Some(base) = pane_el.data.get_base_pane() {
+                            current_visible = parent_visible && base.pane_flags.is_visible;
+                            current_scale = Vector2f {
                                 x: base.scale.x * parent_scale.x,
                                 y: base.scale.y * parent_scale.y,
                             };
+                        }
+
+                        if !pane_el.children.is_empty() {
+                            pane_node.children = self.build_nodes(
+                                &pane_el.children,
+                                pane_node.world_pos,
+                                pane_node.world_size,
+                                current_scale,
+                                current_visible,
+                                depth + 1,
+                            );
                         }
 
                         out.push(pane_node);
                     }
                 }
 
-                BflytNode::Section(section) => {
-                    if section.get_base_pane().is_some() {
-                        if let Some(pane_node) = self.build_node(
-                            section,
-                            parent_pos,
-                            parent_size,
-                            parent_scale,
-                            parent_visible,
-                            depth,
-                        ) {
-                            last_rect = (pane_node.world_pos, pane_node.world_size);
-                            if let Some(base) = section.get_base_pane() {
-                                last_visible = parent_visible && base.pane_flags.is_visible;
-                                last_scale = Vector2f {
-                                    x: base.scale.x * parent_scale.x,
-                                    y: base.scale.y * parent_scale.y,
-                                };
-                            }
-                            out.push(pane_node);
-                        }
-                    }
-                }
-
-                BflytNode::Panes(children) => {
-                    let (pos, size) = last_rect;
-
-                    let child_nodes =
-                        self.build_nodes(children, pos, size, last_scale, last_visible, depth + 1);
-
-                    if let Some(parent_node) = out.last_mut() {
-                        parent_node.children = child_nodes;
-                    }
-
-                    last_rect = (parent_pos, parent_size);
-                    last_scale = parent_scale;
-                    last_visible = parent_visible;
-                }
-
-                BflytNode::Groups(_) => {}
+                BflytNode::Group(_group_el) => {}
+                BflytNode::RootSection(_) => {}
             }
         }
 

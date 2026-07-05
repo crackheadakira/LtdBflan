@@ -221,6 +221,23 @@ impl BflytSection {
         let size = (writer.pos() - section_start) as u32;
         writer.patch_u32(size_pos, size);
     }
+
+    fn is_pane_type(&self) -> bool {
+        match self {
+            Self::Pane(_) => true,
+            Self::PicturePane(_) => true,
+            Self::TextBoxPane(_) => true,
+            Self::WindowPane(_) => true,
+            Self::PartsPane(_) => true,
+            Self::AlignmentPane(_) => true,
+            Self::CapturePane(_) => true,
+            Self::BoundingPane(_) => true,
+            Self::ScissorPane(_) => true,
+            Self::PaneStart => true,
+            Self::PaneEnd => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +253,12 @@ pub struct Bflyt {
     pub capture_texture_list: Option<CaptureTextureList>,
 
     pub nodes: Vec<BflytNode>,
+}
+
+enum StackFrame {
+    Root(Vec<BflytNode>),
+    Pane(PaneElement),
+    Group(GroupElement),
 }
 
 impl FileReadWriteable for Bflyt {
@@ -277,7 +300,7 @@ impl ReadWriteable for Bflyt {
         let mut material_list = None;
         let mut capture_texture_list = None;
 
-        let mut tree_stack = vec![Vec::new()];
+        let mut tree_stack = vec![StackFrame::Root(Vec::new())];
 
         let mut has_entered_hierarchy = false;
         for i in 0..section_count {
@@ -289,25 +312,11 @@ impl ReadWriteable for Bflyt {
                 })?;
 
             match section {
-                BflytSection::Layout(l) => {
-                    layout = Some(l);
-                }
-
-                BflytSection::TextureList(t) => {
-                    texture_list = Some(t);
-                }
-
-                BflytSection::FontList(f) => {
-                    font_list = Some(f);
-                }
-
-                BflytSection::MaterialList(m) => {
-                    material_list = Some(m);
-                }
-
-                BflytSection::CaptureTextureList(c) => {
-                    capture_texture_list = Some(c);
-                }
+                BflytSection::Layout(l) => layout = Some(l),
+                BflytSection::TextureList(t) => texture_list = Some(t),
+                BflytSection::FontList(f) => font_list = Some(f),
+                BflytSection::MaterialList(m) => material_list = Some(m),
+                BflytSection::CaptureTextureList(c) => capture_texture_list = Some(c),
 
                 BflytSection::UserData(usd) if !has_entered_hierarchy && user_data.is_none() => {
                     user_data = Some(usd);
@@ -315,79 +324,141 @@ impl ReadWriteable for Bflyt {
 
                 BflytSection::PaneStart => {
                     has_entered_hierarchy = true;
-                    tree_stack.push(Vec::new());
+                    if let Some(
+                        StackFrame::Root(layer)
+                        | StackFrame::Pane(PaneElement {
+                            children: layer, ..
+                        })
+                        | StackFrame::Group(GroupElement {
+                            children: layer, ..
+                        }),
+                    ) = tree_stack.last_mut()
+                    {
+                        if let Some(BflytNode::Pane(pane_el)) = layer.pop() {
+                            tree_stack.push(StackFrame::Pane(pane_el));
+                            continue;
+                        }
+                    }
+                    return Err(FormatError::InvalidHierarchyChange(
+                        "PaneStart encountered without a preceding Pane section",
+                    ));
                 }
 
                 BflytSection::PaneEnd => {
                     has_entered_hierarchy = true;
-                    if let Some(children) = tree_stack.pop()
-                        && let Some(current_layer) = tree_stack.last_mut()
-                    {
-                        current_layer.push(BflytNode::Panes(children));
+                    if let Some(StackFrame::Pane(finished_pane)) = tree_stack.pop() {
+                        match tree_stack.last_mut() {
+                            Some(StackFrame::Root(layer)) => {
+                                layer.push(BflytNode::Pane(finished_pane))
+                            }
+                            Some(StackFrame::Pane(parent)) => {
+                                parent.children.push(BflytNode::Pane(finished_pane))
+                            }
+                            Some(StackFrame::Group(parent)) => {
+                                parent.children.push(BflytNode::Pane(finished_pane))
+                            }
+                            None => unreachable!(),
+                        }
+                    } else {
+                        return Err(FormatError::InvalidHierarchyChange(
+                            "Mismatched PaneEnd encountered",
+                        ));
                     }
                 }
+
                 BflytSection::GroupStart => {
                     has_entered_hierarchy = true;
-                    tree_stack.push(Vec::new());
+                    if let Some(
+                        StackFrame::Root(layer)
+                        | StackFrame::Pane(PaneElement {
+                            children: layer, ..
+                        })
+                        | StackFrame::Group(GroupElement {
+                            children: layer, ..
+                        }),
+                    ) = tree_stack.last_mut()
+                    {
+                        if let Some(BflytNode::Group(group_el)) = layer.pop() {
+                            tree_stack.push(StackFrame::Group(group_el));
+                            continue;
+                        }
+                    }
+                    return Err(FormatError::InvalidHierarchyChange(
+                        "GroupStart encountered without a preceding Group section",
+                    ));
                 }
+
                 BflytSection::GroupEnd => {
                     has_entered_hierarchy = true;
-                    if let Some(children) = tree_stack.pop()
-                        && let Some(current_layer) = tree_stack.last_mut()
-                    {
-                        current_layer.push(BflytNode::Groups(children));
+                    if let Some(StackFrame::Group(finished_group)) = tree_stack.pop() {
+                        match tree_stack.last_mut() {
+                            Some(StackFrame::Root(layer)) => {
+                                layer.push(BflytNode::Group(finished_group))
+                            }
+                            Some(StackFrame::Pane(parent)) => {
+                                parent.children.push(BflytNode::Group(finished_group))
+                            }
+                            Some(StackFrame::Group(parent)) => {
+                                parent.children.push(BflytNode::Group(finished_group))
+                            }
+                            None => unreachable!(),
+                        }
+                    } else {
+                        return Err(FormatError::InvalidHierarchyChange(
+                            "Mismatched GroupEnd encountered",
+                        ));
                     }
                 }
+
                 s => {
                     has_entered_hierarchy = true;
-                    if let Some(current_layer) = tree_stack.last_mut() {
-                        match s {
-                            // If it's a UserData section inside the hierarchy, try to bind it to the preceding pane
-                            BflytSection::UserData(usd) => {
-                                let attached_to_pane = if let Some(BflytNode::Section(prev_sec)) =
-                                    current_layer.last()
-                                {
-                                    matches!(
-                                        prev_sec,
-                                        BflytSection::Pane(_)
-                                            | BflytSection::PicturePane(_)
-                                            | BflytSection::TextBoxPane(_)
-                                            | BflytSection::WindowPane(_)
-                                            | BflytSection::PartsPane(_)
-                                            | BflytSection::AlignmentPane(_)
-                                            | BflytSection::CapturePane(_)
-                                            | BflytSection::BoundingPane(_)
-                                            | BflytSection::ScissorPane(_)
-                                    )
-                                } else {
-                                    false
-                                };
 
-                                if attached_to_pane {
-                                    if let Some(BflytNode::Section(pane_sec)) = current_layer.pop()
-                                    {
-                                        current_layer.push(BflytNode::PaneWithUserData {
-                                            pane: pane_sec,
-                                            user_data: usd,
-                                        });
-                                    }
-                                } else {
-                                    // Fallback if there's somehow a floating UserData section inside the tree
-                                    current_layer
-                                        .push(BflytNode::Section(BflytSection::UserData(usd)));
-                                }
+                    let current_children = match tree_stack.last_mut() {
+                        Some(StackFrame::Root(layer)) => layer,
+                        Some(StackFrame::Pane(p)) => &mut p.children,
+                        Some(StackFrame::Group(g)) => &mut g.children,
+                        None => unreachable!(),
+                    };
+
+                    match s {
+                        BflytSection::UserData(usd) => {
+                            if let Some(BflytNode::Pane(pane_el)) = current_children.last_mut() {
+                                pane_el.user_data = Some(usd);
+                            } else {
+                                current_children
+                                    .push(BflytNode::RootSection(BflytSection::UserData(usd)));
                             }
-                            // All other normal layout sections just get pushed straight into the tree layer
-                            other => {
-                                current_layer.push(BflytNode::Section(other));
-                            }
+                        }
+                        BflytSection::Group(g_data) => {
+                            current_children.push(BflytNode::Group(GroupElement {
+                                data: g_data,
+                                children: Vec::new(),
+                            }));
+                        }
+
+                        other if other.is_pane_type() => {
+                            current_children.push(BflytNode::Pane(PaneElement {
+                                data: other,
+                                user_data: None,
+                                children: Vec::new(),
+                            }));
+                        }
+                        other => {
+                            current_children.push(BflytNode::RootSection(other));
                         }
                     }
                 }
             }
         }
 
-        let nodes = tree_stack.pop().unwrap_or_default();
+        let nodes = match tree_stack.pop() {
+            Some(StackFrame::Root(layer)) => layer,
+            _ => {
+                return Err(FormatError::InvalidHierarchyChange(
+                    "Unclosed hierarchy elements remaining at EOF",
+                ));
+            }
+        };
 
         if layout.is_none() {
             return Err(FormatError::MissingLayout);
@@ -506,53 +577,92 @@ impl Bflyt {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BflytNode {
-    Section(BflytSection),
-    PaneWithUserData {
-        pane: BflytSection,
-        user_data: UserDataArray,
-    },
-    Panes(Vec<BflytNode>),
-    Groups(Vec<BflytNode>),
+    RootSection(BflytSection),
+    Pane(PaneElement),
+    Group(GroupElement),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneElement {
+    pub data: BflytSection,
+    pub user_data: Option<UserDataArray>,
+    pub children: Vec<BflytNode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupElement {
+    pub data: Group,
+    pub children: Vec<BflytNode>,
 }
 
 impl BflytNode {
     pub fn serialize(&self, writer: &mut Writer) {
         match self {
-            Self::Section(section) => section.write(writer),
+            Self::RootSection(section) => section.write(writer),
 
-            Self::PaneWithUserData { pane, user_data } => {
-                pane.write(writer);
-                BflytSection::UserData(user_data.clone()).write(writer);
-            }
-
-            Self::Panes(children) => {
-                BflytSection::PaneStart.write(writer);
-
-                for child in children {
-                    child.serialize(writer);
+            Self::Pane(pane) => {
+                pane.data.write(writer);
+                if let Some(usd) = &pane.user_data {
+                    BflytSection::UserData(usd.clone()).write(writer);
                 }
 
-                BflytSection::PaneEnd.write(writer);
+                if !pane.children.is_empty() {
+                    BflytSection::PaneStart.write(writer);
+
+                    for child in &pane.children {
+                        child.serialize(writer);
+                    }
+
+                    BflytSection::PaneEnd.write(writer);
+                }
             }
 
-            Self::Groups(children) => {
-                BflytSection::GroupStart.write(writer);
+            Self::Group(group) => {
+                BflytSection::Group(group.data.clone()).write(writer);
 
-                for child in children {
-                    child.serialize(writer);
+                if !group.children.is_empty() {
+                    BflytSection::GroupStart.write(writer);
+                    for child in &group.children {
+                        child.serialize(writer);
+                    }
+                    BflytSection::GroupEnd.write(writer);
                 }
-
-                BflytSection::GroupEnd.write(writer);
             }
         }
     }
 
     pub fn section_count(&self) -> u32 {
         match self {
-            Self::Section(_) => 1,
-            Self::PaneWithUserData { .. } => 2,
-            Self::Panes(children) | Self::Groups(children) => {
-                2 + children.iter().map(|c| c.section_count()).sum::<u32>()
+            Self::RootSection(_) => 1,
+
+            Self::Pane(pane) => {
+                let mut count = 1;
+
+                if pane.user_data.is_some() {
+                    count += 1;
+                }
+
+                if !pane.children.is_empty() {
+                    count += 2;
+                    count += pane.children.iter().map(|c| c.section_count()).sum::<u32>();
+                }
+
+                count
+            }
+
+            Self::Group(group) => {
+                let mut count = 1;
+
+                if !group.children.is_empty() {
+                    count += 2;
+                    count += group
+                        .children
+                        .iter()
+                        .map(|c| c.section_count())
+                        .sum::<u32>();
+                }
+
+                count
             }
         }
     }
