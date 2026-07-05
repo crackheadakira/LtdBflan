@@ -223,7 +223,9 @@ impl MaterialTextureSrt {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, FromPrimitive, IntoPrimitive)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromPrimitive, IntoPrimitive,
+)]
 #[repr(u8)]
 pub enum TexGenSrc {
     #[num_enum(default)]
@@ -287,7 +289,9 @@ impl MaterialTevCombiner {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, FromPrimitive, IntoPrimitive)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, FromPrimitive, IntoPrimitive,
+)]
 #[repr(u8)]
 pub enum AlphaCompare {
     Never,
@@ -511,21 +515,21 @@ impl MaterialProjectionTexGen {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaterialFontShadowColor {
-    pub color0: Color4u8,
-    pub color1: Color4u8,
+    pub black_color: Color4u8,
+    pub white_color: Color4u8,
 }
 
 impl MaterialFontShadowColor {
     fn parse(c: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
-            color0: Color4u8::parse(c)?,
-            color1: Color4u8::parse(c)?,
+            black_color: Color4u8::parse(c)?,
+            white_color: Color4u8::parse(c)?,
         })
     }
 
     fn serialize(&self, w: &mut Writer) {
-        self.color0.serialize(w);
-        self.color1.serialize(w);
+        self.black_color.serialize(w);
+        self.white_color.serialize(w);
     }
 }
 
@@ -568,8 +572,8 @@ pub enum CombinerTevMode {
     AddSigned,
     Interpolate,
     Subtract,
-    AddMultiplicate,
-    MultiplcateAdd,
+    AddMultiply,
+    MultiplyAdd,
     Overlay,
     Lighten,
     Darken,

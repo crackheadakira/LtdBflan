@@ -15,6 +15,7 @@ use crate::{
     anim_state::AnimPlayer,
     bflyt_view::BflytView,
     camera::Camera,
+    material_editor::{DrawUiWith, MaterialEditor},
     renderer::timeline::{
         PendingKeyEdit, TIMELINE_MIN_VISIBLE_FRAMES, TimelineDrag, TimelineGeometry,
         TimelineLayout, TimelineRow,
@@ -49,6 +50,7 @@ pub struct UiState {
     pub shortcuts_window_open: bool,
 
     pub timeline: TimelineState,
+    pub material_editor: MaterialEditor,
 }
 
 pub struct TimelineState {
@@ -236,7 +238,7 @@ pub fn draw_ui(
                 state.archive_browser_open = true;
             }
 
-            if view.is_some() {
+            if let Some(view) = view {
                 ui.menu_button("Shader Pass", |ui| {
                     let stages = [
                         (0, "Disabled"),
@@ -259,6 +261,12 @@ pub fn draw_ui(
                         }
                     }
                 });
+
+                if view.tree.material_list.is_some() {
+                    if ui.button("Material Editor").clicked() {
+                        state.material_editor.is_editor_visible = true;
+                    }
+                }
             }
 
             ui.menu_button("Help", |ui| {
@@ -619,6 +627,13 @@ pub fn draw_ui(
                 }
             });
     };
+
+    if let Some(view) = view
+        && let Some(material_list) = view.tree.material_list.as_mut()
+    {
+        // TODO: flag materials as dirty
+        let _changed = state.material_editor.draw_mut(ui, material_list);
+    }
 
     draw_timeline_panel(ui, state, anim_player);
     draw_archive_browser_window(ui, state, blarc_dir, archive_scan);
@@ -1654,14 +1669,14 @@ fn draw_material_list(ui: &mut Ui, list: &MaterialList) {
                                     egui::Grid::new(ui.id().with("f_sh_clr_grid"))
                                         .striped(true)
                                         .show(ui, |ui| {
-                                            draw_prop(ui, "Color 1, Red", fcs.color0.r);
-                                            draw_prop(ui, "Color 1, Green", fcs.color0.g);
-                                            draw_prop(ui, "Color 1, Blue", fcs.color0.b);
-                                            draw_prop(ui, "Color 1, Alpha", fcs.color0.a);
-                                            draw_prop(ui, "Color 2, Red", fcs.color1.r);
-                                            draw_prop(ui, "Color 2, Green", fcs.color1.g);
-                                            draw_prop(ui, "Color 2, Blue", fcs.color1.b);
-                                            draw_prop(ui, "Color 2, Alpha", fcs.color1.a);
+                                            draw_prop(ui, "Color 1, Red", fcs.black_color.r);
+                                            draw_prop(ui, "Color 1, Green", fcs.black_color.g);
+                                            draw_prop(ui, "Color 1, Blue", fcs.black_color.b);
+                                            draw_prop(ui, "Color 1, Alpha", fcs.black_color.a);
+                                            draw_prop(ui, "Color 2, Red", fcs.white_color.r);
+                                            draw_prop(ui, "Color 2, Green", fcs.white_color.g);
+                                            draw_prop(ui, "Color 2, Blue", fcs.white_color.b);
+                                            draw_prop(ui, "Color 2, Alpha", fcs.white_color.a);
                                         });
                                 });
                         }

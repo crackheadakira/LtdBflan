@@ -5,6 +5,7 @@ mod camera;
 mod chinese_font;
 mod edit_history;
 mod keybinds;
+mod material_editor;
 mod pane_tree;
 mod renderer;
 mod traits;
