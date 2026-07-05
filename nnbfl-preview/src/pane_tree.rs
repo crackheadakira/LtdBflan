@@ -10,7 +10,10 @@ use nnbfl::{
     },
     core::FileReadWriteable,
     sarc::file::MagicFiles,
-    ui2d::{types::Vector2f, userdata::UserDataArray},
+    ui2d::{
+        types::{Vector2f, Vector3f},
+        userdata::UserDataArray,
+    },
 };
 
 use crate::{
@@ -52,19 +55,20 @@ pub struct Corners {
 
 impl Corners {
     /// Compute the four world-space corner positions [TL, TR, BL, BR] for a pane
-    /// after applying Z rotation around the pane's pivot point (cx, cy).
+    /// after applying rotation around the pane's pivot point (cx, cy).
     pub fn compute(
         center: Vector2f,
         size: Vector2f,
         origin_x: &BflytOrigin,
         origin_y: &BflytOrigin,
-        rotate_z: f32,
+        rotation: Vector3f,
     ) -> Self {
         let lx = match origin_x {
             BflytOrigin::Center => -size.x * 0.5,
             BflytOrigin::LeftTop => 0.0,
             BflytOrigin::RightBottom => -size.x,
         };
+
         let ly = match origin_y {
             BflytOrigin::Center => -size.y * 0.5,
             BflytOrigin::LeftTop => 0.0,
@@ -77,18 +81,31 @@ impl Corners {
         let br = Vector2f::new(lx + size.x, ly + size.y);
 
         let transform = |p: Vector2f| -> Vector2f {
-            if rotate_z == 0.0 {
-                Vector2f {
+            if rotation.x == 0.0 && rotation.y == 0.0 && rotation.z == 0.0 {
+                return Vector2f {
                     x: center.x + p.x,
                     y: center.y + p.y,
-                }
-            } else {
-                let rad = -rotate_z.to_radians();
-                let (sin_r, cos_r) = rad.sin_cos();
-                Vector2f {
-                    x: center.x + p.x * cos_r - p.y * sin_r,
-                    y: center.y + p.x * sin_r + p.y * cos_r,
-                }
+                };
+            }
+
+            let (px, py, pz) = (p.x, p.y, 0.0f32);
+
+            let rx = -rotation.x.to_radians();
+            let ry = -rotation.y.to_radians();
+            let rz = -rotation.z.to_radians();
+
+            let (sz, cz) = rz.sin_cos();
+            let (x1, y1, z1) = (px * cz - py * sz, px * sz + py * cz, pz);
+
+            let (sy, cy) = ry.sin_cos();
+            let (x2, y2, z2) = (x1 * cy + z1 * sy, y1, -x1 * sy + z1 * cy);
+
+            let (sx, cx) = rx.sin_cos();
+            let (x3, y3, _z3) = (x2, y2 * cx - z2 * sx, y2 * sx + z2 * cx);
+
+            Vector2f {
+                x: center.x + x3,
+                y: center.y + y3,
             }
         };
 
@@ -215,7 +232,7 @@ impl PaneNode {
                     size,
                     &base.origin.origin_x,
                     &base.origin.origin_y,
-                    base.rotation.z,
+                    base.rotation,
                 );
 
                 self.world_corners = corners;
@@ -830,7 +847,7 @@ impl<'a> Builder<'a> {
             size,
             &base.origin.origin_x,
             &base.origin.origin_y,
-            base.rotation.z,
+            base.rotation,
         );
 
         let label = section.pane_name();
@@ -840,15 +857,7 @@ impl<'a> Builder<'a> {
         self.next_pane_idx += 1;
 
         let textured_quad = if let BflytSection::PicturePane(pic) = section {
-            self.build_textured_quad(
-                pic,
-                pos,
-                size,
-                center,
-                base.rotation.z,
-                is_visible,
-                pane_idx,
-            )
+            self.build_textured_quad(pic, pos, size, center, base.rotation, is_visible, pane_idx)
         } else {
             None
         };
@@ -1027,8 +1036,8 @@ impl<'a> Builder<'a> {
                                 node.world_center,
                                 node.section
                                     .get_base_pane()
-                                    .map(|b| b.rotation.z)
-                                    .unwrap_or(0.0),
+                                    .map(|b| b.rotation)
+                                    .unwrap_or(Vector3f::default()),
                                 node.visible,
                                 node.pane_idx,
                             );
@@ -1058,7 +1067,7 @@ impl<'a> Builder<'a> {
         position: Vector2f,
         size: Vector2f,
         center: Vector2f,
-        rotate_z: f32,
+        rotation: Vector3f,
         is_visible: bool,
         pane_idx: usize,
     ) -> Option<TexturedQuad> {
@@ -1074,7 +1083,7 @@ impl<'a> Builder<'a> {
             size,
             &pic.base.origin.origin_x,
             &pic.base.origin.origin_y,
-            rotate_z,
+            rotation,
         );
 
         TexturedQuad::derive_from_material(

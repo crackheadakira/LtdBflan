@@ -166,7 +166,7 @@ impl ReadWriteable for Vector2f {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct Vector3f {
     pub x: f32,
     pub y: f32,

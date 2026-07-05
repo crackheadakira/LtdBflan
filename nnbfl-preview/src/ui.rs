@@ -1291,6 +1291,24 @@ fn draw_pane_properties(ui: &mut Ui, pane: &mut crate::pane_tree::PaneNode) -> b
                         }
                         ui.end_row();
 
+                        ui.label("Rotate X");
+                        if ui
+                            .add(egui::DragValue::new(&mut base.rotation.x).speed(0.1))
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label("Rotate Y");
+                        if ui
+                            .add(egui::DragValue::new(&mut base.rotation.y).speed(0.1))
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                        ui.end_row();
+
                         ui.label("Rotate Z");
                         if ui
                             .add(egui::DragValue::new(&mut base.rotation.z).speed(0.1))
