@@ -4,8 +4,8 @@ use bitflags::bitflags;
 use nnbfl::{
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection},
-        flags::{BflytOrigin, BflytParentOrigin, TexFilter, TexWrapMode},
-        list::{FontList, MaterialColorEntry, MaterialList, TexGenSrc, TextureList},
+        flags::{BflytOrigin, BflytParentOrigin},
+        list::{CaptureTextureList, FontList, Material, MaterialList, TextureList},
         pane::{Pane, PartsPane, PicturePane},
     },
     core::ReadWriteable,
@@ -19,7 +19,7 @@ use crate::{
     decompress_if_needed, extract_all_files_recursive,
     renderer::{
         quad::Quad,
-        textured_quad::{DetailedCombinerMaterial, PaneQuadData, StandardMaterial, TexturedQuad},
+        textured_quad::{PaneQuadData, TexturedQuad},
     },
     traits::Displaying,
     ui::SUPPORTED_SARC_EXTENSIONS,
@@ -153,9 +153,7 @@ pub struct PaneNode {
 
     pub dirty: DirtyFlags,
     pub children: Vec<PaneNode>,
-
-    // Store non-pane metadata chunks that belong right after this pane
-    pub trailing_sections: Vec<BflytSection>,
+    pub user_data: Option<UserDataArray>,
 }
 
 impl PaneNode {
@@ -171,7 +169,14 @@ impl PaneNode {
             base.pane_name = self.label.clone();
         }
 
-        out.push(BflytNode::Section(baked_section));
+        if let Some(usd) = &self.user_data {
+            out.push(BflytNode::PaneWithUserData {
+                pane: baked_section,
+                user_data: usd.clone(),
+            });
+        } else {
+            out.push(BflytNode::Section(baked_section));
+        }
 
         if !self.children.is_empty() {
             let mut child_nodes = Vec::new();
@@ -183,10 +188,6 @@ impl PaneNode {
             if !child_nodes.is_empty() {
                 out.push(BflytNode::Panes(child_nodes));
             }
-        }
-
-        for trailing in &self.trailing_sections {
-            out.push(BflytNode::Section(trailing.clone()));
         }
     }
 
@@ -266,6 +267,75 @@ impl PaneNode {
             child.recompute(self.world_pos, self.world_size, child_scale);
         }
     }
+
+    pub fn recompute_dirty_material(&mut self, material_list: &MaterialList) -> bool {
+        let mut requires_reupload = false;
+
+        if self.dirty.contains(DirtyFlags::MATERIAL) {
+            if let Some(quad) = &mut self.textured_quad
+                && let BflytSection::PicturePane(pic) = &self.section
+            {
+                if let Some(mat) = material_list.materials.get(pic.material_index as usize) {
+                    if let Some(tq) = TexturedQuad::derive_from_material(
+                        pic,
+                        mat,
+                        Vector2f::new(quad.x, quad.y),
+                        Vector2f::new(quad.width, quad.height),
+                        quad.corners,
+                        self.visible,
+                        self.pane_idx,
+                    ) {
+                        *quad = tq;
+
+                        if let Some(base_quad) = &mut self.base_textured_quad {
+                            *base_quad = quad.clone();
+                        }
+
+                        requires_reupload = true;
+                    }
+                }
+            }
+        };
+
+        self.dirty.remove(DirtyFlags::MATERIAL);
+        requires_reupload
+    }
+
+    pub fn compute_uvs(
+        pic: &PicturePane,
+        material: &Material,
+    ) -> ([[[f32; 2]; 3]; 4], [[[f32; 2]; 3]; 4]) {
+        let get_uv_set = |layer: usize| -> [[f32; 2]; 4] {
+            if let Some(uv_set) = pic.texture_uvs.get(layer) {
+                [
+                    [uv_set.top_left.x, uv_set.top_left.y],
+                    [uv_set.top_right.x, uv_set.top_right.y],
+                    [uv_set.bottom_left.x, uv_set.bottom_left.y],
+                    [uv_set.bottom_right.x, uv_set.bottom_right.y],
+                ]
+            } else {
+                [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]
+            }
+        };
+
+        let uvs0_base = get_uv_set(0);
+        let uvs1_base = get_uv_set(1);
+        let uvs2_base = get_uv_set(2);
+        let base_uvs: [[[f32; 2]; 3]; 4] =
+            std::array::from_fn(|i| [uvs0_base[i], uvs1_base[i], uvs2_base[i]]);
+
+        let mut uvs = base_uvs;
+
+        for layer in 0..3 {
+            if let Some(srt) = material.tex_srts.get(layer) {
+                for v_idx in 0..4 {
+                    uvs[v_idx][layer] = transform_uv_srt(srt, base_uvs[v_idx][layer]);
+                }
+            }
+        }
+
+        (base_uvs, uvs)
+    }
 }
 
 pub struct PaneIter<'a> {
@@ -292,6 +362,7 @@ pub struct PaneTree {
     pub user_data: Option<UserDataArray>,
     pub texture_list: Option<TextureList>,
     pub font_list: Option<FontList>,
+    pub capture_texture_list: Option<CaptureTextureList>,
     pub group_nodes: Vec<BflytNode>,
 
     pub file_name: String,
@@ -355,6 +426,21 @@ impl PaneTree {
                 Vector2f { x: 1.0, y: 1.0 },
             );
         }
+    }
+
+    pub fn recompute_dirty_materials(&mut self) -> bool {
+        let material_list = std::mem::take(&mut self.material_list);
+        let mut require_reupload = false;
+
+        if let Some(ref list) = material_list {
+            self.for_each_mut(|node| {
+                require_reupload |= node.recompute_dirty_material(list);
+            });
+        }
+
+        self.material_list = material_list;
+
+        require_reupload
     }
 
     pub fn collect_render_quads(&self) -> Vec<PaneQuadData> {
@@ -657,6 +743,7 @@ impl PaneTree {
             user_data: file.user_data,
             texture_list: file.texture_list,
             font_list: file.font_list,
+            capture_texture_list: file.capture_texture_list,
             group_nodes,
         }
     }
@@ -694,6 +781,30 @@ impl<'a> Builder<'a> {
 
         for node in nodes {
             match node {
+                BflytNode::PaneWithUserData { pane, user_data } => {
+                    if let Some(mut pane_node) = self.build_node(
+                        pane,
+                        parent_pos,
+                        parent_size,
+                        parent_scale,
+                        parent_visible,
+                        depth,
+                    ) {
+                        pane_node.user_data = Some(user_data.clone());
+
+                        last_rect = (pane_node.world_pos, pane_node.world_size);
+                        if let Some(base) = pane.get_base_pane() {
+                            last_visible = parent_visible && base.pane_flags.is_visible;
+                            last_scale = Vector2f {
+                                x: base.scale.x * parent_scale.x,
+                                y: base.scale.y * parent_scale.y,
+                            };
+                        }
+
+                        out.push(pane_node);
+                    }
+                }
+
                 BflytNode::Section(section) => {
                     if section.get_base_pane().is_some() {
                         if let Some(pane_node) = self.build_node(
@@ -713,15 +824,6 @@ impl<'a> Builder<'a> {
                                 };
                             }
                             out.push(pane_node);
-                        }
-                    } else {
-                        if let Some(last_pane) = out.last_mut() {
-                            last_pane.trailing_sections.push(section.clone());
-                        } else {
-                            log::warn!(
-                                "Metadata section found with no preceding sibling pane: {:?}",
-                                section.kind_name()
-                            );
                         }
                     }
                 }
@@ -826,7 +928,7 @@ impl<'a> Builder<'a> {
             plain_quad,
             dirty: DirtyFlags::empty(),
             children: Vec::new(),
-            trailing_sections: Vec::new(),
+            user_data: None,
         };
 
         if let BflytSection::PartsPane(parts) = section {
@@ -1004,261 +1106,7 @@ impl<'a> Builder<'a> {
         }
 
         let material_list = self.sub_material_list.as_ref().or(self.material_list)?;
-
         let mat = material_list.materials.get(pic.material_index as usize)?;
-        let tex_map = mat.tex_maps.first()?;
-        let tex_name = tex_map.texture_name.trim_end();
-
-        if tex_name.is_empty() {
-            return None;
-        }
-
-        let tl: [f32; 4] = pic.top_left_vertex_color.into();
-        let tint = if is_visible {
-            if tl[3] > 0.0 { tl } else { [1.0; 4] }
-        } else {
-            [0.0; 4]
-        };
-
-        let get_uv_set = |layer: usize| -> [[f32; 2]; 4] {
-            if let Some(uv_set) = pic.texture_uvs.get(layer) {
-                [
-                    [uv_set.top_left.x, uv_set.top_left.y],
-                    [uv_set.top_right.x, uv_set.top_right.y],
-                    [uv_set.bottom_left.x, uv_set.bottom_left.y],
-                    [uv_set.bottom_right.x, uv_set.bottom_right.y],
-                ]
-            } else {
-                [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]
-            }
-        };
-
-        let uvs0_base = get_uv_set(0);
-        let uvs1_base = get_uv_set(1);
-        let uvs2_base = get_uv_set(2);
-        let base_uvs: [[[f32; 2]; 3]; 4] =
-            std::array::from_fn(|i| [uvs0_base[i], uvs1_base[i], uvs2_base[i]]);
-
-        let mut uvs = base_uvs;
-
-        for layer in 0..3 {
-            if let Some(srt) = mat.tex_srts.get(layer) {
-                for v_idx in 0..4 {
-                    let base_uv = base_uvs[v_idx][layer];
-                    uvs[v_idx][layer] = transform_uv_srt(srt, base_uv);
-                }
-            }
-        }
-
-        let wrap_to_address = |w: &TexWrapMode| match w {
-            TexWrapMode::Repeat => wgpu::AddressMode::Repeat,
-            TexWrapMode::Mirror => wgpu::AddressMode::MirrorRepeat,
-            TexWrapMode::Clamp => wgpu::AddressMode::ClampToEdge,
-        };
-
-        let filter_to_mode = |f: &TexFilter| match f {
-            TexFilter::Linear => wgpu::FilterMode::Linear,
-            TexFilter::Near => wgpu::FilterMode::Nearest,
-        };
-
-        let tex_map1 = mat.tex_maps.get(1);
-        let tex_map2 = mat.tex_maps.get(2);
-
-        let address_mode_u = wrap_to_address(&tex_map.u_options.wrap_mode);
-        let address_mode_v = wrap_to_address(&tex_map.v_options.wrap_mode);
-        let min_filter = filter_to_mode(&tex_map.u_options.filter);
-        let mag_filter = filter_to_mode(&tex_map.v_options.filter);
-
-        let address_mode_u1 = tex_map1
-            .map(|m| wrap_to_address(&m.u_options.wrap_mode))
-            .unwrap_or(wgpu::AddressMode::ClampToEdge);
-        let address_mode_v1 = tex_map1
-            .map(|m| wrap_to_address(&m.v_options.wrap_mode))
-            .unwrap_or(wgpu::AddressMode::ClampToEdge);
-        let min_filter1 = tex_map1
-            .map(|m| filter_to_mode(&m.u_options.filter))
-            .unwrap_or(wgpu::FilterMode::Linear);
-        let mag_filter1 = tex_map1
-            .map(|m| filter_to_mode(&m.v_options.filter))
-            .unwrap_or(wgpu::FilterMode::Linear);
-
-        let address_mode_u2 = tex_map2
-            .map(|m| wrap_to_address(&m.u_options.wrap_mode))
-            .unwrap_or(wgpu::AddressMode::ClampToEdge);
-        let address_mode_v2 = tex_map2
-            .map(|m| wrap_to_address(&m.v_options.wrap_mode))
-            .unwrap_or(wgpu::AddressMode::ClampToEdge);
-        let min_filter2 = tex_map2
-            .map(|m| filter_to_mode(&m.u_options.filter))
-            .unwrap_or(wgpu::FilterMode::Linear);
-        let mag_filter2 = tex_map2
-            .map(|m| filter_to_mode(&m.v_options.filter))
-            .unwrap_or(wgpu::FilterMode::Linear);
-
-        let texture_name1 = mat
-            .tex_maps
-            .get(1)
-            .map(|m| m.texture_name.trim_end().to_string())
-            .filter(|s| !s.is_empty());
-        let texture_name2 = mat
-            .tex_maps
-            .get(2)
-            .map(|m| m.texture_name.trim_end().to_string())
-            .filter(|s| !s.is_empty());
-
-        let texture_count = mat.tex_maps.len().min(3) as u32;
-
-        let mut tex_gen_flags = [0u32; 3];
-        for (flag, coord_gen) in tex_gen_flags
-            .iter_mut()
-            .zip(mat.tex_coord_gens.iter().take(texture_count as usize))
-        {
-            let (mode, is_ortho) = match coord_gen.tex_gen_source {
-                TexGenSrc::PaneBasedProjection | TexGenSrc::PaneBasedPerspectiveProjection => {
-                    (1, false)
-                }
-                TexGenSrc::OrthogonalProjection | TexGenSrc::PerspectiveProjection => (1, true),
-                TexGenSrc::BrickRepeat => (2, false),
-                _ => (0, false),
-            };
-            *flag = mode;
-            if is_ortho {
-                *flag |= 1 << 5;
-            }
-        }
-
-        let mut proj_scales = [[1.0f32; 2]; 3];
-        let mut proj_translations = [[0.0f32; 2]; 3];
-
-        let mut target_layer = 0;
-        for tex_gen in mat.projection_tex_gens.iter().take(texture_count as usize) {
-            while target_layer < 3 && (tex_gen_flags[target_layer] & 0x3) != 1 {
-                target_layer += 1;
-            }
-            if target_layer >= 3 {
-                break;
-            }
-
-            proj_scales[target_layer] = [tex_gen.scale.x, tex_gen.scale.y];
-            proj_translations[target_layer] = [tex_gen.translation.x, tex_gen.translation.y];
-
-            if tex_gen.flags.fitting_layout_size {
-                tex_gen_flags[target_layer] |= 1 << 2;
-            }
-            if tex_gen.flags.fitting_pane_size {
-                tex_gen_flags[target_layer] |= 1 << 3;
-            }
-            if tex_gen.flags.adjust_projection_scale_rotate {
-                tex_gen_flags[target_layer] |= 1 << 4;
-            }
-
-            target_layer += 1;
-        }
-
-        let tex_gen_mode_packed =
-            tex_gen_flags[0] | (tex_gen_flags[1] << 8) | (tex_gen_flags[2] << 16);
-
-        let color_f32 = |entry: &MaterialColorEntry| -> [f32; 4] {
-            if let Some(c) = &entry.color_u8 {
-                [
-                    c.r as f32 / 255.0,
-                    c.g as f32 / 255.0,
-                    c.b as f32 / 255.0,
-                    c.a as f32 / 255.0,
-                ]
-            } else if let Some(c) = &entry.color_f32 {
-                [c.r, c.g, c.b, c.a]
-            } else {
-                [0.0; 4]
-            }
-        };
-
-        let black_color = mat
-            .colors
-            .first()
-            .map(color_f32)
-            .unwrap_or([0.0, 0.0, 0.0, 0.0]);
-        let white_color = mat
-            .colors
-            .get(1)
-            .map(color_f32)
-            .unwrap_or([1.0, 1.0, 1.0, 1.0]);
-
-        let interpolate_offset = black_color;
-        let interpolate_width = [
-            white_color[0] - black_color[0],
-            white_color[1] - black_color[1],
-            white_color[2] - black_color[2],
-            white_color[3] - black_color[3],
-        ];
-
-        let is_detailed = mat.detailed_combiner.is_some();
-        let mut detailed_combiner_material = DetailedCombinerMaterial::default();
-
-        if let Some(dc) = &mat.detailed_combiner {
-            detailed_combiner_material.stage_count = dc.entries.len().min(6) as u32;
-            detailed_combiner_material.texture_count = texture_count;
-
-            detailed_combiner_material.constant_colors[0] = dc.color1.into();
-            detailed_combiner_material.constant_colors[1] = dc.color2.into();
-            detailed_combiner_material.constant_colors[2] = dc.color3.into();
-            detailed_combiner_material.constant_colors[3] = dc.color4.into();
-            detailed_combiner_material.constant_colors[4] = dc.color5.into();
-            detailed_combiner_material.constant_colors[5] = [0.0; 4];
-            detailed_combiner_material.constant_colors[6] = [0.0; 4];
-
-            for (idx, entry) in dc.entries.iter().enumerate().take(6) {
-                let (color_flags, alpha_flags, constant_selectors, _) = entry.pack_flags();
-                detailed_combiner_material.stage_bits[idx] = [
-                    color_flags as i32,
-                    alpha_flags as i32,
-                    constant_selectors as i32,
-                    1i32,
-                ];
-            }
-        }
-
-        let (combine_mode, combine_mode2) = if let Some(tev0) = mat.tev_combiners.first() {
-            let m0 = tev0.rgb_mode as u32;
-            let m1 = mat
-                .tev_combiners
-                .get(1)
-                .map(|t| t.rgb_mode as u32)
-                .unwrap_or(0);
-            (m0, m1)
-        } else {
-            (0, 0)
-        };
-
-        let alpha_select = 0;
-
-        let (indirect_mtx0, indirect_mtx1) = if let Some(im) = &mat.indirect_matrix {
-            let rad = im.rotation.to_radians();
-            let cos_r = rad.cos();
-            let sin_r = rad.sin();
-            (
-                [cos_r * im.scale.x, -sin_r * im.scale.x, 0.0, 0.0],
-                [sin_r * im.scale.y, cos_r * im.scale.y, 0.0, 0.0],
-            )
-        } else {
-            ([0.0f32; 4], [0.0f32; 4])
-        };
-
-        let standard_material = StandardMaterial {
-            interpolate_width,
-            interpolate_offset,
-            combine_mode,
-            combine_mode2,
-            texture_count,
-            alpha_select,
-            tex_gen_mode: tex_gen_mode_packed,
-            use_texture_only: mat.use_texture_only as u32,
-            use_thresholding_alpha_interpolation: mat.use_thresholding_alpha_interpolation as u32,
-            visible: is_visible as u32,
-            indirect_mtx0,
-            indirect_mtx1,
-            ..Default::default()
-        };
 
         let corners = Corners::compute(
             center,
@@ -1268,39 +1116,15 @@ impl<'a> Builder<'a> {
             rotate_z,
         );
 
-        Some(TexturedQuad {
-            x: position.x,
-            y: position.y,
-            width: size.x,
-            height: size.y,
-            corners: corners.to_array(),
-            uvs,
-            base_uvs,
-            tint,
-            corner_tints: [tint; 4],
-            texture_name: tex_name.to_string(),
-            texture_name1,
-            texture_name2,
-            address_mode_u,
-            address_mode_v,
-            min_filter,
-            mag_filter,
-            address_mode_u1,
-            address_mode_v1,
-            min_filter1,
-            mag_filter1,
-            address_mode_u2,
-            address_mode_v2,
-            min_filter2,
-            mag_filter2,
-            standard_material,
-            detailed_combiner_material,
-            is_detailed,
+        TexturedQuad::derive_from_material(
+            pic,
+            mat,
+            position,
+            size,
+            corners.to_array(),
+            is_visible,
             pane_idx,
-            tex_srts: mat.tex_srts.clone(),
-            proj_scales,
-            proj_translations,
-        })
+        )
     }
 }
 

@@ -369,8 +369,8 @@ pub fn point_hits_textured_quad(
 ) -> bool {
     use wgpu::AddressMode;
 
-    let clamp_u = tq.address_mode_u == AddressMode::ClampToEdge;
-    let clamp_v = tq.address_mode_v == AddressMode::ClampToEdge;
+    let clamp_u = tq.sampler_0.address_mode_u == AddressMode::ClampToEdge;
+    let clamp_v = tq.sampler_0.address_mode_v == AddressMode::ClampToEdge;
 
     if !clamp_u && !clamp_v {
         return true;

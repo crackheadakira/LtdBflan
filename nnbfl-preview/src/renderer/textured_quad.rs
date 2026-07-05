@@ -1,11 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use bytemuck::{Pod, Zeroable};
-use nnbfl::bflyt::list::MaterialTextureSrt;
+use nnbfl::bflyt::flags::{TexFilter, TexWrapMode};
+use nnbfl::bflyt::list::{Material, MaterialTextureMap, MaterialTextureSrt, TexGenSrc};
+use nnbfl::bflyt::pane::PicturePane;
+use nnbfl::ui2d::types::Vector2f;
 use wgpu::util::DeviceExt;
 
 use super::quad::Quad;
 use super::texture::TextureCache;
+use crate::pane_tree::PaneNode;
 use crate::renderer::quad::Uniforms;
 use crate::ui::PaneVisibilityFlags;
 
@@ -133,6 +137,51 @@ impl Default for DetailedCombinerMaterial {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Copy)]
+pub struct WgpuSamplerSettings {
+    pub address_mode_u: wgpu::AddressMode,
+    pub address_mode_v: wgpu::AddressMode,
+    pub min_filter: wgpu::FilterMode,
+    pub mag_filter: wgpu::FilterMode,
+}
+
+impl WgpuSamplerSettings {
+    pub fn from_tex_map(
+        map: Option<&MaterialTextureMap>,
+        default_filter: wgpu::FilterMode,
+    ) -> Self {
+        match map {
+            Some(m) => Self {
+                address_mode_u: Self::wrap_to_wgpu(&m.u_options.wrap_mode),
+                address_mode_v: Self::wrap_to_wgpu(&m.v_options.wrap_mode),
+                min_filter: Self::filter_to_wgpu(&m.u_options.filter),
+                mag_filter: Self::filter_to_wgpu(&m.v_options.filter),
+            },
+            None => Self {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                min_filter: default_filter,
+                mag_filter: default_filter,
+            },
+        }
+    }
+
+    fn wrap_to_wgpu(w: &TexWrapMode) -> wgpu::AddressMode {
+        match w {
+            TexWrapMode::Repeat => wgpu::AddressMode::Repeat,
+            TexWrapMode::Mirror => wgpu::AddressMode::MirrorRepeat,
+            TexWrapMode::Clamp => wgpu::AddressMode::ClampToEdge,
+        }
+    }
+
+    fn filter_to_wgpu(f: &TexFilter) -> wgpu::FilterMode {
+        match f {
+            TexFilter::Linear => wgpu::FilterMode::Linear,
+            TexFilter::Near => wgpu::FilterMode::Nearest,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TexturedQuad {
     pub pane_idx: usize,
@@ -152,20 +201,9 @@ pub struct TexturedQuad {
     pub texture_name1: Option<String>,
     pub texture_name2: Option<String>,
 
-    pub address_mode_u: wgpu::AddressMode,
-    pub address_mode_v: wgpu::AddressMode,
-    pub min_filter: wgpu::FilterMode,
-    pub mag_filter: wgpu::FilterMode,
-
-    pub address_mode_u1: wgpu::AddressMode,
-    pub address_mode_v1: wgpu::AddressMode,
-    pub min_filter1: wgpu::FilterMode,
-    pub mag_filter1: wgpu::FilterMode,
-
-    pub address_mode_u2: wgpu::AddressMode,
-    pub address_mode_v2: wgpu::AddressMode,
-    pub min_filter2: wgpu::FilterMode,
-    pub mag_filter2: wgpu::FilterMode,
+    pub sampler_0: WgpuSamplerSettings,
+    pub sampler_1: WgpuSamplerSettings,
+    pub sampler_2: WgpuSamplerSettings,
 
     pub is_detailed: bool,
     pub standard_material: StandardMaterial,
@@ -173,6 +211,213 @@ pub struct TexturedQuad {
 
     pub proj_scales: [[f32; 2]; 3],
     pub proj_translations: [[f32; 2]; 3],
+}
+
+impl TexturedQuad {
+    pub fn derive_from_material(
+        pic: &PicturePane,
+        mat: &Material,
+        position: Vector2f,
+        size: Vector2f,
+        corners: [[f32; 2]; 4],
+        is_visible: bool,
+        pane_idx: usize,
+    ) -> Option<Self> {
+        let tex_map = mat.tex_maps.first()?;
+        let tex_name = tex_map.texture_name.trim_end();
+
+        if tex_name.is_empty() {
+            return None;
+        }
+
+        let tl: [f32; 4] = pic.top_left_vertex_color.into();
+        let tint = if is_visible {
+            if tl[3] > 0.0 { tl } else { [1.0; 4] }
+        } else {
+            [0.0; 4]
+        };
+
+        let (base_uvs, uvs) = PaneNode::compute_uvs(pic, mat);
+
+        let sampler_0 =
+            WgpuSamplerSettings::from_tex_map(mat.tex_maps.first(), wgpu::FilterMode::Linear);
+        let sampler_1 =
+            WgpuSamplerSettings::from_tex_map(mat.tex_maps.get(1), wgpu::FilterMode::Linear);
+        let sampler_2 =
+            WgpuSamplerSettings::from_tex_map(mat.tex_maps.get(2), wgpu::FilterMode::Linear);
+
+        let get_name = |idx: usize| {
+            mat.tex_maps
+                .get(idx)
+                .map(|m| m.texture_name.trim_end().to_string())
+                .filter(|s| !s.is_empty())
+        };
+
+        let texture_name1 = get_name(1);
+        let texture_name2 = get_name(2);
+
+        let texture_count = mat.tex_maps.len().min(3) as u32;
+
+        let mut tex_gen_flags = [0u32; 3];
+        for (flag, coord_gen) in tex_gen_flags
+            .iter_mut()
+            .zip(mat.tex_coord_gens.iter().take(texture_count as usize))
+        {
+            let (mode, is_ortho) = match coord_gen.tex_gen_source {
+                TexGenSrc::PaneBasedProjection | TexGenSrc::PaneBasedPerspectiveProjection => {
+                    (1, false)
+                }
+                TexGenSrc::OrthogonalProjection | TexGenSrc::PerspectiveProjection => (1, true),
+                TexGenSrc::BrickRepeat => (2, false),
+                _ => (0, false),
+            };
+            *flag = mode;
+            if is_ortho {
+                *flag |= 1 << 5;
+            }
+        }
+
+        let mut proj_scales = [[1.0f32; 2]; 3];
+        let mut proj_translations = [[0.0f32; 2]; 3];
+        let mut target_layer = 0;
+        for tex_gen in mat.projection_tex_gens.iter().take(texture_count as usize) {
+            while target_layer < 3 && (tex_gen_flags[target_layer] & 0x3) != 1 {
+                target_layer += 1;
+            }
+            if target_layer >= 3 {
+                break;
+            }
+
+            proj_scales[target_layer] = [tex_gen.scale.x, tex_gen.scale.y];
+            proj_translations[target_layer] = [tex_gen.translation.x, tex_gen.translation.y];
+
+            if tex_gen.flags.fitting_layout_size {
+                tex_gen_flags[target_layer] |= 1 << 2;
+            }
+            if tex_gen.flags.fitting_pane_size {
+                tex_gen_flags[target_layer] |= 1 << 3;
+            }
+            if tex_gen.flags.adjust_projection_scale_rotate {
+                tex_gen_flags[target_layer] |= 1 << 4;
+            }
+            target_layer += 1;
+        }
+
+        let tex_gen_mode_packed =
+            tex_gen_flags[0] | (tex_gen_flags[1] << 8) | (tex_gen_flags[2] << 16);
+
+        let color_f32 = |entry: &nnbfl::bflyt::list::MaterialColorEntry| -> [f32; 4] {
+            if let Some(c) = &entry.color_u8 {
+                (*c).into()
+            } else if let Some(c) = &entry.color_f32 {
+                (*c).into()
+            } else {
+                [0.0; 4]
+            }
+        };
+
+        let black_color = mat
+            .colors
+            .first()
+            .map(color_f32)
+            .unwrap_or([0.0, 0.0, 0.0, 0.0]);
+        let white_color = mat
+            .colors
+            .get(1)
+            .map(color_f32)
+            .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+        let interpolate_width = [
+            white_color[0] - black_color[0],
+            white_color[1] - black_color[1],
+            white_color[2] - black_color[2],
+            white_color[3] - black_color[3],
+        ];
+
+        let is_detailed = mat.detailed_combiner.is_some();
+        let mut detailed_combiner_material = DetailedCombinerMaterial::default();
+        if let Some(dc) = &mat.detailed_combiner {
+            detailed_combiner_material.stage_count = dc.entries.len().min(6) as u32;
+            detailed_combiner_material.texture_count = texture_count;
+            detailed_combiner_material.constant_colors[0] = dc.color1.into();
+            detailed_combiner_material.constant_colors[1] = dc.color2.into();
+            detailed_combiner_material.constant_colors[2] = dc.color3.into();
+            detailed_combiner_material.constant_colors[3] = dc.color4.into();
+            detailed_combiner_material.constant_colors[4] = dc.color5.into();
+
+            for (idx, entry) in dc.entries.iter().enumerate().take(6) {
+                let (color_flags, alpha_flags, constant_selectors, _) = entry.pack_flags();
+                detailed_combiner_material.stage_bits[idx] = [
+                    color_flags as i32,
+                    alpha_flags as i32,
+                    constant_selectors as i32,
+                    1i32,
+                ];
+            }
+        }
+
+        let (combine_mode, combine_mode2) = if let Some(tev0) = mat.tev_combiners.first() {
+            (
+                tev0.rgb_mode as u32,
+                mat.tev_combiners
+                    .get(1)
+                    .map(|t| t.rgb_mode as u32)
+                    .unwrap_or(0),
+            )
+        } else {
+            (0, 0)
+        };
+
+        let (indirect_mtx0, indirect_mtx1) = if let Some(im) = &mat.indirect_matrix {
+            let rad = im.rotation.to_radians();
+            (
+                [rad.cos() * im.scale.x, -rad.sin() * im.scale.x, 0.0, 0.0],
+                [rad.sin() * im.scale.y, rad.cos() * im.scale.y, 0.0, 0.0],
+            )
+        } else {
+            ([0.0f32; 4], [0.0f32; 4])
+        };
+
+        let standard_material = StandardMaterial {
+            interpolate_width,
+            interpolate_offset: black_color,
+            combine_mode,
+            combine_mode2,
+            texture_count,
+            alpha_select: 0,
+            tex_gen_mode: tex_gen_mode_packed,
+            use_texture_only: mat.use_texture_only as u32,
+            use_thresholding_alpha_interpolation: mat.use_thresholding_alpha_interpolation as u32,
+            visible: is_visible as u32,
+            indirect_mtx0,
+            indirect_mtx1,
+            ..Default::default()
+        };
+
+        Some(TexturedQuad {
+            x: position.x,
+            y: position.y,
+            width: size.x,
+            height: size.y,
+            corners,
+            uvs,
+            base_uvs,
+            tint,
+            corner_tints: [tint; 4],
+            texture_name: tex_name.to_string(),
+            texture_name1,
+            texture_name2,
+            sampler_0,
+            sampler_1,
+            sampler_2,
+            standard_material,
+            detailed_combiner_material,
+            is_detailed,
+            pane_idx,
+            tex_srts: mat.tex_srts.clone(),
+            proj_scales,
+            proj_translations,
+        })
+    }
 }
 
 /// Owned, per-frame snapshot of a single pane's render data, tagged with
@@ -245,10 +490,7 @@ enum BatchKey {
     Plain,
     Textured {
         texture_name: String,
-        address_mode_u: wgpu::AddressMode,
-        address_mode_v: wgpu::AddressMode,
-        min_filter: wgpu::FilterMode,
-        mag_filter: wgpu::FilterMode,
+        sampler: WgpuSamplerSettings,
         combine_mode: u32,
         combine_mode2: u32,
         is_detailed: bool,
@@ -491,10 +733,7 @@ impl PaneRenderer {
 
                 BatchKey::Textured {
                     texture_name: tq.texture_name.clone(),
-                    address_mode_u: tq.address_mode_u,
-                    address_mode_v: tq.address_mode_v,
-                    min_filter: tq.min_filter,
-                    mag_filter: tq.mag_filter,
+                    sampler: tq.sampler_1,
                     combine_mode: tq.standard_material.combine_mode,
                     combine_mode2: tq.standard_material.combine_mode2,
                     is_detailed: tq.is_detailed,
@@ -570,17 +809,13 @@ impl PaneRenderer {
             }
         }
 
-        let make_sampler = |am_u: wgpu::AddressMode,
-                            am_v: wgpu::AddressMode,
-                            min: wgpu::FilterMode,
-                            mag: wgpu::FilterMode|
-         -> wgpu::Sampler {
+        let make_sampler = |sampler_settings: WgpuSamplerSettings| -> wgpu::Sampler {
             device.create_sampler(&wgpu::SamplerDescriptor {
-                address_mode_u: am_u,
-                address_mode_v: am_v,
+                address_mode_u: sampler_settings.address_mode_u,
+                address_mode_v: sampler_settings.address_mode_v,
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
-                min_filter: min,
-                mag_filter: mag,
+                min_filter: sampler_settings.min_filter,
+                mag_filter: sampler_settings.mag_filter,
                 mipmap_filter: wgpu::MipmapFilterMode::Nearest,
                 ..Default::default()
             })
@@ -735,24 +970,9 @@ impl PaneRenderer {
                         .and_then(|n| texture_cache.get(n))
                         .unwrap_or(gpu_tex0);
 
-                    let sampler0 = make_sampler(
-                        rep_quad.address_mode_u,
-                        rep_quad.address_mode_v,
-                        rep_quad.min_filter,
-                        rep_quad.mag_filter,
-                    );
-                    let sampler1 = make_sampler(
-                        rep_quad.address_mode_u1,
-                        rep_quad.address_mode_v1,
-                        rep_quad.min_filter1,
-                        rep_quad.mag_filter1,
-                    );
-                    let sampler2 = make_sampler(
-                        rep_quad.address_mode_u2,
-                        rep_quad.address_mode_v2,
-                        rep_quad.min_filter2,
-                        rep_quad.mag_filter2,
-                    );
+                    let sampler0 = make_sampler(rep_quad.sampler_0);
+                    let sampler1 = make_sampler(rep_quad.sampler_1);
+                    let sampler2 = make_sampler(rep_quad.sampler_2);
 
                     batch.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("pane_textured_bg"),
@@ -872,10 +1092,7 @@ impl PaneRenderer {
         for batch in &mut self.batches {
             let BatchKey::Textured {
                 texture_name,
-                address_mode_u,
-                address_mode_v,
-                min_filter,
-                mag_filter,
+                sampler,
                 ..
             } = &mut batch.key
             else {
@@ -905,31 +1122,21 @@ impl PaneRenderer {
             let gpu_tex1 = texture_cache.get(tex1_name).unwrap_or(gpu_tex0);
             let gpu_tex2 = texture_cache.get(tex2_name).unwrap_or(gpu_tex0);
 
-            let make_sampler = |am_u, am_v, min, mag| {
+            let make_sampler = |sampler_settings: WgpuSamplerSettings| -> wgpu::Sampler {
                 device.create_sampler(&wgpu::SamplerDescriptor {
-                    address_mode_u: am_u,
-                    address_mode_v: am_v,
+                    address_mode_u: sampler_settings.address_mode_u,
+                    address_mode_v: sampler_settings.address_mode_v,
                     address_mode_w: wgpu::AddressMode::ClampToEdge,
-                    min_filter: min,
-                    mag_filter: mag,
+                    min_filter: sampler_settings.min_filter,
+                    mag_filter: sampler_settings.mag_filter,
                     mipmap_filter: wgpu::MipmapFilterMode::Nearest,
                     ..Default::default()
                 })
             };
 
-            let sampler0 = make_sampler(*address_mode_u, *address_mode_v, *min_filter, *mag_filter);
-            let sampler1 = make_sampler(
-                tq.address_mode_u1,
-                tq.address_mode_v1,
-                tq.min_filter1,
-                tq.mag_filter1,
-            );
-            let sampler2 = make_sampler(
-                tq.address_mode_u2,
-                tq.address_mode_v2,
-                tq.min_filter2,
-                tq.mag_filter2,
-            );
+            let sampler0 = make_sampler(*sampler);
+            let sampler1 = make_sampler(tq.sampler_1);
+            let sampler2 = make_sampler(tq.sampler_2);
 
             let Some(mat_buf) = &batch.mat_buffer else {
                 continue;

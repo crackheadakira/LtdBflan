@@ -213,6 +213,7 @@ pub struct Bflyt {
     pub texture_list: Option<TextureList>,
     pub font_list: Option<FontList>,
     pub material_list: Option<MaterialList>,
+    pub capture_texture_list: Option<CaptureTextureList>,
 
     pub nodes: Vec<BflytNode>,
 }
@@ -258,6 +259,7 @@ impl ReadWriteable for Bflyt {
         let mut texture_list = None;
         let mut font_list = None;
         let mut material_list = None;
+        let mut capture_texture_list = None;
 
         let mut tree_stack = vec![Vec::new()];
 
@@ -288,6 +290,10 @@ impl ReadWriteable for Bflyt {
 
                 BflytSection::MaterialList(m) => {
                     material_list = Some(m);
+                }
+
+                BflytSection::CaptureTextureList(c) => {
+                    capture_texture_list = Some(c);
                 }
 
                 BflytSection::UserData(usd) if !has_entered_hierarchy && user_data.is_none() => {
@@ -322,7 +328,47 @@ impl ReadWriteable for Bflyt {
                 s => {
                     has_entered_hierarchy = true;
                     if let Some(current_layer) = tree_stack.last_mut() {
-                        current_layer.push(BflytNode::Section(s));
+                        match s {
+                            // If it's a UserData section inside the hierarchy, try to bind it to the preceding pane
+                            BflytSection::UserData(usd) => {
+                                let attached_to_pane = if let Some(BflytNode::Section(prev_sec)) =
+                                    current_layer.last()
+                                {
+                                    matches!(
+                                        prev_sec,
+                                        BflytSection::Pane(_)
+                                            | BflytSection::PicturePane(_)
+                                            | BflytSection::TextBoxPane(_)
+                                            | BflytSection::WindowPane(_)
+                                            | BflytSection::PartsPane(_)
+                                            | BflytSection::AlignmentPane(_)
+                                            | BflytSection::CapturePane(_)
+                                            | BflytSection::BoundingPane(_)
+                                            | BflytSection::ScissorPane(_)
+                                    )
+                                } else {
+                                    false
+                                };
+
+                                if attached_to_pane {
+                                    if let Some(BflytNode::Section(pane_sec)) = current_layer.pop()
+                                    {
+                                        current_layer.push(BflytNode::PaneWithUserData {
+                                            pane: pane_sec,
+                                            user_data: usd,
+                                        });
+                                    }
+                                } else {
+                                    // Fallback if there's somehow a floating UserData section inside the tree
+                                    current_layer
+                                        .push(BflytNode::Section(BflytSection::UserData(usd)));
+                                }
+                            }
+                            // All other normal layout sections just get pushed straight into the tree layer
+                            other => {
+                                current_layer.push(BflytNode::Section(other));
+                            }
+                        }
                     }
                 }
             }
@@ -342,6 +388,7 @@ impl ReadWriteable for Bflyt {
             texture_list,
             font_list,
             material_list,
+            capture_texture_list,
             nodes,
         };
 
@@ -369,6 +416,7 @@ impl ReadWriteable for Bflyt {
         total_sections += this.texture_list.is_some() as u32;
         total_sections += this.font_list.is_some() as u32;
         total_sections += this.material_list.is_some() as u32;
+        total_sections += this.capture_texture_list.is_some() as u32;
 
         writer.write_u32(total_sections);
         writer.patch_u16(header_size, writer.pos() as u16);
@@ -389,6 +437,10 @@ impl ReadWriteable for Bflyt {
 
         if let Some(m) = &this.material_list {
             BflytSection::MaterialList(m.clone()).serialize(&mut writer);
+        }
+
+        if let Some(ctl) = &this.capture_texture_list {
+            BflytSection::CaptureTextureList(ctl.clone()).serialize(&mut writer);
         }
 
         for node in &this.nodes {
@@ -444,6 +496,10 @@ impl Bflyt {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BflytNode {
     Section(BflytSection),
+    PaneWithUserData {
+        pane: BflytSection,
+        user_data: UserDataArray,
+    },
     Panes(Vec<BflytNode>),
     Groups(Vec<BflytNode>),
 }
@@ -452,6 +508,12 @@ impl BflytNode {
     pub fn serialize(&self, writer: &mut Writer) {
         match self {
             Self::Section(section) => section.serialize(writer),
+
+            Self::PaneWithUserData { pane, user_data } => {
+                pane.serialize(writer);
+                BflytSection::UserData(user_data.clone()).serialize(writer);
+            }
+
             Self::Panes(children) => {
                 BflytSection::PaneStart.serialize(writer);
 
@@ -477,6 +539,7 @@ impl BflytNode {
     pub fn section_count(&self) -> u32 {
         match self {
             Self::Section(_) => 1,
+            Self::PaneWithUserData { .. } => 2,
             Self::Panes(children) | Self::Groups(children) => {
                 2 + children.iter().map(|c| c.section_count()).sum::<u32>()
             }

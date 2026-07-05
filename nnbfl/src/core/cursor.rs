@@ -24,6 +24,19 @@ impl<'a> Cursor<'a> {
         Ok(slice)
     }
 
+    pub fn peek_bytes(&self, len: usize) -> Result<&'a [u8], FormatError> {
+        let end = self.pos + len;
+
+        if end > self.data.len() {
+            return Err(FormatError::UnexpectedEof {
+                offset: self.pos,
+                requested_bytes: len,
+            });
+        }
+
+        Ok(&self.data[self.pos..end])
+    }
+
     pub fn read_u8(&mut self) -> Result<u8, FormatError> {
         let bytes = self.read_bytes(1)?;
         Ok(bytes[0])
@@ -44,6 +57,11 @@ impl<'a> Cursor<'a> {
         Ok(u64::from_le_bytes([
             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
         ]))
+    }
+
+    pub fn peek_u32(&self) -> Result<u32, FormatError> {
+        let b = self.peek_bytes(4)?;
+        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
     pub fn read_i16(&mut self) -> Result<i16, FormatError> {

@@ -117,6 +117,10 @@ pub fn handle(ctx: &Context, state: &mut UiState, anim_player: &mut AnimPlayer) 
     });
 
     if let Some(bind) = action_to_apply {
+        if ctx.egui_wants_keyboard_input() {
+            return;
+        };
+
         let fired = ctx.input_mut(|i| i.consume_key(bind.modifiers, bind.key));
 
         if fired {

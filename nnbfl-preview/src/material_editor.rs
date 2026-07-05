@@ -9,11 +9,11 @@ use nnbfl::{
 };
 
 pub trait DrawUiWith<T> {
-    fn draw_mut(&mut self, _ui: &mut egui::Ui, _state: &mut T) -> bool {
+    fn draw_with_mut(&mut self, _ui: &mut egui::Ui, _state: &mut T) -> bool {
         false
     }
 
-    fn draw(&mut self, _ui: &mut egui::Ui, _state: T) -> bool {
+    fn draw_with(&mut self, _ui: &mut egui::Ui, _state: T) -> bool {
         false
     }
 }
@@ -25,11 +25,12 @@ pub trait DrawUi {
 #[derive(Default)]
 pub struct MaterialEditor {
     pub selected_material: usize,
+    pub pending_upload: bool,
     pub is_editor_visible: bool,
 }
 
 impl DrawUiWith<MaterialList> for MaterialEditor {
-    fn draw_mut(&mut self, ui: &mut egui::Ui, material_list: &mut MaterialList) -> bool {
+    fn draw_with_mut(&mut self, ui: &mut egui::Ui, material_list: &mut MaterialList) -> bool {
         let mut changed = false;
 
         egui::Window::new("Material Editor")
@@ -108,9 +109,9 @@ impl DrawUi for Material {
                 let color_label = &format!("Color {}:", idx + 1);
 
                 if let Some(ref mut color) = color.color_f32 {
-                    changed |= color.draw(ui, &color_label)
+                    changed |= color.draw_with(ui, &color_label)
                 } else if let Some(ref mut color) = color.color_u8 {
-                    changed |= color.draw(ui, &color_label)
+                    changed |= color.draw_with(ui, &color_label)
                 }
             });
         }
@@ -124,8 +125,8 @@ impl DrawUi for Material {
             ui.label(&tex_map.texture_name);
 
             ui.horizontal(|ui| {
-                changed |= tex_map.u_options.draw(ui, ("U", idx));
-                changed |= tex_map.v_options.draw(ui, ("V", idx));
+                changed |= tex_map.u_options.draw_with(ui, ("U", idx));
+                changed |= tex_map.v_options.draw_with(ui, ("V", idx));
             });
 
             if let Some(tex_ext) = self.tex_extensions.get_mut(idx) {
@@ -310,11 +311,11 @@ impl DrawUi for Material {
                 )
                 .changed();
 
-            proj_tex_gen.translation.draw(ui, "Translation");
+            proj_tex_gen.translation.draw_with(ui, "Translation");
 
             ui.add_space(4.0);
 
-            proj_tex_gen.scale.draw(ui, "Scale");
+            proj_tex_gen.scale.draw_with(ui, "Scale");
 
             ui.add_space(12.0);
         }
@@ -327,8 +328,8 @@ impl DrawUi for Material {
         for (idx, tev_combiner) in self.tev_combiners.iter_mut().enumerate() {
             ui.weak(format!("Combiner {}", idx + 1));
 
-            tev_combiner.alpha_mode.draw(ui, ("Alpha Mode", idx));
-            tev_combiner.rgb_mode.draw(ui, ("RGB Mode", idx));
+            tev_combiner.alpha_mode.draw_with(ui, ("Alpha Mode", idx));
+            tev_combiner.rgb_mode.draw_with(ui, ("RGB Mode", idx));
 
             ui.add_space(12.0);
         }
@@ -412,7 +413,7 @@ impl DrawUi for Material {
         }
 
         if let Some(blend_mode) = self.blend_mode.as_mut() {
-            changed |= blend_mode.draw(ui, "blend_mode");
+            changed |= blend_mode.draw_with(ui, "blend_mode");
         }
 
         if self.blend_mode_alpha.is_some() {
@@ -421,7 +422,7 @@ impl DrawUi for Material {
         }
 
         if let Some(blend_mode_alpha) = self.blend_mode_alpha.as_mut() {
-            changed |= blend_mode_alpha.draw(ui, "blend_mode_alpha");
+            changed |= blend_mode_alpha.draw_with(ui, "blend_mode_alpha");
         }
 
         if self.indirect_matrix.is_some() {
@@ -435,7 +436,7 @@ impl DrawUi for Material {
                 .add(egui::DragValue::new(&mut indirect_matrix.rotation).speed(0.5))
                 .changed();
 
-            changed |= indirect_matrix.scale.draw(ui, "Scale");
+            changed |= indirect_matrix.scale.draw_with(ui, "Scale");
         }
 
         if self.font_shadow_color.is_some() {
@@ -444,8 +445,8 @@ impl DrawUi for Material {
         }
 
         if let Some(font_shadow_color) = self.font_shadow_color.as_mut() {
-            changed |= font_shadow_color.black_color.draw(ui, "Black Color");
-            changed |= font_shadow_color.white_color.draw(ui, "White Color");
+            changed |= font_shadow_color.black_color.draw_with(ui, "Black Color");
+            changed |= font_shadow_color.white_color.draw_with(ui, "White Color");
         }
 
         if self.detailed_combiner.is_some() {
@@ -454,11 +455,11 @@ impl DrawUi for Material {
         }
 
         if let Some(detailed_combiner) = self.detailed_combiner.as_mut() {
-            changed |= detailed_combiner.color1.draw(ui, "Color 1");
-            changed |= detailed_combiner.color2.draw(ui, "Color 2");
-            changed |= detailed_combiner.color3.draw(ui, "Color 3");
-            changed |= detailed_combiner.color4.draw(ui, "Color 4");
-            changed |= detailed_combiner.color5.draw(ui, "Color 5");
+            changed |= detailed_combiner.color1.draw_with(ui, "Color 1");
+            changed |= detailed_combiner.color2.draw_with(ui, "Color 2");
+            changed |= detailed_combiner.color3.draw_with(ui, "Color 3");
+            changed |= detailed_combiner.color4.draw_with(ui, "Color 4");
+            changed |= detailed_combiner.color5.draw_with(ui, "Color 5");
 
             ui.horizontal_wrapped(|ui| {
                 for (i, entry) in detailed_combiner.entries.iter_mut().enumerate() {
@@ -486,7 +487,7 @@ impl DrawUi for Material {
 }
 
 impl DrawUiWith<&str> for Color4f {
-    fn draw(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
+    fn draw_with(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
         let mut changed = false;
 
         ui.horizontal(|ui| {
@@ -508,7 +509,7 @@ impl DrawUiWith<&str> for Color4f {
 }
 
 impl DrawUiWith<&str> for Color4u8 {
-    fn draw(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
+    fn draw_with(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
         let mut changed = false;
 
         ui.horizontal(|ui| {
@@ -530,7 +531,7 @@ impl DrawUiWith<&str> for Color4u8 {
 }
 
 impl DrawUiWith<&str> for Vector2f {
-    fn draw(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
+    fn draw_with(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
         let mut changed = false;
 
         ui.label(label);
@@ -553,7 +554,7 @@ impl DrawUiWith<&str> for Vector2f {
 }
 
 impl DrawUiWith<(&str, usize)> for MaterialTextureOptions {
-    fn draw(&mut self, ui: &mut egui::Ui, state: (&str, usize)) -> bool {
+    fn draw_with(&mut self, ui: &mut egui::Ui, state: (&str, usize)) -> bool {
         let (prefix, idx) = state;
         let mut changed = false;
 
@@ -606,7 +607,7 @@ impl DrawUiWith<(&str, usize)> for MaterialTextureOptions {
 }
 
 impl DrawUiWith<(&str, usize)> for CombinerTevMode {
-    fn draw(&mut self, ui: &mut egui::Ui, state: (&str, usize)) -> bool {
+    fn draw_with(&mut self, ui: &mut egui::Ui, state: (&str, usize)) -> bool {
         let (prefix, idx) = state;
 
         let mut changed = false;
@@ -673,7 +674,7 @@ impl DrawUiWith<(&str, usize)> for CombinerTevMode {
 }
 
 impl DrawUiWith<&str> for MaterialBlendMode {
-    fn draw(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
+    fn draw_with(&mut self, ui: &mut egui::Ui, label: &str) -> bool {
         let mut changed = false;
 
         let current_variant_name = match self {

@@ -3,6 +3,7 @@ mod archive_browser;
 mod bflyt_view;
 mod camera;
 mod chinese_font;
+mod detailed_pane_editor;
 mod edit_history;
 mod keybinds;
 mod material_editor;
@@ -165,6 +166,22 @@ impl GpuState {
         blarc_dir: Option<&PathBuf>,
         archive_scan: Option<&ArchiveScan>,
     ) {
+        if ui_state.material_editor.pending_upload
+            && let Some(bflyt_view) = bflyt_view
+        {
+            ui_state.material_editor.pending_upload = false;
+            bflyt_view.tree.recompute_dirty_materials();
+
+            let render_quads = bflyt_view.tree.collect_render_quads();
+            self.pane_renderer.upload_quads(
+                &self.device,
+                &render_quads,
+                &self.texture_cache,
+                bflyt_view.tree.layout_size.x,
+                bflyt_view.tree.layout_size.y,
+            );
+        }
+
         self.grid_renderer
             .update_projection(&self.queue, camera, &self.config);
 
@@ -450,6 +467,7 @@ impl App {
             texture_list: view.tree.texture_list.clone(),
             font_list: view.tree.font_list.clone(),
             material_list: view.tree.material_list.clone(),
+            capture_texture_list: view.tree.capture_texture_list.clone(),
             nodes,
         })
     }

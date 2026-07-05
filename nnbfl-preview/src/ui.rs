@@ -15,7 +15,9 @@ use crate::{
     anim_state::AnimPlayer,
     bflyt_view::BflytView,
     camera::Camera,
+    detailed_pane_editor::DetailedPaneEditor,
     material_editor::{DrawUiWith, MaterialEditor},
+    pane_tree::DirtyFlags,
     renderer::timeline::{
         PendingKeyEdit, TIMELINE_MIN_VISIBLE_FRAMES, TimelineDrag, TimelineGeometry,
         TimelineLayout, TimelineRow,
@@ -51,6 +53,7 @@ pub struct UiState {
 
     pub timeline: TimelineState,
     pub material_editor: MaterialEditor,
+    pub detailed_pane_editor: DetailedPaneEditor,
 }
 
 pub struct TimelineState {
@@ -267,6 +270,12 @@ pub fn draw_ui(
                         state.material_editor.is_editor_visible = true;
                     }
                 }
+
+                if state.selected_pane.is_some() {
+                    if ui.button("Detailed Pane Editor").clicked() {
+                        state.detailed_pane_editor.is_editor_visible = true;
+                    };
+                };
             }
 
             ui.menu_button("Help", |ui| {
@@ -628,11 +637,24 @@ pub fn draw_ui(
             });
     };
 
-    if let Some(view) = view
-        && let Some(material_list) = view.tree.material_list.as_mut()
-    {
-        // TODO: flag materials as dirty
-        let _changed = state.material_editor.draw_mut(ui, material_list);
+    if let Some(view) = view {
+        if let Some(material_list) = view.tree.material_list.as_mut() {
+            let changed = state.material_editor.draw_with_mut(ui, material_list);
+
+            if changed {
+                view.tree.for_each_mut(|node| {
+                    node.dirty.insert(DirtyFlags::MATERIAL);
+                });
+
+                state.material_editor.pending_upload = true;
+            }
+        }
+
+        if let Some(idx) = state.selected_pane
+            && let Some(node) = view.tree.find_node_mut(idx)
+        {
+            state.detailed_pane_editor.draw_with_mut(ui, node);
+        }
     }
 
     draw_timeline_panel(ui, state, anim_player);
