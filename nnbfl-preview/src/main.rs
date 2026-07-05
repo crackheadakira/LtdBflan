@@ -633,7 +633,35 @@ impl App {
     }
 
     fn end_drag(&mut self) {
-        self.drag_state = None;
+        let Some(drag) = self.drag_state.take() else {
+            return;
+        };
+
+        let Some(view) = &mut self.bflyt_view else {
+            return;
+        };
+
+        let Some(node) = view.tree.find_node_mut(drag.pane_idx) else {
+            return;
+        };
+
+        let Some(base) = node.section.get_base_pane() else {
+            return;
+        };
+
+        let before = edit_history::PaneTransform {
+            translation: drag.start_translation,
+            size: drag.start_size,
+            rotation_z: drag.rotate_z,
+        };
+
+        let after = edit_history::PaneTransform {
+            translation: (base.translation.x, base.translation.y),
+            size: (base.size.x, base.size.y),
+            rotation_z: base.rotation.z,
+        };
+
+        view.history.record_transform(drag.pane_idx, before, after);
     }
 
     fn try_select_at(&mut self, screen_pos: [f32; 2]) {

@@ -1,4 +1,14 @@
-use crate::pane_tree::{PaneNode, PaneTree};
+use crate::{
+    pane_tree::{PaneNode, PaneTree},
+    traits::Displaying,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PaneTransform {
+    pub translation: (f32, f32),
+    pub size: (f32, f32),
+    pub rotation_z: f32,
+}
 
 pub enum PaneEdit {
     Delete {
@@ -54,6 +64,11 @@ pub struct PendingRemoval {
 pub enum AppliedCommand {
     Inserted(usize),
     Removed(Box<PendingRemoval>),
+    Transformed {
+        pane_idx: usize,
+        before: PaneTransform,
+        after: PaneTransform,
+    },
 }
 
 impl AppliedCommand {
@@ -74,6 +89,29 @@ impl AppliedCommand {
                     tree.insert_node_at(removal.parent_idx, removal.position, removal.node);
                 Some(AppliedCommand::Inserted(pane_idx))
             }
+            AppliedCommand::Transformed {
+                pane_idx,
+                before,
+                after,
+            } => {
+                let node = tree.find_node_mut(pane_idx)?;
+                let base = node.section.get_base_pane_mut()?;
+
+                base.translation.x = before.translation.0;
+                base.translation.y = before.translation.1;
+                base.size.x = before.size.0;
+                base.size.y = before.size.1;
+                base.rotation.z = before.rotation_z;
+
+                node.mark_transform_dirty();
+                tree.recompute_dirty();
+
+                Some(AppliedCommand::Transformed {
+                    pane_idx,
+                    before: after,
+                    after: before,
+                })
+            }
         }
     }
 
@@ -81,6 +119,7 @@ impl AppliedCommand {
         match self {
             AppliedCommand::Inserted(idx) => Some(*idx),
             AppliedCommand::Removed(_) => None,
+            AppliedCommand::Transformed { pane_idx, .. } => Some(*pane_idx),
         }
     }
 }
@@ -136,5 +175,23 @@ impl EditHistory {
         }
 
         self.undo_stack.push(applied);
+    }
+
+    pub fn record_transform(
+        &mut self,
+        pane_idx: usize,
+        before: PaneTransform,
+        after: PaneTransform,
+    ) {
+        if before == after {
+            return;
+        }
+
+        self.redo_stack.clear();
+        self.push_undo(AppliedCommand::Transformed {
+            pane_idx,
+            before,
+            after,
+        });
     }
 }
