@@ -253,6 +253,8 @@ pub struct Bflyt {
     pub capture_texture_list: Option<CaptureTextureList>,
 
     pub nodes: Vec<BflytNode>,
+    pub root_group: GroupElement,
+    pub control_source: Option<ControlSourceElement>,
 }
 
 enum StackFrame {
@@ -328,9 +330,6 @@ impl ReadWriteable for Bflyt {
                         StackFrame::Root(layer)
                         | StackFrame::Pane(PaneElement {
                             children: layer, ..
-                        })
-                        | StackFrame::Group(GroupElement {
-                            children: layer, ..
                         }),
                     ) = tree_stack.last_mut()
                     {
@@ -354,10 +353,7 @@ impl ReadWriteable for Bflyt {
                             Some(StackFrame::Pane(parent)) => {
                                 parent.children.push(BflytNode::Pane(finished_pane))
                             }
-                            Some(StackFrame::Group(parent)) => {
-                                parent.children.push(BflytNode::Pane(finished_pane))
-                            }
-                            None => unreachable!(),
+                            _ => unreachable!(),
                         }
                     } else {
                         return Err(FormatError::InvalidHierarchyChange(
@@ -368,21 +364,18 @@ impl ReadWriteable for Bflyt {
 
                 BflytSection::GroupStart => {
                     has_entered_hierarchy = true;
-                    if let Some(
-                        StackFrame::Root(layer)
-                        | StackFrame::Pane(PaneElement {
-                            children: layer, ..
-                        })
-                        | StackFrame::Group(GroupElement {
-                            children: layer, ..
-                        }),
-                    ) = tree_stack.last_mut()
-                    {
-                        if let Some(BflytNode::Group(group_el)) = layer.pop() {
-                            tree_stack.push(StackFrame::Group(group_el));
-                            continue;
-                        }
+
+                    let group_el = match tree_stack.last_mut() {
+                        Some(StackFrame::Root(layer)) => layer.pop(),
+                        Some(StackFrame::Pane(pane_el)) => pane_el.children.pop(),
+                        _ => None,
+                    };
+
+                    if let Some(BflytNode::Group(group_el)) = group_el {
+                        tree_stack.push(StackFrame::Group(group_el));
+                        continue;
                     }
+
                     return Err(FormatError::InvalidHierarchyChange(
                         "GroupStart encountered without a preceding Group section",
                     ));
@@ -393,16 +386,14 @@ impl ReadWriteable for Bflyt {
                     if let Some(StackFrame::Group(finished_group)) = tree_stack.pop() {
                         match tree_stack.last_mut() {
                             Some(StackFrame::Root(layer)) => {
-                                layer.push(BflytNode::Group(finished_group))
+                                layer.push(BflytNode::Group(finished_group));
                             }
                             Some(StackFrame::Pane(parent)) => {
-                                parent.children.push(BflytNode::Group(finished_group))
+                                parent.children.push(BflytNode::Group(finished_group));
                             }
-                            Some(StackFrame::Group(parent)) => {
-                                parent.children.push(BflytNode::Group(finished_group))
-                            }
-                            None => unreachable!(),
+                            _ => unreachable!("GroupEnd cannot occur inside another Group frame"),
                         }
+                        continue;
                     } else {
                         return Err(FormatError::InvalidHierarchyChange(
                             "Mismatched GroupEnd encountered",
@@ -413,17 +404,27 @@ impl ReadWriteable for Bflyt {
                 s => {
                     has_entered_hierarchy = true;
 
+                    if let Some(StackFrame::Group(root_group)) = tree_stack.last_mut() {
+                        if let BflytSection::Group(sub_group) = s {
+                            root_group.children.push(sub_group);
+                        }
+                        continue;
+                    }
+
                     let current_children = match tree_stack.last_mut() {
                         Some(StackFrame::Root(layer)) => layer,
                         Some(StackFrame::Pane(p)) => &mut p.children,
-                        Some(StackFrame::Group(g)) => &mut g.children,
-                        None => unreachable!(),
+                        _ => unreachable!(),
                     };
 
                     match s {
                         BflytSection::UserData(usd) => {
                             if let Some(BflytNode::Pane(pane_el)) = current_children.last_mut() {
                                 pane_el.user_data = Some(usd);
+                            } else if let Some(BflytNode::ControlSource(cs_el)) =
+                                current_children.last_mut()
+                            {
+                                cs_el.user_data = Some(usd);
                             } else {
                                 current_children
                                     .push(BflytNode::RootSection(BflytSection::UserData(usd)));
@@ -433,6 +434,12 @@ impl ReadWriteable for Bflyt {
                             current_children.push(BflytNode::Group(GroupElement {
                                 data: g_data,
                                 children: Vec::new(),
+                            }));
+                        }
+                        BflytSection::ControlSource(cs_data) => {
+                            current_children.push(BflytNode::ControlSource(ControlSourceElement {
+                                data: cs_data,
+                                user_data: None,
                             }));
                         }
 
@@ -451,7 +458,7 @@ impl ReadWriteable for Bflyt {
             }
         }
 
-        let nodes = match tree_stack.pop() {
+        let mut nodes = match tree_stack.pop() {
             Some(StackFrame::Root(layer)) => layer,
             _ => {
                 return Err(FormatError::InvalidHierarchyChange(
@@ -459,6 +466,31 @@ impl ReadWriteable for Bflyt {
                 ));
             }
         };
+
+        let root_group = match nodes.iter().position(|n| matches!(n, BflytNode::Group(_))) {
+            Some(pos) => {
+                if let BflytNode::Group(g) = nodes.remove(pos) {
+                    g
+                } else {
+                    unreachable!()
+                }
+            }
+            None => {
+                return Err(FormatError::InvalidHierarchyChange(
+                    "Missing expected root group section",
+                ));
+            }
+        };
+
+        let mut control_source = None;
+        if let Some(pos) = nodes
+            .iter()
+            .position(|n| matches!(n, BflytNode::ControlSource(_)))
+        {
+            if let BflytNode::ControlSource(c) = nodes.remove(pos) {
+                control_source = Some(c);
+            }
+        }
 
         if layout.is_none() {
             return Err(FormatError::MissingLayout);
@@ -474,6 +506,8 @@ impl ReadWriteable for Bflyt {
             material_list,
             capture_texture_list,
             nodes,
+            root_group,
+            control_source,
         };
 
         bflyt.resolve_names();
@@ -498,6 +532,11 @@ impl ReadWriteable for Bflyt {
         total_sections += self.font_list.is_some() as u32;
         total_sections += self.material_list.is_some() as u32;
         total_sections += self.capture_texture_list.is_some() as u32;
+        total_sections += self.root_group.section_count();
+
+        if let Some(c) = &self.control_source {
+            total_sections += c.section_count();
+        }
 
         writer.write_u32(total_sections);
         writer.patch_u16(header_size, writer.pos() as u16);
@@ -528,6 +567,12 @@ impl ReadWriteable for Bflyt {
 
         for node in &self.nodes {
             node.serialize(writer);
+        }
+
+        self.root_group.serialize(writer);
+
+        if let Some(c) = &self.control_source {
+            c.serialize(writer);
         }
 
         let total = writer.pos() as u32;
@@ -580,6 +625,7 @@ pub enum BflytNode {
     RootSection(BflytSection),
     Pane(PaneElement),
     Group(GroupElement),
+    ControlSource(ControlSourceElement),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -589,10 +635,54 @@ pub struct PaneElement {
     pub children: Vec<BflytNode>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GroupElement {
     pub data: Group,
-    pub children: Vec<BflytNode>,
+    pub children: Vec<Group>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ControlSourceElement {
+    pub data: ControlSource,
+    pub user_data: Option<UserDataArray>,
+}
+
+impl ControlSourceElement {
+    pub fn serialize(&self, writer: &mut Writer) {
+        BflytSection::ControlSource(self.data.clone()).write(writer);
+        if let Some(usd) = &self.user_data {
+            BflytSection::UserData(usd.clone()).write(writer);
+        }
+    }
+
+    pub fn section_count(&self) -> u32 {
+        1 + self.user_data.is_some() as u32
+    }
+}
+
+impl GroupElement {
+    pub fn serialize(&self, writer: &mut Writer) {
+        BflytSection::Group(self.data.clone()).write(writer);
+
+        if !self.children.is_empty() {
+            BflytSection::GroupStart.write(writer);
+            for child in &self.children {
+                BflytSection::Group(child.clone()).write(writer);
+            }
+            BflytSection::GroupEnd.write(writer);
+        }
+    }
+
+    pub fn section_count(&self) -> u32 {
+        let mut count = 1;
+
+        if !self.children.is_empty() {
+            count += 2;
+            count += self.children.len() as u32;
+        }
+
+        count
+    }
 }
 
 impl BflytNode {
@@ -618,15 +708,11 @@ impl BflytNode {
             }
 
             Self::Group(group) => {
-                BflytSection::Group(group.data.clone()).write(writer);
+                group.serialize(writer);
+            }
 
-                if !group.children.is_empty() {
-                    BflytSection::GroupStart.write(writer);
-                    for child in &group.children {
-                        child.serialize(writer);
-                    }
-                    BflytSection::GroupEnd.write(writer);
-                }
+            Self::ControlSource(cs) => {
+                cs.serialize(writer);
             }
         }
     }
@@ -650,20 +736,8 @@ impl BflytNode {
                 count
             }
 
-            Self::Group(group) => {
-                let mut count = 1;
-
-                if !group.children.is_empty() {
-                    count += 2;
-                    count += group
-                        .children
-                        .iter()
-                        .map(|c| c.section_count())
-                        .sum::<u32>();
-                }
-
-                count
-            }
+            Self::Group(group) => group.section_count(),
+            Self::ControlSource(cs) => cs.section_count(),
         }
     }
 }

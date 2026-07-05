@@ -1,6 +1,6 @@
 use nnbfl::bflyt::pane::PANE_NAME_LEN;
 
-use crate::{material_editor::DrawUiWith, pane_tree::PaneNode};
+use crate::{editors::DrawUiWith, pane_tree::PaneNode};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DetailedPaneEditor {

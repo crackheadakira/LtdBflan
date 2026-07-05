@@ -121,16 +121,6 @@ impl AnimInstance {
         Some(&targets.get(track.target_idx)?.curve)
     }
 
-    pub fn target(&self, track: &TimelineTrack) -> Option<&nnbfl::bflan::targets::AnimTarget> {
-        let content = self.bflan.anim_info.contents.get(track.content_idx)?;
-        let info = content.infos.get(track.info_idx)?;
-        let AnimInfo::Standard { targets, .. } = info else {
-            return None;
-        };
-
-        targets.get(track.target_idx)
-    }
-
     pub fn curve_mut(&mut self, track: &TimelineTrack) -> Option<&mut Curve> {
         let content = self.bflan.anim_info.contents.get_mut(track.content_idx)?;
         let info = content.infos.get_mut(track.info_idx)?;

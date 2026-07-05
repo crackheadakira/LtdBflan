@@ -3,10 +3,9 @@ mod archive_browser;
 mod bflyt_view;
 mod camera;
 mod chinese_font;
-mod detailed_pane_editor;
 mod edit_history;
+mod editors;
 mod keybinds;
-mod material_editor;
 mod pane_tree;
 mod renderer;
 mod traits;
@@ -446,10 +445,6 @@ impl App {
             root_node.flatten_to_bflyt_nodes(&mut nodes);
         }
 
-        for group_node in &view.tree.group_nodes {
-            nodes.push(group_node.clone());
-        }
-
         let layout_header = Layout {
             is_centered: view.is_centered,
             width: view.tree.layout_size.x,
@@ -469,6 +464,8 @@ impl App {
             material_list: view.tree.material_list.clone(),
             capture_texture_list: view.tree.capture_texture_list.clone(),
             nodes,
+            root_group: view.tree.group.clone(),
+            control_source: view.tree.control_source.clone(),
         })
     }
 

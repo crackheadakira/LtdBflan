@@ -146,10 +146,7 @@ pub struct WgpuSamplerSettings {
 }
 
 impl WgpuSamplerSettings {
-    pub fn from_tex_map(
-        map: Option<&MaterialTextureMap>,
-        default_filter: wgpu::FilterMode,
-    ) -> Self {
+    pub fn from_tex_map(map: Option<&MaterialTextureMap>) -> Self {
         match map {
             Some(m) => Self {
                 address_mode_u: Self::wrap_to_wgpu(&m.u_options.wrap_mode),
@@ -160,8 +157,8 @@ impl WgpuSamplerSettings {
             None => Self {
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
                 address_mode_v: wgpu::AddressMode::ClampToEdge,
-                min_filter: default_filter,
-                mag_filter: default_filter,
+                min_filter: wgpu::FilterMode::Linear,
+                mag_filter: wgpu::FilterMode::Linear,
             },
         }
     }
@@ -239,12 +236,9 @@ impl TexturedQuad {
 
         let (base_uvs, uvs) = PaneNode::compute_uvs(pic, mat);
 
-        let sampler_0 =
-            WgpuSamplerSettings::from_tex_map(mat.tex_maps.first(), wgpu::FilterMode::Linear);
-        let sampler_1 =
-            WgpuSamplerSettings::from_tex_map(mat.tex_maps.get(1), wgpu::FilterMode::Linear);
-        let sampler_2 =
-            WgpuSamplerSettings::from_tex_map(mat.tex_maps.get(2), wgpu::FilterMode::Linear);
+        let sampler_0 = WgpuSamplerSettings::from_tex_map(mat.tex_maps.first());
+        let sampler_1 = WgpuSamplerSettings::from_tex_map(mat.tex_maps.get(1));
+        let sampler_2 = WgpuSamplerSettings::from_tex_map(mat.tex_maps.get(2));
 
         let get_name = |idx: usize| {
             mat.tex_maps
@@ -420,11 +414,6 @@ impl TexturedQuad {
     }
 }
 
-/// Owned, per-frame snapshot of a single pane's render data, tagged with
-/// which "flavor" of quad it is. `PaneTree::collect_render_quads` produces
-/// a `Vec` of these in true pane-tree traversal order; that order is what
-/// makes z-ordering correct, since `PaneRenderer` never reorders entries -
-/// it only merges *adjacent* ones that share GPU state into one draw call.
 #[derive(Clone, Debug)]
 pub enum PaneQuadData {
     Plain(Quad),
@@ -733,7 +722,7 @@ impl PaneRenderer {
 
                 BatchKey::Textured {
                     texture_name: tq.texture_name.clone(),
-                    sampler: tq.sampler_1,
+                    sampler: tq.sampler_0,
                     combine_mode: tq.standard_material.combine_mode,
                     combine_mode2: tq.standard_material.combine_mode2,
                     is_detailed: tq.is_detailed,

@@ -1540,7 +1540,7 @@ impl ReadWriteable for VectorGraphicsList {
 pub const GROUP_NAME_LEN: usize = 0x21;
 pub const GROUP_PANE_NAME_LEN: usize = 0x18;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Group {
     pub group_name: String,
     pub child_names: Vec<String>,

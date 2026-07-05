@@ -11,7 +11,7 @@ use crate::anim_state::{AnimInstance, eval_curve};
 
 pub const TIMELINE_RULER_HEIGHT: f32 = 22.0;
 pub const TIMELINE_MARKER_RADIUS: f32 = 4.0;
-pub const TIMELINE_MIN_VISIBLE_FRAMES: f32 = 4.0;
+pub const TIMELINE_MIN_VISIBLE_FRAMES: f32 = 1.0;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]

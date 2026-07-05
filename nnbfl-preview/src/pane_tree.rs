@@ -3,9 +3,9 @@ use std::{collections::HashMap, path::Path};
 use bitflags::bitflags;
 use nnbfl::{
     bflyt::{
-        file::{Bflyt, BflytNode, BflytSection, PaneElement},
+        file::{Bflyt, BflytNode, BflytSection, ControlSourceElement, GroupElement, PaneElement},
         flags::{BflytOrigin, BflytParentOrigin},
-        list::{CaptureTextureList, FontList, Material, MaterialList, TextureList},
+        list::{CaptureTextureList, ControlSource, FontList, Material, MaterialList, TextureList},
         pane::{BasePaneUsageFlags, Pane, PartsPane, PartsPaneBasicInfo, PicturePane},
     },
     core::FileReadWriteable,
@@ -382,7 +382,8 @@ pub struct PaneTree {
     pub texture_list: Option<TextureList>,
     pub font_list: Option<FontList>,
     pub capture_texture_list: Option<CaptureTextureList>,
-    pub group_nodes: Vec<BflytNode>,
+    pub control_source: Option<ControlSourceElement>,
+    pub group: GroupElement,
 
     pub file_name: String,
     pub discovered_bntx_buffers: Vec<Vec<u8>>,
@@ -678,23 +679,6 @@ impl PaneTree {
         let mut blarc_cache: HashMap<String, Option<Bflyt>> = HashMap::new();
         let mut discovered_bntx_buffers: Vec<Vec<u8>> = Vec::new();
 
-        let mut pane_nodes = Vec::new();
-        let mut group_nodes = Vec::new();
-
-        for node in file.nodes {
-            match node {
-                BflytNode::Group(_) => {
-                    group_nodes.push(node);
-                }
-                BflytNode::RootSection(BflytSection::Group(_)) => {
-                    group_nodes.push(node);
-                }
-                _ => {
-                    pane_nodes.push(node);
-                }
-            }
-        }
-
         let mut builder = Builder {
             material_list: material_list.as_ref(),
             sub_material_list: None,
@@ -709,7 +693,7 @@ impl PaneTree {
         };
 
         let roots = builder.build_nodes(
-            &pane_nodes,
+            &file.nodes,
             Vector2f::default(),
             layout_size,
             Vector2f { x: 1.0, y: 1.0 },
@@ -763,7 +747,8 @@ impl PaneTree {
             texture_list: file.texture_list,
             font_list: file.font_list,
             capture_texture_list: file.capture_texture_list,
-            group_nodes,
+            group: file.root_group,
+            control_source: file.control_source,
         }
     }
 }
@@ -834,7 +819,8 @@ impl<'a> Builder<'a> {
                     }
                 }
 
-                BflytNode::Group(_group_el) => {}
+                BflytNode::Group(_) => {}
+                BflytNode::ControlSource(_) => {}
                 BflytNode::RootSection(_) => {}
             }
         }

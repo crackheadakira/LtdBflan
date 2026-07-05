@@ -2,12 +2,7 @@ use std::collections::HashSet;
 
 use egui::Ui;
 use nnbfl::{
-    bflan::{anim_info::AnimInfo, curves::Curve, targets::TargetIndex},
-    bflyt::{
-        file::BflytSection,
-        list::{Layout, MaterialBlendMode, MaterialList},
-        pane::Pane,
-    },
+    bflyt::{file::BflytSection, list::Layout, pane::Pane},
     ui2d::types::{Vector2f, Vector3f},
 };
 
@@ -15,8 +10,7 @@ use crate::{
     anim_state::AnimPlayer,
     bflyt_view::BflytView,
     camera::Camera,
-    detailed_pane_editor::DetailedPaneEditor,
-    material_editor::{DrawUiWith, MaterialEditor},
+    editors::{DetailedPaneEditor, DrawUiWith, GroupEditor, MaterialEditor},
     pane_tree::DirtyFlags,
     renderer::timeline::{
         PendingKeyEdit, TIMELINE_MIN_VISIBLE_FRAMES, TimelineDrag, TimelineGeometry,
@@ -54,6 +48,7 @@ pub struct UiState {
     pub timeline: TimelineState,
     pub material_editor: MaterialEditor,
     pub detailed_pane_editor: DetailedPaneEditor,
+    pub group_editor: GroupEditor,
 }
 
 pub struct TimelineState {
@@ -130,7 +125,6 @@ impl PaneVisibilityFlags {
 pub enum SidebarTab {
     #[default]
     Panes,
-    Materials,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -265,6 +259,10 @@ pub fn draw_ui(
                     }
                 });
 
+                if ui.button("Group Editor").clicked() {
+                    state.group_editor.is_editor_visible = true;
+                }
+
                 if view.tree.material_list.is_some() {
                     if ui.button("Material Editor").clicked() {
                         state.material_editor.is_editor_visible = true;
@@ -292,7 +290,6 @@ pub fn draw_ui(
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut state.sidebar_tab, SidebarTab::Panes, "Pane Tree");
-                ui.selectable_value(&mut state.sidebar_tab, SidebarTab::Materials, "Materials");
             });
             ui.separator();
 
@@ -389,20 +386,6 @@ pub fn draw_ui(
                             }
                         },
                     );
-                }
-                SidebarTab::Materials => {
-                    ui.heading("Material List");
-                    ui.separator();
-
-                    if let Some(view) = view {
-                        if let Some(material_list) = &view.tree.material_list {
-                            draw_material_list(ui, material_list);
-                        } else {
-                            ui.label("Bflyt file has no material list");
-                        }
-                    } else {
-                        ui.label("No .bflyt file loaded");
-                    }
                 }
             }
         });
@@ -557,74 +540,6 @@ pub fn draw_ui(
                                         anim.playing = true;
                                     }
                                 });
-
-                                ui.add_space(8.0);
-                                ui.separator();
-                                ui.heading("Animation Details");
-
-                                egui::ScrollArea::vertical()
-                                    .id_salt("anim_debug_scroll")
-                                    .auto_shrink(false)
-                                    .show(ui, |ui| {
-                                        for content in &anim.bflan.anim_info.contents {
-                                            let target_name = &content.name;
-
-                                            egui::CollapsingHeader::new(target_name)
-                                                .id_salt(format!("col_target_{}", target_name))
-                                                .default_open(true)
-                                                .show(ui, |ui| {
-                                                    for (info_idx, info) in
-                                                        content.infos.iter().enumerate()
-                                                    {
-                                                        match info {
-                                                            AnimInfo::Standard {
-                                                                anim_type,
-                                                                targets,
-                                                            } => {
-                                                                let info_id = format!(
-                                                                    "{target_name}_{anim_type:?}_{info_idx}"
-                                                                );
-
-                                                                for (target_idx, anim_target) in
-                                                                    targets.iter().enumerate()
-                                                                {
-                                                                    let channel_label =
-                                                                        get_target_index_label(
-                                                                            &anim_target.target,
-                                                                            anim_target.layer,
-                                                                        );
-
-                                                                    let curve_id = format!(
-                                                                        "{info_id}_{target_idx}"
-                                                                    );
-
-                                                                    ui.collapsing(
-                                                                        channel_label,
-                                                                        |ui| {
-                                                                            draw_keyframe_inspector(
-                                                                                ui,
-                                                                                &anim_target.curve,
-                                                                                anim.frame,
-                                                                                &curve_id,
-                                                                            );
-                                                                        },
-                                                                    );
-                                                                }
-                                                            }
-
-                                                            AnimInfo::ExtendedUserData {
-                                                                anim_type,
-                                                                ..
-                                                            } => {
-                                                                ui.small(format!(
-                                                                    "User Data Track: {anim_type:?}",
-                                                                ));
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                        }
-                                    });
                             }
                         });
                     }
@@ -663,39 +578,13 @@ pub fn draw_ui(
         {
             state.detailed_pane_editor.draw_with_mut(ui, node);
         }
+
+        state.group_editor.draw_with_mut(ui, &mut view.tree);
     }
 
     draw_timeline_panel(ui, state, anim_player);
     draw_archive_browser_window(ui, state, blarc_dir, archive_scan);
     draw_shortcuts_window(ui, state);
-}
-
-fn get_target_index_label(target: &TargetIndex, layer: u8) -> String {
-    let base_name = match target {
-        TargetIndex::PaneSrt(t) => format!("SRT, {t:?}"),
-        TargetIndex::VertexColor(t) => format!("Vertex Color, {t:?}"),
-        TargetIndex::MaterialColor(t) => format!("Material Color, {t:?}"),
-        TargetIndex::TextureSrt(t) => format!("Texture SRT, {t:?}"),
-        TargetIndex::TexturePattern(t) => format!("Texture Pattern, {t:?}"),
-        TargetIndex::IndirectSrt(t) => format!("Indirect SRT, {t:?}"),
-        TargetIndex::PerCharacterTransformCurve(t) => {
-            format!("Per Character Transform Curve, {t:?}")
-        }
-        TargetIndex::PerCharacterTransform(t) => format!("Per Character Transform, {t:?}"),
-        TargetIndex::DropShadow(t) => format!("Drop Shadow, {t:?}"),
-        TargetIndex::MaskTexture(t) => format!("Mask Texture, {t:?}"),
-        TargetIndex::ProceduralShape(t) => format!("Procedural Shape, {t:?}"),
-        TargetIndex::Window(t) => format!("Window, {t:?}"),
-        TargetIndex::FontShadow(t) => format!("Font Shadow, {t:?}"),
-        TargetIndex::BrickRepeat(t) => format!("Brick Repeat, {t:?}"),
-        other => format!("{other:?}"),
-    };
-
-    if layer > 0 {
-        format!("{} [Layer {}]", base_name, layer)
-    } else {
-        base_name
-    }
 }
 
 fn draw_shortcuts_window(ui: &mut egui::Ui, state: &mut UiState) {
@@ -756,77 +645,6 @@ fn draw_shortcuts_window(ui: &mut egui::Ui, state: &mut UiState) {
     }
 }
 
-fn draw_keyframe_inspector(ui: &mut egui::Ui, curve: &Curve, current_frame: f32, unique_id: &str) {
-    match curve {
-        Curve::Hermite(keyframes) => {
-            ui.label("Hermite Spline");
-
-            egui::Grid::new(format!("grid_hermite_{}", unique_id))
-                .striped(true)
-                .num_columns(3)
-                .spacing([12.0, 4.0])
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new("Frame").strong().small());
-                    ui.label(egui::RichText::new("Value").strong().small());
-                    ui.label(egui::RichText::new("Slope").strong().small());
-                    ui.end_row();
-
-                    for kf in keyframes {
-                        let is_active = (kf.frame - current_frame).abs() < 0.2;
-                        let text_color = if is_active {
-                            egui::Color32::GREEN
-                        } else {
-                            ui.visuals().text_color()
-                        };
-
-                        ui.label(egui::RichText::new(format!("{:.1}", kf.frame)).color(text_color));
-                        ui.label(egui::RichText::new(format!("{:.4}", kf.value)).color(text_color));
-                        ui.label(egui::RichText::new(format!("{:.4}", kf.slope)).color(text_color));
-                        ui.end_row();
-                    }
-                });
-        }
-
-        Curve::Step(keyframes) => {
-            ui.label("Discrete Step");
-
-            egui::Grid::new(format!("grid_step_{}", unique_id))
-                .striped(true)
-                .num_columns(2)
-                .spacing([12.0, 4.0])
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new("Frame").strong().small());
-                    ui.label(egui::RichText::new("Value").strong().small());
-                    ui.end_row();
-
-                    for kf in keyframes {
-                        let is_active = (kf.frame - current_frame).abs() < 0.2;
-                        let text_color = if is_active {
-                            egui::Color32::GREEN
-                        } else {
-                            ui.visuals().text_color()
-                        };
-
-                        ui.label(egui::RichText::new(format!("{:.1}", kf.frame)).color(text_color));
-                        ui.label(egui::RichText::new(format!("{:.4}", kf.value)).color(text_color));
-                        ui.end_row();
-                    }
-                });
-        }
-
-        Curve::Constant(values) => {
-            ui.label("Static Constant");
-
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Values:");
-                for val in values {
-                    ui.label(format!("[{:.4}]", val));
-                }
-            });
-        }
-    }
-}
-
 fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: &Option<BflytView>) {
     let Some(menu) = &state.context_menu else {
         return;
@@ -869,8 +687,7 @@ fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: &Option<BflytView>)
                 ui.separator();
 
                 if is_parts_content {
-                    ui.weak("Part of a linked layout - edit it via the");
-                    ui.weak("PartsPane's overrides, not directly.");
+                    ui.weak("Part of a linked layout - edit it via the PartsPane's overrides, not directly.");
                 } else {
                     if ui.button("Duplicate").clicked() {
                         state.pending_action = Some(UiAction::DuplicatePane(pane_idx));
@@ -1455,521 +1272,6 @@ fn draw_pane_section(ui: &mut Ui, pane: &Pane) {
         "Scale Size By Parts Root",
         pane.flag_ex.is_scale_size_by_parts_root,
     );
-}
-
-fn draw_material_list(ui: &mut Ui, list: &MaterialList) {
-    ui.label(format!("Total Materials: {}", list.materials.len()));
-    ui.add_space(4.0);
-
-    egui::ScrollArea::vertical()
-        .auto_shrink(false)
-        .id_salt("material_sidebar_scroll")
-        .show(ui, |ui| {
-            for (idx, material) in list.materials.iter().enumerate() {
-                let header_text = format!("[{idx}] {}", material.material_name);
-
-                egui::CollapsingHeader::new(header_text)
-                    .id_salt(ui.id().with(idx))
-                    .show(ui, |ui| {
-                        if !material.colors.is_empty() {
-                            egui::CollapsingHeader::new(format!(
-                                "Colors ({})",
-                                material.colors.len()
-                            ))
-                            .id_salt("colors")
-                            .show(ui, |ui| {
-                                draw_vec_grid(
-                                    ui,
-                                    "colors_grid",
-                                    &material.colors,
-                                    |ui, i, color| {
-                                        if let Some(color) = &color.color_f32 {
-                                            draw_prop_f32(ui, &format!("[{i}] Red"), color.r);
-                                            draw_prop_f32(ui, &format!("[{i}] Green"), color.g);
-                                            draw_prop_f32(ui, &format!("[{i}] Blue"), color.b);
-                                            draw_prop_f32(ui, &format!("[{i}] Alpha"), color.a);
-                                        } else if let Some(color) = &color.color_u8 {
-                                            draw_prop(ui, &format!("[{i}] Red"), color.r);
-                                            draw_prop(ui, &format!("[{i}] Green"), color.g);
-                                            draw_prop(ui, &format!("[{i}] Blue"), color.b);
-                                            draw_prop(ui, &format!("[{i}] Alpha"), color.a);
-                                        }
-                                    },
-                                );
-                            });
-                        }
-
-                        if !material.tex_maps.is_empty() {
-                            egui::CollapsingHeader::new(format!(
-                                "Texture Maps ({})",
-                                material.tex_maps.len()
-                            ))
-                            .id_salt("tex_sub")
-                            .show(ui, |ui| {
-                                draw_vec_grid(ui, "tex_grid", &material.tex_maps, |ui, i, tex| {
-                                    draw_string(ui, &format!("[{i}] Name"), &tex.texture_name);
-                                    draw_prop_debug(
-                                        ui,
-                                        &format!("[{i}] U Filter"),
-                                        tex.u_options.filter,
-                                    );
-                                    draw_prop_debug(
-                                        ui,
-                                        &format!("[{i}] V Filter"),
-                                        tex.v_options.filter,
-                                    );
-                                    draw_prop_debug(
-                                        ui,
-                                        &format!("[{i}] U Wrap"),
-                                        tex.u_options.wrap_mode,
-                                    );
-                                    draw_prop_debug(
-                                        ui,
-                                        &format!("[{i}] V Wrap"),
-                                        tex.v_options.wrap_mode,
-                                    );
-                                });
-                            });
-                        }
-
-                        if !material.tex_extensions.is_empty() {
-                            egui::CollapsingHeader::new(format!(
-                                "Texture Extensions ({})",
-                                material.tex_extensions.len()
-                            ))
-                            .id_salt("tex_ext")
-                            .show(ui, |ui| {
-                                draw_vec_grid(
-                                    ui,
-                                    "tex_ext_grid",
-                                    &material.tex_extensions,
-                                    |ui, i, ext| {
-                                        draw_prop(
-                                            ui,
-                                            &format!("[{i}] Capture Tex"),
-                                            ext.is_capture_texture,
-                                        );
-                                        draw_prop(
-                                            ui,
-                                            &format!("[{i}] Vector Tex"),
-                                            ext.is_vector_texture,
-                                        );
-                                    },
-                                );
-                            });
-                        }
-
-                        if !material.tex_srts.is_empty() {
-                            egui::CollapsingHeader::new(format!(
-                                "Texture SRTs ({})",
-                                material.tex_srts.len()
-                            ))
-                            .id_salt("tex_srt")
-                            .show(ui, |ui| {
-                                draw_vec_grid(ui, "srt_grid", &material.tex_srts, |ui, i, srt| {
-                                    draw_prop_f32(ui, &format!("[{i}] Rotate"), srt.rotate);
-                                    draw_prop_f32(ui, &format!("[{i}] Scale U"), srt.scale_u);
-                                    draw_prop_f32(ui, &format!("[{i}] Scale V"), srt.scale_v);
-                                    draw_prop_f32(
-                                        ui,
-                                        &format!("[{i}] Translate U"),
-                                        srt.translate_u,
-                                    );
-                                    draw_prop_f32(
-                                        ui,
-                                        &format!("[{i}] Translate V"),
-                                        srt.translate_v,
-                                    );
-                                });
-                            });
-                        }
-
-                        if !material.tex_coord_gens.is_empty() {
-                            egui::CollapsingHeader::new(format!(
-                                "Texture Coord Gens ({})",
-                                material.tex_coord_gens.len()
-                            ))
-                            .id_salt("tex_gen")
-                            .show(ui, |ui| {
-                                draw_vec_grid(
-                                    ui,
-                                    "coord_gen_grid",
-                                    &material.tex_coord_gens,
-                                    |ui, i, coord_gen| {
-                                        draw_prop_debug(
-                                            ui,
-                                            &format!("[{i}] Source"),
-                                            coord_gen.tex_gen_source,
-                                        );
-                                    },
-                                );
-                            });
-                        }
-
-                        if !material.projection_tex_gens.is_empty() {
-                            egui::CollapsingHeader::new(format!(
-                                "Projection Tex Gens ({})",
-                                material.projection_tex_gens.len()
-                            ))
-                            .id_salt("proj_gen")
-                            .show(ui, |ui| {
-                                draw_vec_grid(
-                                    ui,
-                                    "proj_gen_grid",
-                                    &material.projection_tex_gens,
-                                    |ui, i, proj_gen| {
-                                        draw_prop(
-                                            ui,
-                                            &format!("[{i}] Adjust Projection Scale Rotate"),
-                                            proj_gen.flags.adjust_projection_scale_rotate,
-                                        );
-
-                                        draw_prop(
-                                            ui,
-                                            &format!("[{i}] Fitting Layout Size"),
-                                            proj_gen.flags.fitting_layout_size,
-                                        );
-
-                                        draw_prop(
-                                            ui,
-                                            &format!("[{i}] Fitting Pane Size"),
-                                            proj_gen.flags.fitting_pane_size,
-                                        );
-
-                                        draw_vector_2f(
-                                            ui,
-                                            &format!("[{i}] Translation"),
-                                            proj_gen.scale,
-                                        );
-                                        draw_vector_2f(
-                                            ui,
-                                            &format!("[{i}] Scale"),
-                                            proj_gen.translation,
-                                        );
-                                    },
-                                );
-                            });
-                        }
-
-                        if !material.tev_combiners.is_empty() {
-                            egui::CollapsingHeader::new(format!(
-                                "Texture Environment Combiners ({})",
-                                material.tev_combiners.len()
-                            ))
-                            .id_salt("tev_comb")
-                            .show(ui, |ui| {
-                                draw_vec_grid(
-                                    ui,
-                                    "tev_grid",
-                                    &material.tev_combiners,
-                                    |ui, i, combiner| {
-                                        draw_prop_debug(
-                                            ui,
-                                            &format!("[{i}] RGB Mode"),
-                                            combiner.rgb_mode,
-                                        );
-                                        draw_prop_debug(
-                                            ui,
-                                            &format!("[{i}] Alpha Mode"),
-                                            combiner.alpha_mode,
-                                        );
-                                    },
-                                );
-                            });
-                        }
-
-                        if material.alpha_compare.is_some() {
-                            egui::CollapsingHeader::new("Alpha Compare")
-                                .id_salt("alp_comp")
-                                .show(ui, |ui| {
-                                    if let Some(compare) = &material.alpha_compare {
-                                        egui::Grid::new(ui.id().with("alpha_comp_grid"))
-                                            .striped(true)
-                                            .show(ui, |ui| {
-                                                draw_prop_debug(ui, "Compare OP", compare.compare);
-                                                draw_prop_f32(
-                                                    ui,
-                                                    "Reference Value",
-                                                    compare.alpha_compare_ref_value,
-                                                );
-                                            });
-                                    } else {
-                                        ui.weak("None");
-                                    }
-                                });
-                        }
-
-                        if material.blend_mode.is_some() {
-                            egui::CollapsingHeader::new("Blend Mode")
-                                .id_salt("blend_mode")
-                                .show(ui, |ui| {
-                                    egui::Grid::new(ui.id().with("blend_grid"))
-                                        .striped(true)
-                                        .show(ui, |ui| {
-                                            draw_blend_mode(ui, &material.blend_mode);
-                                        });
-                                });
-                        }
-
-                        if material.blend_mode_alpha.is_some() {
-                            egui::CollapsingHeader::new("Alpha Blend Mode")
-                                .id_salt("alp_blend_mode")
-                                .show(ui, |ui| {
-                                    egui::Grid::new(ui.id().with("alpha_blend_grid"))
-                                        .striped(true)
-                                        .show(ui, |ui| {
-                                            draw_blend_mode(ui, &material.blend_mode_alpha);
-                                        });
-                                });
-                        }
-
-                        if let Some(indirect_matrix) = &material.indirect_matrix {
-                            egui::CollapsingHeader::new("Indirect Matrix")
-                                .id_salt("ind_mtx")
-                                .show(ui, |ui| {
-                                    egui::Grid::new(ui.id().with("ind_mtx_grid"))
-                                        .striped(true)
-                                        .show(ui, |ui| {
-                                            draw_prop(ui, "Rotation", indirect_matrix.rotation);
-                                            draw_vector_2f(ui, "Scale", indirect_matrix.scale);
-                                        });
-                                });
-                        }
-
-                        if let Some(fcs) = &material.font_shadow_color {
-                            egui::CollapsingHeader::new("Font Shadow Color")
-                                .id_salt("f_sh_clr")
-                                .show(ui, |ui| {
-                                    egui::Grid::new(ui.id().with("f_sh_clr_grid"))
-                                        .striped(true)
-                                        .show(ui, |ui| {
-                                            draw_prop(ui, "Color 1, Red", fcs.black_color.r);
-                                            draw_prop(ui, "Color 1, Green", fcs.black_color.g);
-                                            draw_prop(ui, "Color 1, Blue", fcs.black_color.b);
-                                            draw_prop(ui, "Color 1, Alpha", fcs.black_color.a);
-                                            draw_prop(ui, "Color 2, Red", fcs.white_color.r);
-                                            draw_prop(ui, "Color 2, Green", fcs.white_color.g);
-                                            draw_prop(ui, "Color 2, Blue", fcs.white_color.b);
-                                            draw_prop(ui, "Color 2, Alpha", fcs.white_color.a);
-                                        });
-                                });
-                        }
-
-                        if let Some(dc) = &material.detailed_combiner {
-                            egui::CollapsingHeader::new("Detailed Combiner")
-                                .id_salt("dc_comb")
-                                .show(ui, |ui| {
-                                    egui::Grid::new(ui.id().with("dc_comb_grid"))
-                                        .striped(true)
-                                        .show(ui, |ui| {
-                                            draw_prop(ui, "Stage Flags", dc.stage_flags);
-
-                                            draw_prop(ui, "Color 1, Red", dc.color1.r);
-                                            draw_prop(ui, "Color 1, Green", dc.color1.g);
-                                            draw_prop(ui, "Color 1, Blue", dc.color1.b);
-                                            draw_prop(ui, "Color 1, Alpha", dc.color1.a);
-                                            draw_prop(ui, "Color 2, Red", dc.color2.r);
-                                            draw_prop(ui, "Color 2, Green", dc.color2.g);
-                                            draw_prop(ui, "Color 2, Blue", dc.color2.b);
-                                            draw_prop(ui, "Color 2, Alpha", dc.color2.a);
-
-                                            draw_prop(ui, "Color 3, Red", dc.color3.r);
-                                            draw_prop(ui, "Color 3, Green", dc.color3.g);
-                                            draw_prop(ui, "Color 3, Blue", dc.color3.b);
-                                            draw_prop(ui, "Color 3, Alpha", dc.color3.a);
-                                            draw_prop(ui, "Color 4, Red", dc.color4.r);
-                                            draw_prop(ui, "Color 4, Green", dc.color4.g);
-                                            draw_prop(ui, "Color 4, Blue", dc.color4.b);
-                                            draw_prop(ui, "Color 4, Alpha", dc.color4.a);
-
-                                            draw_prop(ui, "Color 5, Red", dc.color5.r);
-                                            draw_prop(ui, "Color 5, Green", dc.color5.g);
-                                            draw_prop(ui, "Color 5, Blue", dc.color5.b);
-                                            draw_prop(ui, "Color 5, Alpha", dc.color5.a);
-
-                                            draw_vec_grid(
-                                                ui,
-                                                "dc_entries",
-                                                &dc.entries,
-                                                |ui, i, entry| {
-                                                    draw_prop(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Copy Reg"),
-                                                        entry.alpha_config.copy_reg,
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Konst Sel"),
-                                                        entry.alpha_config.konst_sel,
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Mode"),
-                                                        entry.alpha_config.mode,
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Scale"),
-                                                        entry.alpha_config.scale,
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Operand 1"),
-                                                        entry.alpha_config.operands[0],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Operand 2"),
-                                                        entry.alpha_config.operands[1],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Operand 3"),
-                                                        entry.alpha_config.operands[2],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Source 1"),
-                                                        entry.alpha_config.sources[0],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Source 2"),
-                                                        entry.alpha_config.sources[1],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Alpha Config Source 3"),
-                                                        entry.alpha_config.sources[2],
-                                                    );
-
-                                                    draw_prop(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Copy Reg"),
-                                                        entry.color_config.copy_reg,
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Konst Sel"),
-                                                        entry.color_config.konst_sel,
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Mode"),
-                                                        entry.color_config.mode,
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Scale"),
-                                                        entry.color_config.scale,
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Operand 1"),
-                                                        entry.color_config.operands[0],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Operand 2"),
-                                                        entry.color_config.operands[1],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Operand 3"),
-                                                        entry.color_config.operands[2],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Source 1"),
-                                                        entry.color_config.sources[0],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Source 2"),
-                                                        entry.color_config.sources[1],
-                                                    );
-
-                                                    draw_prop_debug(
-                                                        ui,
-                                                        &format!("[{i}] Color Config Source 3"),
-                                                        entry.color_config.sources[2],
-                                                    );
-                                                },
-                                            );
-                                        });
-                                });
-                        }
-                    });
-            }
-        });
-}
-
-fn draw_vec_grid<T>(
-    ui: &mut Ui,
-    id_source: &str,
-    items: &[T],
-    mut draw_item: impl FnMut(&mut Ui, usize, &T),
-) {
-    if items.is_empty() {
-        ui.weak("None");
-        return;
-    }
-
-    let len = items.len();
-    egui::Grid::new(ui.id().with(id_source))
-        .striped(true)
-        .show(ui, |ui| {
-            for (i, item) in items.iter().enumerate() {
-                draw_item(ui, i, item);
-
-                if i < len - 1 {
-                    ui.label("-");
-                    ui.label("-");
-                    ui.end_row();
-                }
-            }
-        });
-}
-
-fn draw_blend_mode(ui: &mut Ui, blend_mode: &Option<MaterialBlendMode>) {
-    if let Some(blend_mode) = blend_mode {
-        match blend_mode {
-            MaterialBlendMode::None => {
-                ui.weak("None");
-            }
-            MaterialBlendMode::Logic { logic_op } => {
-                draw_prop_debug(ui, "Logic OP", logic_op);
-            }
-            MaterialBlendMode::Blend {
-                blend_op,
-                function_source,
-                function_destination,
-            } => {
-                draw_prop_debug(ui, "Blend OP", blend_op);
-                draw_prop_debug(ui, "Function Source", function_source);
-                draw_prop_debug(ui, "Function Destination", function_destination);
-            }
-        }
-    } else {
-        ui.weak("None");
-    }
 }
 
 fn draw_vector_2f(ui: &mut egui::Ui, label: &str, vector: Vector2f) {
