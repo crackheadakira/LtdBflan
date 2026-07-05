@@ -593,16 +593,16 @@ pub enum CombinerTevMode {
 #[repr(u8)]
 pub enum TevColorOp {
     #[num_enum(default)]
-    RGB,
-    InvRGB,
+    Rgb,
+    InvRgb,
     Alpha,
     InvAlpha,
-    RRR,
-    InvRRR,
-    GGG = 8,
-    InvGGG = 9,
-    BBB = 12,
-    InvBBB = 13,
+    Rrr,
+    InvRrr,
+    Ggg = 8,
+    InvGgg = 9,
+    Bbb = 12,
+    InvBbb = 13,
 }
 
 #[derive(

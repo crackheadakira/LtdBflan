@@ -22,15 +22,15 @@ impl DrawUiWith<PaneTree> for GroupEditor {
         let mut available_panes = Vec::new();
         let mut pane_stack = tree.roots.iter().collect::<Vec<&PaneNode>>();
         while let Some(node) = pane_stack.pop() {
-            if node.parts_source.is_none() {
-                if let Some((name, _)) = tree
+            if node.parts_source.is_none()
+                && let Some((name, _)) = tree
                     .label_map
                     .iter()
                     .find(|&(_, &val)| val == node.pane_idx)
-                {
-                    available_panes.push(name.clone());
-                }
+            {
+                available_panes.push(name.clone());
             }
+
             for child in &node.children {
                 pane_stack.push(child);
             }
@@ -140,11 +140,11 @@ impl DrawUiWith<Vec<String>> for Group {
                         }
                     });
 
-                if ui.button("🗑").on_hover_text("Clear Group").clicked() {
-                    if !self.child_names.is_empty() {
-                        self.child_names.clear();
-                        changed |= true;
-                    }
+                if ui.button("🗑").on_hover_text("Clear Group").clicked()
+                    && !self.child_names.is_empty()
+                {
+                    self.child_names.clear();
+                    changed |= true;
                 }
             });
         });

@@ -158,17 +158,12 @@ impl GpuState {
         window: &Window,
         egui_ctx: &egui::Context,
         egui_state: &mut egui_winit::State,
-        bflyt_view: &mut Option<BflytView>,
-        ui_state: &mut UiState,
-        camera: &Camera,
-        anim_player: &mut AnimPlayer,
-        blarc_dir: Option<&PathBuf>,
-        archive_scan: Option<&ArchiveScan>,
+        mut ctx: RenderContext<'_>,
     ) {
-        if ui_state.material_editor.pending_upload
-            && let Some(bflyt_view) = bflyt_view
+        if ctx.ui_state.material_editor.pending_upload
+            && let Some(ref mut bflyt_view) = ctx.bflyt_view
         {
-            ui_state.material_editor.pending_upload = false;
+            ctx.ui_state.material_editor.pending_upload = false;
             bflyt_view.tree.recompute_dirty_materials();
 
             let render_quads = bflyt_view.tree.collect_render_quads();
@@ -182,9 +177,11 @@ impl GpuState {
         }
 
         self.grid_renderer
-            .update_projection(&self.queue, camera, &self.config);
+            .update_projection(&self.queue, ctx.camera, &self.config);
 
-        let matrix = camera.build_matrix(self.config.width as f32, self.config.height as f32);
+        let matrix = ctx
+            .camera
+            .build_matrix(self.config.width as f32, self.config.height as f32);
         self.pane_renderer.update_projection(&self.queue, matrix);
         self.selection_renderer
             .update_projection(&self.queue, matrix);
@@ -195,8 +192,8 @@ impl GpuState {
         );
 
         let mut scissor_rect = None;
-        if let Some(view) = bflyt_view
-            && ui_state.visiblity_flags.clip_to_root
+        if let Some(ref view) = ctx.bflyt_view
+            && ctx.ui_state.visiblity_flags.clip_to_root
         {
             let screen_w = self.config.width as f32;
             let screen_h = self.config.height as f32;
@@ -246,21 +243,17 @@ impl GpuState {
         let full_output = egui_ctx.run_ui(raw_input, |ui| {
             draw_ui(
                 ui,
-                bflyt_view,
-                ui_state,
-                camera,
-                anim_player,
+                &mut ctx,
                 self.config.width as f32,
                 self.config.height as f32,
-                blarc_dir,
-                archive_scan,
             );
         });
 
         egui_state.handle_platform_output(window, full_output.platform_output.clone());
 
-        if let Some(bflyt_view) = bflyt_view {
-            match ui_state
+        if let Some(ref mut bflyt_view) = ctx.bflyt_view {
+            match ctx
+                .ui_state
                 .selected_pane
                 .and_then(|idx| bflyt_view.tree.iter().find(|n| n.pane_idx == idx))
             {
@@ -275,8 +268,8 @@ impl GpuState {
             self.pane_renderer.update_anim(
                 &self.queue,
                 &render_quads,
-                &ui_state.hidden_panes,
-                ui_state.visiblity_flags,
+                &ctx.ui_state.hidden_panes,
+                ctx.ui_state.visiblity_flags,
             );
 
             self.pane_renderer.update_texture_pattern(
@@ -295,16 +288,16 @@ impl GpuState {
             self.pane_renderer.update_selection(
                 &self.queue,
                 &mut render_quads,
-                ui_state.selected_pane,
-                &ui_state.hidden_panes,
-                ui_state.visiblity_flags,
-                ui_state.active_debug_stage,
+                ctx.ui_state.selected_pane,
+                &ctx.ui_state.hidden_panes,
+                ctx.ui_state.visiblity_flags,
+                ctx.ui_state.active_debug_stage,
             );
 
             self.pane_renderer.flush_mat_buffers(
                 &self.queue,
                 &render_quads,
-                &ui_state.hidden_panes,
+                &ctx.ui_state.hidden_panes,
             );
         }
 
@@ -314,15 +307,15 @@ impl GpuState {
             pixels_per_point: full_output.pixels_per_point,
         };
 
-        if let Some(geometry) = ui_state.timeline.geometry.take() {
+        if let Some(geometry) = ctx.ui_state.timeline.geometry.take() {
             self.timeline_renderer.upload(&self.device, &geometry);
         } else {
             self.timeline_renderer
                 .upload(&self.device, &Default::default());
         }
 
-        if let Some(pending_key_edit) = ui_state.timeline.pending_key_edit.take() {
-            anim_player.apply_key_edit(&pending_key_edit);
+        if let Some(pending_key_edit) = ctx.ui_state.timeline.pending_key_edit.take() {
+            ctx.anim_player.apply_key_edit(&pending_key_edit);
         }
 
         for (id, delta) in &full_output.textures_delta.set {
@@ -389,6 +382,15 @@ impl GpuState {
         self.queue.submit(std::iter::once(render_encoder.finish()));
         output.present();
     }
+}
+
+pub struct RenderContext<'a> {
+    pub camera: &'a Camera,
+    pub bflyt_view: Option<&'a mut BflytView>,
+    pub ui_state: &'a mut UiState,
+    pub anim_player: &'a mut AnimPlayer,
+    pub blarc_dir: Option<&'a PathBuf>,
+    pub archive_scan: Option<&'a ArchiveScan>,
 }
 
 struct DragState {
@@ -1332,12 +1334,14 @@ impl ApplicationHandler for App {
                         window,
                         &self.egui_ctx,
                         egui_state,
-                        &mut self.bflyt_view,
-                        &mut self.ui_state,
-                        &self.camera,
-                        &mut self.anim_player,
-                        self.blarc_dir.as_ref(),
-                        self.archive_scan.as_ref(),
+                        RenderContext {
+                            bflyt_view: self.bflyt_view.as_mut(),
+                            ui_state: &mut self.ui_state,
+                            camera: &self.camera,
+                            anim_player: &mut self.anim_player,
+                            blarc_dir: self.blarc_dir.as_ref(),
+                            archive_scan: self.archive_scan.as_ref(),
+                        },
                     );
 
                     let scan_active = self

@@ -97,9 +97,9 @@ impl DrawUi for Material {
                 let color_label = &format!("Color {}:", idx + 1);
 
                 if let Some(ref mut color) = color.color_f32 {
-                    changed |= color.draw_with(ui, &color_label)
+                    changed |= color.draw_with(ui, color_label)
                 } else if let Some(ref mut color) = color.color_u8 {
-                    changed |= color.draw_with(ui, &color_label)
+                    changed |= color.draw_with(ui, color_label)
                 }
             });
         }
@@ -957,16 +957,16 @@ impl DrawUi for TevColorOp {
             .selected_text(format!("{self:?}"))
             .show_ui(ui, |ui| {
                 let ops = [
-                    Self::RGB,
-                    Self::InvRGB,
+                    Self::Rgb,
+                    Self::InvRgb,
                     Self::Alpha,
                     Self::InvAlpha,
-                    Self::RRR,
-                    Self::InvRRR,
-                    Self::GGG,
-                    Self::InvGGG,
-                    Self::BBB,
-                    Self::InvBBB,
+                    Self::Rrr,
+                    Self::InvRrr,
+                    Self::Ggg,
+                    Self::InvGgg,
+                    Self::Bbb,
+                    Self::InvBbb,
                 ];
 
                 for op in ops {

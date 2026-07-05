@@ -13,6 +13,12 @@ pub struct Placeholder32(pub usize);
 #[derive(Debug, Clone, Copy)]
 pub struct Placeholder16(pub usize);
 
+impl Default for Writer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Writer {
     pub fn new() -> Self {
         Self {

@@ -99,7 +99,7 @@ impl ReadWriteable for PaneAnimTag {
 
         writer.patch_u32(group_offset_pos, (writer.pos() - section_start) as u32);
         for group in &self.groups {
-            writer.write_fixed_string(&group, 0x21);
+            writer.write_fixed_string(group, 0x21);
             writer.write_u8(0);
             writer.write_u16(0);
         }

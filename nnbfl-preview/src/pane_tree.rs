@@ -5,7 +5,7 @@ use nnbfl::{
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection, ControlSourceElement, GroupElement, PaneElement},
         flags::{BflytOrigin, BflytParentOrigin},
-        list::{CaptureTextureList, ControlSource, FontList, Material, MaterialList, TextureList},
+        list::{CaptureTextureList, FontList, Material, MaterialList, TextureList},
         pane::{BasePaneUsageFlags, Pane, PartsPane, PartsPaneBasicInfo, PicturePane},
     },
     core::FileReadWriteable,
@@ -27,6 +27,8 @@ use crate::{
     traits::Displaying,
     ui::SUPPORTED_SARC_EXTENSIONS,
 };
+
+pub type UvMatrix4x3x2 = [[[f32; 2]; 3]; 4];
 
 bitflags! {
     #[derive(Clone, Copy, Debug, Default)]
@@ -290,40 +292,34 @@ impl PaneNode {
     pub fn recompute_dirty_material(&mut self, material_list: &MaterialList) -> bool {
         let mut requires_reupload = false;
 
-        if self.dirty.contains(DirtyFlags::MATERIAL) {
-            if let Some(quad) = &mut self.textured_quad
-                && let BflytSection::PicturePane(pic) = &self.section
-            {
-                if let Some(mat) = material_list.materials.get(pic.material_index as usize) {
-                    if let Some(tq) = TexturedQuad::derive_from_material(
-                        pic,
-                        mat,
-                        Vector2f::new(quad.x, quad.y),
-                        Vector2f::new(quad.width, quad.height),
-                        quad.corners,
-                        self.visible,
-                        self.pane_idx,
-                    ) {
-                        *quad = tq;
+        if self.dirty.contains(DirtyFlags::MATERIAL)
+            && let Some(quad) = &mut self.textured_quad
+            && let BflytSection::PicturePane(pic) = &self.section
+            && let Some(mat) = material_list.materials.get(pic.material_index as usize)
+            && let Some(tq) = TexturedQuad::derive_from_material(
+                pic,
+                mat,
+                Vector2f::new(quad.x, quad.y),
+                Vector2f::new(quad.width, quad.height),
+                quad.corners,
+                self.visible,
+                self.pane_idx,
+            )
+        {
+            *quad = tq;
 
-                        if let Some(base_quad) = &mut self.base_textured_quad {
-                            *base_quad = quad.clone();
-                        }
-
-                        requires_reupload = true;
-                    }
-                }
+            if let Some(base_quad) = &mut self.base_textured_quad {
+                *base_quad = quad.clone();
             }
+
+            requires_reupload = true;
         };
 
         self.dirty.remove(DirtyFlags::MATERIAL);
         requires_reupload
     }
 
-    pub fn compute_uvs(
-        pic: &PicturePane,
-        material: &Material,
-    ) -> ([[[f32; 2]; 3]; 4], [[[f32; 2]; 3]; 4]) {
+    pub fn compute_uvs(pic: &PicturePane, material: &Material) -> (UvMatrix4x3x2, UvMatrix4x3x2) {
         let get_uv_set = |layer: usize| -> [[f32; 2]; 4] {
             if let Some(uv_set) = pic.texture_uvs.get(layer) {
                 [
@@ -1043,7 +1039,7 @@ impl<'a> Builder<'a> {
             };
 
             fn apply_override(
-                nodes: &mut Vec<PaneNode>,
+                nodes: &mut [PaneNode],
                 prop_name: &str,
                 override_section: &BflytSection,
                 builder: &Builder,

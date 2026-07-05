@@ -223,20 +223,20 @@ impl BflytSection {
     }
 
     fn is_pane_type(&self) -> bool {
-        match self {
-            Self::Pane(_) => true,
-            Self::PicturePane(_) => true,
-            Self::TextBoxPane(_) => true,
-            Self::WindowPane(_) => true,
-            Self::PartsPane(_) => true,
-            Self::AlignmentPane(_) => true,
-            Self::CapturePane(_) => true,
-            Self::BoundingPane(_) => true,
-            Self::ScissorPane(_) => true,
-            Self::PaneStart => true,
-            Self::PaneEnd => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Self::Pane(_)
+                | Self::PicturePane(_)
+                | Self::TextBoxPane(_)
+                | Self::WindowPane(_)
+                | Self::PartsPane(_)
+                | Self::AlignmentPane(_)
+                | Self::CapturePane(_)
+                | Self::BoundingPane(_)
+                | Self::ScissorPane(_)
+                | Self::PaneStart
+                | Self::PaneEnd
+        )
     }
 }
 
@@ -259,7 +259,7 @@ pub struct Bflyt {
 
 enum StackFrame {
     Root(Vec<BflytNode>),
-    Pane(PaneElement),
+    Pane(Box<PaneElement>),
     Group(GroupElement),
 }
 
@@ -326,18 +326,18 @@ impl ReadWriteable for Bflyt {
 
                 BflytSection::PaneStart => {
                     has_entered_hierarchy = true;
-                    if let Some(
-                        StackFrame::Root(layer)
-                        | StackFrame::Pane(PaneElement {
-                            children: layer, ..
-                        }),
-                    ) = tree_stack.last_mut()
-                    {
-                        if let Some(BflytNode::Pane(pane_el)) = layer.pop() {
-                            tree_stack.push(StackFrame::Pane(pane_el));
-                            continue;
-                        }
+
+                    let pane_el = match tree_stack.last_mut() {
+                        Some(StackFrame::Root(layer)) => layer.pop(),
+                        Some(StackFrame::Pane(boxed_pane)) => boxed_pane.children.pop(),
+                        _ => None,
+                    };
+
+                    if let Some(BflytNode::Pane(pane_el)) = pane_el {
+                        tree_stack.push(StackFrame::Pane(Box::new(pane_el)));
+                        continue;
                     }
+
                     return Err(FormatError::InvalidHierarchyChange(
                         "PaneStart encountered without a preceding Pane section",
                     ));
@@ -345,13 +345,14 @@ impl ReadWriteable for Bflyt {
 
                 BflytSection::PaneEnd => {
                     has_entered_hierarchy = true;
+
                     if let Some(StackFrame::Pane(finished_pane)) = tree_stack.pop() {
                         match tree_stack.last_mut() {
                             Some(StackFrame::Root(layer)) => {
-                                layer.push(BflytNode::Pane(finished_pane))
+                                layer.push(BflytNode::Pane(*finished_pane))
                             }
                             Some(StackFrame::Pane(parent)) => {
-                                parent.children.push(BflytNode::Pane(finished_pane))
+                                parent.children.push(BflytNode::Pane(*finished_pane))
                             }
                             _ => unreachable!(),
                         }
@@ -486,10 +487,9 @@ impl ReadWriteable for Bflyt {
         if let Some(pos) = nodes
             .iter()
             .position(|n| matches!(n, BflytNode::ControlSource(_)))
+            && let BflytNode::ControlSource(c) = nodes.remove(pos)
         {
-            if let BflytNode::ControlSource(c) = nodes.remove(pos) {
-                control_source = Some(c);
-            }
+            control_source = Some(c);
         }
 
         if layout.is_none() {

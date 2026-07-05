@@ -7,9 +7,9 @@ use nnbfl::{
 };
 
 use crate::{
+    RenderContext,
     anim_state::AnimPlayer,
     bflyt_view::BflytView,
-    camera::Camera,
     editors::{DetailedPaneEditor, DrawUiWith, GroupEditor, MaterialEditor},
     pane_tree::DirtyFlags,
     renderer::timeline::{
@@ -148,20 +148,10 @@ pub enum UiAction {
     Redo,
 }
 
-pub fn draw_ui(
-    ui: &mut Ui,
-    view: &mut Option<BflytView>,
-    state: &mut UiState,
-    camera: &Camera,
-    anim_player: &mut AnimPlayer,
-    screen_w: f32,
-    screen_h: f32,
-    blarc_dir: Option<&std::path::PathBuf>,
-    archive_scan: Option<&crate::archive_browser::ArchiveScan>,
-) {
-    crate::keybinds::handle(ui.ctx(), state, anim_player);
+pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h: f32) {
+    crate::keybinds::handle(ui.ctx(), ctx.ui_state, ctx.anim_player);
 
-    if let Some(view) = view {
+    if let Some(ref mut view) = ctx.bflyt_view {
         let viewport_rect = ui.content_rect();
         let painter = ui.painter().with_clip_rect(viewport_rect);
 
@@ -169,7 +159,7 @@ pub fn draw_ui(
             let i = node.pane_idx;
 
             if let BflytSection::TextBoxPane(text_box) = &node.section
-                && !state.hidden_panes.contains(&i)
+                && !ctx.ui_state.hidden_panes.contains(&i)
                 && node.visible
             {
                 let display_text = text_box.text.as_deref().unwrap_or("");
@@ -179,9 +169,11 @@ pub fn draw_ui(
 
                 let center_x = (tl[0] + br[0]) * 0.5;
                 let center_y = (tl[1] + br[1]) * 0.5;
-                let screen_pos = camera.world_to_screen([center_x, center_y], screen_w, screen_h);
+                let screen_pos =
+                    ctx.camera
+                        .world_to_screen([center_x, center_y], screen_w, screen_h);
 
-                let font_size = (32.0 * camera.zoom).clamp(8.0, 128.0);
+                let font_size = (32.0 * ctx.camera.zoom).clamp(8.0, 128.0);
                 let font_id = egui::FontId::proportional(font_size);
 
                 let shadow_offset = (font_size * 0.08).max(1.5);
@@ -207,35 +199,35 @@ pub fn draw_ui(
         }
     }
 
-    draw_context_menu(ui, state, view);
+    draw_context_menu(ui, ctx.ui_state, ctx.bflyt_view.as_deref());
 
     egui::Panel::top("menu_bar").show(ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Load File...").clicked() {
-                    state.pending_action = Some(UiAction::LoadFile);
-                    state.hidden_panes.clear();
-                    state.selected_pane = None;
+                    ctx.ui_state.pending_action = Some(UiAction::LoadFile);
+                    ctx.ui_state.hidden_panes.clear();
+                    ctx.ui_state.selected_pane = None;
 
                     ui.close();
                 }
 
                 if ui.button("Set Layout Folder...").clicked() {
-                    state.pending_action = Some(UiAction::SetBlarcDir);
+                    ctx.ui_state.pending_action = Some(UiAction::SetBlarcDir);
                     ui.close();
                 }
 
                 if ui.button("Save File As...").clicked() {
-                    state.pending_action = Some(UiAction::SaveFile);
+                    ctx.ui_state.pending_action = Some(UiAction::SaveFile);
                     ui.close();
                 }
             });
 
             if ui.button("Browse Archives...").clicked() {
-                state.archive_browser_open = true;
+                ctx.ui_state.archive_browser_open = true;
             }
 
-            if let Some(view) = view {
+            if let Some(ref view) = ctx.bflyt_view {
                 ui.menu_button("Shader Pass", |ui| {
                     let stages = [
                         (0, "Disabled"),
@@ -251,7 +243,7 @@ pub fn draw_ui(
 
                     for (stage_idx, label) in stages {
                         if ui
-                            .radio_value(&mut state.active_debug_stage, stage_idx, label)
+                            .radio_value(&mut ctx.ui_state.active_debug_stage, stage_idx, label)
                             .clicked()
                         {
                             ui.close();
@@ -260,25 +252,23 @@ pub fn draw_ui(
                 });
 
                 if ui.button("Group Editor").clicked() {
-                    state.group_editor.is_editor_visible = true;
+                    ctx.ui_state.group_editor.is_editor_visible = true;
                 }
 
-                if view.tree.material_list.is_some() {
-                    if ui.button("Material Editor").clicked() {
-                        state.material_editor.is_editor_visible = true;
-                    }
+                if view.tree.material_list.is_some() && ui.button("Material Editor").clicked() {
+                    ctx.ui_state.material_editor.is_editor_visible = true;
                 }
 
-                if state.selected_pane.is_some() {
-                    if ui.button("Detailed Pane Editor").clicked() {
-                        state.detailed_pane_editor.is_editor_visible = true;
-                    };
+                if ctx.ui_state.selected_pane.is_some()
+                    && ui.button("Detailed Pane Editor").clicked()
+                {
+                    ctx.ui_state.detailed_pane_editor.is_editor_visible = true;
                 };
             }
 
             ui.menu_button("Help", |ui| {
                 if ui.button("Keyboard Shortcuts").clicked() {
-                    state.shortcuts_window_open = true;
+                    ctx.ui_state.shortcuts_window_open = true;
                     ui.close();
                 }
             });
@@ -289,35 +279,45 @@ pub fn draw_ui(
         .default_size(240.0)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut state.sidebar_tab, SidebarTab::Panes, "Pane Tree");
+                ui.selectable_value(
+                    &mut ctx.ui_state.sidebar_tab,
+                    SidebarTab::Panes,
+                    "Pane Tree",
+                );
             });
             ui.separator();
 
-            match state.sidebar_tab {
+            match ctx.ui_state.sidebar_tab {
                 SidebarTab::Panes => {
                     ui.heading("Pane Tree");
-                    ui.checkbox(&mut state.visiblity_flags.clip_to_root, "Clip to root pane");
                     ui.checkbox(
-                        &mut state.visiblity_flags.only_textured,
+                        &mut ctx.ui_state.visiblity_flags.clip_to_root,
+                        "Clip to root pane",
+                    );
+                    ui.checkbox(
+                        &mut ctx.ui_state.visiblity_flags.only_textured,
                         "Draw only textures",
                     );
                     ui.checkbox(
-                        &mut state.visiblity_flags.quad_for_textured,
+                        &mut ctx.ui_state.visiblity_flags.quad_for_textured,
                         "Draw pane outlines for textures",
                     );
                     ui.checkbox(
-                        &mut state.visiblity_flags.no_textured,
+                        &mut ctx.ui_state.visiblity_flags.no_textured,
                         "Draw only pane outlines",
                     );
                     ui.separator();
 
-                    let total_rows = view.as_ref().map_or(1, |v| v.tree.flatten().len());
+                    let total_rows = ctx
+                        .bflyt_view
+                        .as_ref()
+                        .map_or(1, |v| v.tree.flatten().len());
                     egui::ScrollArea::vertical().auto_shrink(false).show_rows(
                         ui,
                         24.0,
                         total_rows,
                         |ui, row_range| {
-                            if let Some(view) = view {
+                            if let Some(ref view) = ctx.bflyt_view {
                                 let nodes = view.tree.flatten();
 
                                 for idx in row_range {
@@ -328,7 +328,7 @@ pub fn draw_ui(
                                     ui.horizontal(|ui| {
                                         ui.add_space(indent);
 
-                                        let selected = state.selected_pane == Some(i);
+                                        let selected = ctx.ui_state.selected_pane == Some(i);
                                         let is_parts_content = node.parts_source.is_some();
 
                                         let label_text = if is_parts_content {
@@ -342,38 +342,38 @@ pub fn draw_ui(
                                             egui::RichText::new(label_text)
                                         };
 
-                                        let is_hidden = state.hidden_panes.contains(&i);
+                                        let is_hidden = ctx.ui_state.hidden_panes.contains(&i);
 
                                         let response = ui.selectable_label(selected, label);
                                         response.context_menu(|ui| {
                                             if !is_hidden && ui.button("Hide").clicked() {
-                                                state.hidden_panes.insert(i);
+                                                ctx.ui_state.hidden_panes.insert(i);
                                                 ui.close();
                                             }
                                             if !is_hidden && ui.button("Hide All").clicked() {
                                                 hide_pane_recursive(
                                                     i,
                                                     view,
-                                                    &mut state.hidden_panes,
+                                                    &mut ctx.ui_state.hidden_panes,
                                                 );
                                                 ui.close();
                                             }
                                             if is_hidden && ui.button("Show").clicked() {
-                                                state.hidden_panes.remove(&i);
+                                                ctx.ui_state.hidden_panes.remove(&i);
                                                 ui.close();
                                             }
                                             if is_hidden && ui.button("Show All").clicked() {
                                                 show_pane_recursive(
                                                     i,
                                                     view,
-                                                    &mut state.hidden_panes,
+                                                    &mut ctx.ui_state.hidden_panes,
                                                 );
                                                 ui.close();
                                             }
                                         });
 
                                         if response.clicked() {
-                                            state.selected_pane = Some(i);
+                                            ctx.ui_state.selected_pane = Some(i);
                                         }
 
                                         if is_hidden {
@@ -390,31 +390,31 @@ pub fn draw_ui(
             }
         });
 
-    if view.is_some() {
+    if ctx.bflyt_view.is_some() {
         egui::Panel::right("right_control_panel")
             .default_size(300.0)
             .resizable(true)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.selectable_value(
-                        &mut state.right_sidebar_tab,
+                        &mut ctx.ui_state.right_sidebar_tab,
                         SidebarRightTab::Properties,
                         "Properties",
                     );
 
                     ui.selectable_value(
-                        &mut state.right_sidebar_tab,
+                        &mut ctx.ui_state.right_sidebar_tab,
                         SidebarRightTab::Animations,
                         "Animations",
                     );
                 });
                 ui.separator();
 
-                match state.right_sidebar_tab {
+                match ctx.ui_state.right_sidebar_tab {
                     SidebarRightTab::Properties => {
-                        if let Some(view) = view {
+                        if let Some(ref mut view) = ctx.bflyt_view {
                             ui.vertical(|ui| {
-                                if let Some(idx) = state.selected_pane {
+                                if let Some(idx) = ctx.ui_state.selected_pane {
                                     let changed = {
                                         if let Some(node) = view.tree.find_node_mut(idx) {
                                             draw_pane_properties(ui, node)
@@ -443,13 +443,13 @@ pub fn draw_ui(
                         ui.vertical(|ui| {
                             ui.heading("Animations");
                             ui.horizontal(|ui| {
-                                if anim_player.is_playing() {
+                                if ctx.anim_player.is_playing() {
                                     ui.label(
                                         egui::RichText::new("Playing")
                                             .color(egui::Color32::GREEN)
                                             .strong(),
                                     );
-                                } else if anim_player.active.is_some() {
+                                } else if ctx.anim_player.active.is_some() {
                                     ui.label(
                                         egui::RichText::new("Paused").color(egui::Color32::GOLD),
                                     );
@@ -466,12 +466,15 @@ pub fn draw_ui(
                                 .id_salt("anim_selection_grid")
                                 .max_height(120.0)
                                 .show(ui, |ui| {
-                                    if !state.anim_names.is_empty() {
+                                    if !ctx.ui_state.anim_names.is_empty() {
                                         ui.horizontal_wrapped(|ui| {
-                                            for (idx, name) in state.anim_names.iter().enumerate() {
-                                                let is_active = anim_player.active == Some(idx);
+                                            for (idx, name) in
+                                                ctx.ui_state.anim_names.iter().enumerate()
+                                            {
+                                                let is_active = ctx.anim_player.active == Some(idx);
                                                 if ui.selectable_label(is_active, name).clicked() {
-                                                    state.pending_play_anim = Some(name.clone());
+                                                    ctx.ui_state.pending_play_anim =
+                                                        Some(name.clone());
                                                 }
                                             }
                                         });
@@ -482,8 +485,8 @@ pub fn draw_ui(
 
                             ui.add_space(8.0);
 
-                            if let Some(idx) = anim_player.active
-                                && let Some(anim) = anim_player.anims.get_mut(idx)
+                            if let Some(idx) = ctx.anim_player.active
+                                && let Some(anim) = ctx.anim_player.anims.get_mut(idx)
                             {
                                 ui.group(|ui| {
                                     ui.horizontal(|ui| {
@@ -547,7 +550,7 @@ pub fn draw_ui(
             });
     }
 
-    if let Some(err) = state.error_message.to_owned() {
+    if let Some(err) = ctx.ui_state.error_message.to_owned() {
         egui::Window::new("Error")
             .collapsible(false)
             .resizable(false)
@@ -555,36 +558,39 @@ pub fn draw_ui(
                 ui.colored_label(egui::Color32::RED, err);
 
                 if ui.button("Close").clicked() {
-                    state.error_message = None;
+                    ctx.ui_state.error_message = None;
                 }
             });
     };
 
-    if let Some(view) = view {
+    if let Some(ref mut view) = ctx.bflyt_view {
         if let Some(material_list) = view.tree.material_list.as_mut() {
-            let changed = state.material_editor.draw_with_mut(ui, material_list);
+            let changed = ctx
+                .ui_state
+                .material_editor
+                .draw_with_mut(ui, material_list);
 
             if changed {
                 view.tree.for_each_mut(|node| {
                     node.dirty.insert(DirtyFlags::MATERIAL);
                 });
 
-                state.material_editor.pending_upload = true;
+                ctx.ui_state.material_editor.pending_upload = true;
             }
         }
 
-        if let Some(idx) = state.selected_pane
+        if let Some(idx) = ctx.ui_state.selected_pane
             && let Some(node) = view.tree.find_node_mut(idx)
         {
-            state.detailed_pane_editor.draw_with_mut(ui, node);
+            ctx.ui_state.detailed_pane_editor.draw_with_mut(ui, node);
         }
 
-        state.group_editor.draw_with_mut(ui, &mut view.tree);
+        ctx.ui_state.group_editor.draw_with_mut(ui, &mut view.tree);
     }
 
-    draw_timeline_panel(ui, state, anim_player);
-    draw_archive_browser_window(ui, state, blarc_dir, archive_scan);
-    draw_shortcuts_window(ui, state);
+    draw_timeline_panel(ui, ctx.ui_state, ctx.anim_player);
+    draw_archive_browser_window(ui, ctx.ui_state, ctx.blarc_dir, ctx.archive_scan);
+    draw_shortcuts_window(ui, ctx.ui_state);
 }
 
 fn draw_shortcuts_window(ui: &mut egui::Ui, state: &mut UiState) {
@@ -645,7 +651,7 @@ fn draw_shortcuts_window(ui: &mut egui::Ui, state: &mut UiState) {
     }
 }
 
-fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: &Option<BflytView>) {
+fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: Option<&BflytView>) {
     let Some(menu) = &state.context_menu else {
         return;
     };

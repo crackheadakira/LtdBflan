@@ -316,10 +316,10 @@ pub enum BrickRepeatTarget {
 #[repr(u8)]
 pub enum WindowTarget {
     #[default]
-    FrameTop,
-    FrameBottom,
-    FrameLeft,
-    FrameRight,
+    Top,
+    Bottom,
+    Left,
+    Right,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, FromPrimitive, IntoPrimitive)]
