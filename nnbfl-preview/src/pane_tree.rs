@@ -494,6 +494,10 @@ impl PaneTree {
 
     pub fn find_by_label(&self, label: &str) -> Option<&PaneNode> {
         let idx = *self.label_map.get(label)?;
+        self.find_by_idx(idx)
+    }
+
+    pub fn find_by_idx(&self, idx: usize) -> Option<&PaneNode> {
         self.iter().find(|n| n.pane_idx == idx)
     }
 
@@ -510,7 +514,7 @@ impl PaneTree {
         }
 
         let mut out = Vec::new();
-        if let Some(target_node) = self.iter().find(|n| n.pane_idx == pane_idx) {
+        if let Some(target_node) = self.find_by_idx(pane_idx) {
             collect_all(target_node, &mut out);
         }
 
@@ -573,7 +577,7 @@ impl PaneTree {
     pub fn sibling_position(&self, target_idx: usize) -> Option<(Option<usize>, usize)> {
         let parent_idx = *self.parent_map.get(&target_idx)?;
         let siblings = match parent_idx {
-            Some(pid) => &self.iter().find(|n| n.pane_idx == pid)?.children,
+            Some(pid) => &self.find_by_idx(pid)?.children,
             None => &self.roots,
         };
 
@@ -627,7 +631,7 @@ impl PaneTree {
 
     pub fn duplicate_node(&mut self, target_idx: usize) -> Option<usize> {
         let parent_idx = self.parent_map.get(&target_idx).copied().flatten();
-        let mut clone = self.iter().find(|n| n.pane_idx == target_idx)?.clone();
+        let mut clone = self.find_by_idx(target_idx)?.clone();
 
         fn reindex(node: &mut PaneNode, next_idx: &mut usize) {
             node.pane_idx = *next_idx;

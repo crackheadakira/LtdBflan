@@ -4,7 +4,6 @@ mod bflyt_view;
 mod camera;
 mod chinese_font;
 mod edit_history;
-mod editors;
 mod keybinds;
 mod pane_tree;
 mod renderer;
@@ -254,7 +253,7 @@ impl GpuState {
             match ctx
                 .ui_state
                 .selected_pane
-                .and_then(|idx| bflyt_view.tree.iter().find(|n| n.pane_idx == idx))
+                .and_then(|idx| bflyt_view.tree.find_by_idx(idx))
             {
                 Some(node) => self
                     .selection_renderer
@@ -481,7 +480,7 @@ impl App {
             return false;
         };
 
-        let Some(node) = view.tree.iter().find(|n| n.pane_idx == idx) else {
+        let Some(node) = view.tree.find_by_idx(idx) else {
             return false;
         };
 
@@ -687,20 +686,6 @@ impl App {
         self.ui_state.selected_pane = best;
     }
 
-    fn try_open_context_menu(&mut self, screen_pos: [f32; 2]) {
-        if self.ui_state.selected_pane.is_none() {
-            return;
-        };
-
-        self.ui_state.context_menu =
-            self.ui_state
-                .selected_pane
-                .map(|pane_idx| ui::general::ContextMenuState {
-                    pane_idx,
-                    pos: egui::pos2(screen_pos[0], screen_pos[1]),
-                });
-    }
-
     fn load_file(&mut self) {
         let Some(bflyt_path) = &self.bflyt_path else {
             return;
@@ -845,8 +830,7 @@ impl App {
         if let Some(idx) = target_idx
             && view
                 .tree
-                .iter()
-                .find(|n| n.pane_idx == idx)
+                .find_by_idx(idx)
                 .is_some_and(|n| n.parts_source.is_some())
         {
             return;
@@ -1264,8 +1248,13 @@ impl ApplicationHandler for App {
                 state,
                 button: MouseButton::Right,
                 ..
-            } if state == winit::event::ElementState::Pressed && !egui_wants_pointer => {
-                self.try_open_context_menu(self.camera.cursor_screen);
+            } if state == winit::event::ElementState::Pressed
+                && !egui_wants_pointer
+                && let Some(pane_idx) = self.ui_state.selected_pane =>
+            {
+                self.ui_state
+                    .context_menu
+                    .open_context_menu(self.camera.cursor_screen, pane_idx);
             }
 
             WindowEvent::MouseWheel { delta, .. } if !egui_wants_scroll => {

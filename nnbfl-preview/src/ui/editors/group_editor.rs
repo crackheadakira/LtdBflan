@@ -1,8 +1,8 @@
 use nnbfl::bflyt::list::Group;
 
 use crate::{
-    editors::DrawUiWith,
     pane_tree::{PaneNode, PaneTree},
+    ui::DrawUiWith,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -11,8 +11,8 @@ pub struct GroupEditor {
     pub new_group_name: String,
 }
 
-impl DrawUiWith<PaneTree> for GroupEditor {
-    fn draw_with_mut(&mut self, ui: &mut egui::Ui, tree: &mut PaneTree) -> bool {
+impl DrawUiWith<&mut PaneTree> for GroupEditor {
+    fn draw_with(&mut self, ui: &mut egui::Ui, tree: &mut PaneTree) -> bool {
         let mut changed = false;
 
         if !self.is_editor_visible {
@@ -42,7 +42,7 @@ impl DrawUiWith<PaneTree> for GroupEditor {
             .open(&mut self.is_editor_visible)
             .show(ui, |ui| {
                 ui.heading("Root Group");
-                changed |= tree.group.data.draw_with_mut(ui, &mut available_panes);
+                changed |= tree.group.data.draw_with(ui, &mut available_panes);
 
                 ui.separator();
                 ui.heading("Subgroups");
@@ -59,7 +59,7 @@ impl DrawUiWith<PaneTree> for GroupEditor {
                             subgroup_to_delete = Some(i);
                         }
 
-                        changed |= child.draw_with_mut(ui, &mut available_panes);
+                        changed |= child.draw_with(ui, &mut available_panes);
                     });
                 }
 
@@ -98,8 +98,8 @@ impl DrawUiWith<PaneTree> for GroupEditor {
     }
 }
 
-impl DrawUiWith<Vec<String>> for Group {
-    fn draw_with_mut(&mut self, ui: &mut egui::Ui, available_panes: &mut Vec<String>) -> bool {
+impl DrawUiWith<&mut [String]> for Group {
+    fn draw_with(&mut self, ui: &mut egui::Ui, available_panes: &mut [String]) -> bool {
         let mut changed = false;
 
         ui.collapsing(format!("Group: {}", self.group_name), |ui| {

@@ -145,7 +145,7 @@ fn apply(action: Action, state: &mut UiState, anim_player: &mut AnimPlayer) {
 
         Action::Deselect => {
             state.selected_pane = None;
-            state.context_menu = None;
+            state.context_menu.is_open = false;
         }
 
         Action::FitTimeline => {

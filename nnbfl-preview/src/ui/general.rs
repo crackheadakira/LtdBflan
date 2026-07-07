@@ -10,13 +10,17 @@ use crate::{
     RenderContext,
     anim_state::AnimPlayer,
     bflyt_view::BflytView,
-    editors::{DetailedPaneEditor, DrawUiWith, GroupEditor, MaterialEditor},
     pane_tree::DirtyFlags,
     renderer::timeline::{
         PendingKeyEdit, TIMELINE_MIN_VISIBLE_FRAMES, TimelineDrag, TimelineGeometry,
         TimelineLayout, TimelineRow,
     },
     traits::Displaying,
+    ui::{
+        DrawUiWith,
+        context_menu::{ContextMenu, ContextMenuAction, ContextMenuState},
+        editors::{DetailedPaneEditor, GroupEditor, MaterialEditor},
+    },
 };
 
 pub const SUPPORTED_SARC_EXTENSIONS: &[&str] = &[
@@ -41,7 +45,7 @@ pub struct UiState {
     pub right_sidebar_tab: SidebarRightTab,
     pub active_debug_stage: u32,
 
-    pub context_menu: Option<ContextMenuState>,
+    pub context_menu: ContextMenu,
     pub archive_browser_open: bool,
     pub shortcuts_window_open: bool,
 
@@ -77,11 +81,6 @@ impl Default for TimelineState {
             frame_rate: 30.0,
         }
     }
-}
-
-pub struct ContextMenuState {
-    pub pane_idx: usize,
-    pub pos: egui::Pos2,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -199,7 +198,33 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         }
     }
 
-    draw_context_menu(ui, ctx.ui_state, ctx.bflyt_view.as_deref());
+    if let Some(bflyt_view) = &ctx.bflyt_view
+        && let Some(node) = bflyt_view
+            .tree
+            .find_by_idx(ctx.ui_state.context_menu.pane_idx)
+    {
+        let state = ContextMenuState {
+            node,
+            is_hidden: ctx
+                .ui_state
+                .hidden_panes
+                .contains(&ctx.ui_state.context_menu.pane_idx),
+        };
+
+        if let Some(action) = ctx.ui_state.context_menu.draw_with(ui, state) {
+            match action {
+                ContextMenuAction::HidePane(pane_idx) => {
+                    ctx.ui_state.hidden_panes.insert(pane_idx);
+                }
+                ContextMenuAction::ShowPane(pane_idx) => {
+                    ctx.ui_state.hidden_panes.remove(&pane_idx);
+                }
+                ContextMenuAction::Action(ui_action) => {
+                    ctx.ui_state.pending_action = Some(ui_action);
+                }
+            };
+        }
+    };
 
     egui::Panel::top("menu_bar").show(ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
@@ -565,10 +590,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
 
     if let Some(ref mut view) = ctx.bflyt_view {
         if let Some(material_list) = view.tree.material_list.as_mut() {
-            let changed = ctx
-                .ui_state
-                .material_editor
-                .draw_with_mut(ui, material_list);
+            let changed = ctx.ui_state.material_editor.draw_with(ui, material_list);
 
             if changed {
                 view.tree.for_each_mut(|node| {
@@ -582,10 +604,10 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         if let Some(idx) = ctx.ui_state.selected_pane
             && let Some(node) = view.tree.find_node_mut(idx)
         {
-            ctx.ui_state.detailed_pane_editor.draw_with_mut(ui, node);
+            ctx.ui_state.detailed_pane_editor.draw_with(ui, node);
         }
 
-        ctx.ui_state.group_editor.draw_with_mut(ui, &mut view.tree);
+        ctx.ui_state.group_editor.draw_with(ui, &mut view.tree);
     }
 
     draw_timeline_panel(ui, ctx.ui_state, ctx.anim_player);
@@ -648,78 +670,6 @@ fn draw_shortcuts_window(ui: &mut egui::Ui, state: &mut UiState) {
 
     if !open {
         state.shortcuts_window_open = false;
-    }
-}
-
-fn draw_context_menu(ui: &mut Ui, state: &mut UiState, view: Option<&BflytView>) {
-    let Some(menu) = &state.context_menu else {
-        return;
-    };
-
-    let pane_idx = menu.pane_idx;
-    let pos = menu.pos;
-
-    let node = view
-        .as_ref()
-        .and_then(|v| v.tree.iter().find(|n| n.pane_idx == pane_idx));
-
-    let label = node
-        .map(|n| n.label.trim_end_matches('\0').to_string())
-        .unwrap_or_else(|| "Pane".to_string());
-
-    let is_parts_content = node.is_some_and(|n| n.parts_source.is_some());
-    let mut close = false;
-
-    let area_response = egui::Area::new(egui::Id::new("pane_context_menu"))
-        .fixed_pos(pos)
-        .order(egui::Order::Foreground)
-        .show(ui.ctx(), |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.set_min_width(160.0);
-                ui.label(egui::RichText::new(label).strong());
-                ui.separator();
-
-                let hidden = state.hidden_panes.contains(&pane_idx);
-                if ui.button(if hidden { "Show" } else { "Hide" }).clicked() {
-                    if hidden {
-                        state.hidden_panes.remove(&pane_idx);
-                    } else {
-                        state.hidden_panes.insert(pane_idx);
-                    }
-
-                    close = true;
-                }
-
-                ui.separator();
-
-                if is_parts_content {
-                    ui.weak("Part of a linked layout - edit it via the PartsPane's overrides, not directly.");
-                } else {
-                    if ui.button("Duplicate").clicked() {
-                        state.pending_action = Some(UiAction::DuplicatePane(pane_idx));
-                        close = true;
-                    }
-
-                    if ui
-                        .add(egui::Button::new(
-                            egui::RichText::new("Delete")
-                                .color(egui::Color32::from_rgb(224, 96, 96)),
-                        ))
-                        .clicked()
-                    {
-                        state.pending_action = Some(UiAction::DeletePane(pane_idx));
-                        close = true;
-                    }
-                }
-            });
-        });
-
-    let clicked_outside =
-        ui.ctx().input(|i| i.pointer.any_click()) && !area_response.response.contains_pointer();
-    let escape_pressed = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
-
-    if close || clicked_outside || escape_pressed {
-        state.context_menu = None;
     }
 }
 

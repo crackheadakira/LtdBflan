@@ -8,7 +8,7 @@ use nnbfl::{
     ui2d::types::{Color4f, Color4u8, Vector2f},
 };
 
-use crate::editors::{DrawUi, DrawUiWith};
+use crate::ui::{DrawUi, DrawUiWith};
 
 #[derive(Default)]
 pub struct MaterialEditor {
@@ -17,8 +17,8 @@ pub struct MaterialEditor {
     pub is_editor_visible: bool,
 }
 
-impl DrawUiWith<MaterialList> for MaterialEditor {
-    fn draw_with_mut(&mut self, ui: &mut egui::Ui, material_list: &mut MaterialList) -> bool {
+impl DrawUiWith<&mut MaterialList> for MaterialEditor {
+    fn draw_with(&mut self, ui: &mut egui::Ui, material_list: &mut MaterialList) -> bool {
         let mut changed = false;
 
         egui::Window::new("Material Editor")
