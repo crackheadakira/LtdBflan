@@ -11,7 +11,7 @@ use super::quad::Quad;
 use super::texture::TextureCache;
 use crate::pane_tree::PaneNode;
 use crate::renderer::quad::Uniforms;
-use crate::ui::PaneVisibilityFlags;
+use crate::ui::general::PaneVisibilityFlags;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]

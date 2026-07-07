@@ -100,16 +100,15 @@ struct DetailedCombinerMaterial {
 @group(1) @binding(7) var<uniform> u_detailed:  DetailedCombinerMaterial;
 
 fn scale_vertex_uv(uv: vec2<f32>, ratio: f32) -> vec2<f32> {
-    let centered = uv - vec2<f32>(0.5);
-    var scaled = centered;
+    var scaled = uv;
 
     if (ratio > 1.0) {
-        scaled.y = centered.y * ratio;
+        scaled.y = uv.y * ratio;
     } else {
-        scaled.x = centered.x * (1.0 / ratio); 
+        scaled.x = uv.x * (1.0 / ratio); 
     }
 
-    return scaled + vec2<f32>(0.5);
+    return scaled;
 }
 
 @vertex
@@ -229,7 +228,7 @@ fn sample_indirect(
     m0:  vec4<f32>, m1: vec4<f32>,
     t:   texture_2d<f32>, s: sampler,
 ) -> vec4<f32> {
-    let iv  = vec4<f32>(ic.xy - 0.25, 0.0, 1.0);
+    let iv  = vec4<f32>(ic.xy, 0.0, 1.0);
     let offset = vec2<f32>(dot(iv, m0), dot(iv, m1));
     
     var c = textureSample(t, s, uv + offset);
@@ -250,8 +249,8 @@ fn sample_double_indirect(
 ) -> vec4<f32> {
     let alpha = ic0.a * ic1.a;
 
-    var color0 = vec4<f32>(ic0.rgb - 0.25, 1.0);
-    let color1 = vec4<f32>(ic1.rgb - 0.25, 1.0);
+    var color0 = vec4<f32>(ic0.rgb, 1.0);
+    let color1 = vec4<f32>(ic1.rgb, 1.0);
 
     color0 = combine_layer(color0, color1, combine_mode2, true);
 

@@ -35,7 +35,6 @@ use winit::{
 };
 
 use bflyt_view::{BflytView, build_view};
-use ui::{UiState, draw_ui};
 
 use crate::{
     anim_state::AnimPlayer,
@@ -45,7 +44,7 @@ use crate::{
         timeline::TimelineRenderer,
     },
     traits::Displaying,
-    ui::{SUPPORTED_SARC_EXTENSIONS, UiAction},
+    ui::general::{SUPPORTED_SARC_EXTENSIONS, UiAction, UiState, draw_ui},
 };
 
 struct GpuState {
@@ -696,7 +695,7 @@ impl App {
         self.ui_state.context_menu =
             self.ui_state
                 .selected_pane
-                .map(|pane_idx| ui::ContextMenuState {
+                .map(|pane_idx| ui::general::ContextMenuState {
                     pane_idx,
                     pos: egui::pos2(screen_pos[0], screen_pos[1]),
                 });

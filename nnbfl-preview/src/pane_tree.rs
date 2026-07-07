@@ -25,7 +25,7 @@ use crate::{
         textured_quad::{PaneQuadData, TexturedQuad},
     },
     traits::Displaying,
-    ui::SUPPORTED_SARC_EXTENSIONS,
+    ui::general::SUPPORTED_SARC_EXTENSIONS,
 };
 
 pub type UvMatrix4x3x2 = [[[f32; 2]; 3]; 4];

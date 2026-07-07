@@ -2,7 +2,7 @@ use egui::{Context, Key, Modifiers};
 
 use crate::{
     anim_state::AnimPlayer,
-    ui::{UiAction, UiState},
+    ui::general::{UiAction, UiState},
 };
 
 #[derive(Clone, Copy)]
