@@ -387,8 +387,6 @@ pub struct RenderContext<'a> {
     pub bflyt_view: Option<&'a mut BflytView>,
     pub ui_state: &'a mut UiState,
     pub anim_player: &'a mut AnimPlayer,
-    pub blarc_dir: Option<&'a PathBuf>,
-    pub archive_scan: Option<&'a ArchiveScan>,
 }
 
 struct DragState {
@@ -403,8 +401,6 @@ struct DragState {
 struct App {
     bflyt_path: Option<PathBuf>,
     bflyt_view: Option<BflytView>,
-    blarc_dir: Option<PathBuf>,
-    blarc_textures_loaded: bool,
     ui_state: UiState,
     camera: Camera,
     egui_ctx: egui::Context,
@@ -414,7 +410,6 @@ struct App {
     anim_player: AnimPlayer,
     last_tick: Instant,
     drag_state: Option<DragState>,
-    archive_scan: Option<ArchiveScan>,
 }
 
 impl App {
@@ -422,8 +417,6 @@ impl App {
         Self {
             bflyt_path: None,
             bflyt_view: None,
-            blarc_dir: None,
-            blarc_textures_loaded: false,
             ui_state: UiState::default(),
             camera: Camera::new(),
             egui_ctx: egui::Context::default(),
@@ -433,7 +426,6 @@ impl App {
             anim_player: AnimPlayer::new(),
             last_tick: Instant::now(),
             drag_state: None,
-            archive_scan: None,
         }
     }
 
@@ -730,10 +722,14 @@ impl App {
         let layout_name = bflyt.layout.name.clone();
         let mut view = build_view(
             bflyt,
-            self.blarc_dir.as_deref(),
+            self.ui_state.archive_browser.layout_dir.as_deref(),
             layout_name.clone(),
             has_textures,
-            self.archive_scan.as_ref().map(|s| s.entries.as_slice()),
+            self.ui_state
+                .archive_browser
+                .archive_scan
+                .as_ref()
+                .map(|s| s.entries.as_slice()),
         );
 
         self.anim_player = AnimPlayer::new();
@@ -1036,8 +1032,7 @@ impl ApplicationHandler for App {
                         return;
                     };
 
-                    self.blarc_dir = Some(dir);
-                    self.blarc_textures_loaded = false;
+                    self.ui_state.archive_browser.layout_dir = Some(dir);
                     if let Some(path) = self.bflyt_path.clone() {
                         let bytes = std::fs::read(&path).ok();
 
@@ -1119,8 +1114,8 @@ impl ApplicationHandler for App {
                 }
 
                 UiAction::StartArchiveScan => {
-                    if let Some(dir) = self.blarc_dir.clone() {
-                        self.archive_scan = Some(ArchiveScan::start(dir));
+                    if let Some(dir) = self.ui_state.archive_browser.layout_dir.clone() {
+                        self.ui_state.archive_browser.archive_scan = Some(ArchiveScan::start(dir));
                         if let Some(w) = &self.window {
                             w.request_redraw();
                         }
@@ -1128,7 +1123,7 @@ impl ApplicationHandler for App {
                 }
 
                 UiAction::CancelArchiveScan => {
-                    if let Some(scan) = &mut self.archive_scan {
+                    if let Some(scan) = &mut self.ui_state.archive_browser.archive_scan {
                         scan.request_cancel();
                     }
                 }
@@ -1137,6 +1132,9 @@ impl ApplicationHandler for App {
                     let resolved = std::fs::read(&entry.path).ok().and_then(|bytes| {
                         archive_browser::resolve_nested_package_bytes(bytes, &entry.nested_path)
                     });
+
+                    self.ui_state.selected_pane = None;
+                    self.ui_state.hidden_panes.clear();
 
                     match resolved {
                         Some(package_bytes) => {
@@ -1327,18 +1325,20 @@ impl ApplicationHandler for App {
                             ui_state: &mut self.ui_state,
                             camera: &self.camera,
                             anim_player: &mut self.anim_player,
-                            blarc_dir: self.blarc_dir.as_ref(),
-                            archive_scan: self.archive_scan.as_ref(),
                         },
                     );
 
                     let scan_active = self
+                        .ui_state
+                        .archive_browser
                         .archive_scan
                         .as_mut()
                         .map(|s| s.poll())
                         .unwrap_or(false);
 
                     let scan_in_progress = self
+                        .ui_state
+                        .archive_browser
                         .archive_scan
                         .as_ref()
                         .is_some_and(|s| !s.done && !s.cancelled);

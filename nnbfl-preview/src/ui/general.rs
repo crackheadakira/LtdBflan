@@ -17,9 +17,11 @@ use crate::{
     },
     traits::Displaying,
     ui::{
-        DrawUiWith,
+        DrawUi, DrawUiWith,
+        archive_browser::ArchiveBrowser,
         context_menu::{ContextMenu, ContextMenuAction, ContextMenuState},
         editors::{DetailedPaneEditor, GroupEditor, MaterialEditor},
+        shortcuts::Shortcuts,
     },
 };
 
@@ -46,8 +48,8 @@ pub struct UiState {
     pub active_debug_stage: u32,
 
     pub context_menu: ContextMenu,
-    pub archive_browser_open: bool,
-    pub shortcuts_window_open: bool,
+    pub archive_browser: ArchiveBrowser,
+    pub shortcuts_window: Shortcuts,
 
     pub timeline: TimelineState,
     pub material_editor: MaterialEditor,
@@ -249,7 +251,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
             });
 
             if ui.button("Browse Archives...").clicked() {
-                ctx.ui_state.archive_browser_open = true;
+                ctx.ui_state.archive_browser.is_visible = true;
             }
 
             if let Some(ref view) = ctx.bflyt_view {
@@ -293,7 +295,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
 
             ui.menu_button("Help", |ui| {
                 if ui.button("Keyboard Shortcuts").clicked() {
-                    ctx.ui_state.shortcuts_window_open = true;
+                    ctx.ui_state.shortcuts_window.is_visible = true;
                     ui.close();
                 }
             });
@@ -611,66 +613,8 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
     }
 
     draw_timeline_panel(ui, ctx.ui_state, ctx.anim_player);
-    draw_archive_browser_window(ui, ctx.ui_state, ctx.blarc_dir, ctx.archive_scan);
-    draw_shortcuts_window(ui, ctx.ui_state);
-}
-
-fn draw_shortcuts_window(ui: &mut egui::Ui, state: &mut UiState) {
-    if !state.shortcuts_window_open {
-        return;
-    }
-
-    let mut open = true;
-
-    egui::Window::new("Keyboard Shortcuts")
-        .open(&mut open)
-        .resizable(false)
-        .default_width(360.0)
-        .show(ui.ctx(), |ui| {
-            egui::ScrollArea::vertical()
-                .max_height(400.0)
-                .show(ui, |ui| {
-                    egui::Grid::new("shortcuts_grid")
-                        .num_columns(2)
-                        .spacing([16.0, 8.0])
-                        .striped(true)
-                        .show(ui, |ui| {
-                            for bind in crate::keybinds::BINDINGS {
-                                let mut mods = String::new();
-                                if bind.modifiers.command {
-                                    mods.push_str("Ctrl+");
-                                }
-
-                                if bind.modifiers.shift {
-                                    mods.push_str("Shift+");
-                                }
-
-                                if bind.modifiers.alt {
-                                    mods.push_str("Alt+");
-                                }
-
-                                let shortcut_text = format!("{mods}{:?}", bind.key);
-
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.colored_label(
-                                            egui::Color32::from_gray(140),
-                                            shortcut_text,
-                                        );
-                                    },
-                                );
-
-                                ui.label(bind.description);
-                                ui.end_row();
-                            }
-                        });
-                });
-        });
-
-    if !open {
-        state.shortcuts_window_open = false;
-    }
+    ctx.ui_state.archive_browser.draw(ui);
+    ctx.ui_state.shortcuts_window.draw(ui);
 }
 
 fn draw_timeline_panel(ui: &mut Ui, state: &mut UiState, anim_player: &AnimPlayer) {
@@ -900,121 +844,6 @@ fn draw_timeline_panel(ui: &mut Ui, state: &mut UiState, anim_player: &AnimPlaye
 
             ui.allocate_rect(avail, egui::Sense::hover());
         });
-}
-
-fn draw_archive_browser_window(
-    ui: &mut Ui,
-    state: &mut UiState,
-    blarc_dir: Option<&std::path::PathBuf>,
-    archive_scan: Option<&crate::archive_browser::ArchiveScan>,
-) {
-    if !state.archive_browser_open {
-        return;
-    }
-
-    let mut open = true;
-
-    egui::Window::new("Browse Archives")
-        .open(&mut open)
-        .default_width(420.0)
-        .default_height(420.0)
-        .show(ui, |ui| {
-            let Some(dir) = blarc_dir else {
-                ui.label("Set a layout folder first (File > Set Layout Folder...).");
-                return;
-            };
-
-            ui.label(format!("Directory: {}", dir.display()));
-            ui.separator();
-
-            match archive_scan {
-                None => {
-                    ui.label(
-                        "Not scanned yet. Scanning reads and unpacks every archive in this \
-                         directory to check for BFLYT layouts, which can take a while on a \
-                         large directory.",
-                    );
-                    if ui.button("Scan directory").clicked() {
-                        state.pending_action = Some(UiAction::StartArchiveScan);
-                    }
-                }
-
-                Some(scan) if scan.root() != dir => {
-                    ui.label("The layout folder changed since the last scan.");
-                    if ui.button("Scan directory").clicked() {
-                        state.pending_action = Some(UiAction::StartArchiveScan);
-                    }
-                }
-
-                Some(scan) => {
-                    ui.horizontal(|ui| {
-                        if scan.done {
-                            ui.label(format!(
-                                "Found {} BFLYT-containing archive(s) out of {} scanned.",
-                                scan.entries.len(),
-                                scan.scanned
-                            ));
-                        } else if scan.cancelled {
-                            ui.label(format!(
-                                "Cancelled after scanning {} of {}.",
-                                scan.scanned, scan.total
-                            ));
-                        } else {
-                            ui.spinner();
-                            ui.label(format!(
-                                "Scanning... {} / {}",
-                                scan.scanned,
-                                scan.total.max(scan.scanned)
-                            ));
-                            if ui.button("Cancel").clicked() {
-                                state.pending_action = Some(UiAction::CancelArchiveScan);
-                            }
-                        }
-
-                        if (scan.done || scan.cancelled) && ui.button("Rescan").clicked() {
-                            state.pending_action = Some(UiAction::StartArchiveScan);
-                        }
-                    });
-
-                    if !scan.done && !scan.cancelled && scan.total > 0 {
-                        ui.add(egui::ProgressBar::new(
-                            scan.scanned as f32 / scan.total.max(1) as f32,
-                        ));
-                    }
-
-                    ui.separator();
-
-                    egui::ScrollArea::vertical().auto_shrink(false).show_rows(
-                        ui,
-                        24.0,
-                        scan.entries.len(),
-                        |ui, row_range| {
-                            if scan.entries.is_empty() && scan.done {
-                                ui.weak("No BFLYT-containing archives found.");
-                            }
-
-                            for i in row_range {
-                                let entry = &scan.entries[i];
-
-                                ui.horizontal(|ui| {
-                                    ui.label(&entry.display_name);
-                                    if ui.button("Load").clicked() {
-                                        state.pending_action =
-                                            Some(UiAction::LoadArchiveEntry(entry.clone()));
-                                        state.hidden_panes.clear();
-                                        state.selected_pane = None;
-                                    }
-                                });
-                            }
-                        },
-                    );
-                }
-            }
-        });
-
-    if !open {
-        state.archive_browser_open = false;
-    }
 }
 
 fn hide_pane_recursive(idx: usize, view: &BflytView, hidden_set: &mut HashSet<usize>) {
