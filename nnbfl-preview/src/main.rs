@@ -38,10 +38,7 @@ use bflyt_view::{BflytView, build_view};
 use crate::{
     anim_state::AnimPlayer,
     archive_browser::ArchiveScan,
-    renderer::{
-        selection::{Handle, SelectionRenderer, point_in_quad},
-        timeline::TimelineRenderer,
-    },
+    renderer::selection::{Handle, SelectionRenderer, point_in_quad},
     traits::Displaying,
     ui::general::{SUPPORTED_SARC_EXTENSIONS, UiAction, UiState, draw_ui},
 };
@@ -56,7 +53,6 @@ struct GpuState {
     pane_renderer: PaneRenderer,
     selection_renderer: SelectionRenderer,
     egui_renderer: egui_wgpu::Renderer,
-    timeline_renderer: TimelineRenderer,
 
     texture_cache: TextureCache,
 }
@@ -122,7 +118,6 @@ impl GpuState {
 
         let texture_cache = TextureCache::new();
         let pane_renderer = PaneRenderer::new(&device, &queue, surface_format);
-        let timeline_renderer = TimelineRenderer::new(&device, surface_format);
 
         let egui_renderer =
             egui_wgpu::Renderer::new(&device, surface_format, RendererOptions::default());
@@ -137,7 +132,6 @@ impl GpuState {
             texture_cache,
             egui_renderer,
             selection_renderer,
-            timeline_renderer,
         }
     }
 
@@ -183,11 +177,6 @@ impl GpuState {
         self.pane_renderer.update_projection(&self.queue, matrix);
         self.selection_renderer
             .update_projection(&self.queue, matrix);
-        self.timeline_renderer.update_projection(
-            &self.queue,
-            self.config.width as f32,
-            self.config.height as f32,
-        );
 
         let mut scissor_rect = None;
         if let Some(ref view) = ctx.bflyt_view
@@ -305,15 +294,18 @@ impl GpuState {
             pixels_per_point: full_output.pixels_per_point,
         };
 
-        if let Some(geometry) = ctx.ui_state.timeline.geometry.take() {
-            self.timeline_renderer.upload(&self.device, &geometry);
-        } else {
-            self.timeline_renderer
-                .upload(&self.device, &Default::default());
+        if let Some(pending_key_edit) = ctx.ui_state.timeline.pending_key_edit.take() {
+            ctx.ui_state
+                .timeline
+                .anim_player
+                .apply_key_edit(&pending_key_edit);
         }
 
-        if let Some(pending_key_edit) = ctx.ui_state.timeline.pending_key_edit.take() {
-            ctx.anim_player.apply_key_edit(&pending_key_edit);
+        if let Some(pending_slope_edit) = ctx.ui_state.timeline.pending_slope_edit.take() {
+            ctx.ui_state
+                .timeline
+                .anim_player
+                .apply_slope_edit(&pending_slope_edit);
         }
 
         for (id, delta) in &full_output.textures_delta.set {
@@ -373,8 +365,6 @@ impl GpuState {
             let mut rpass = rpass.forget_lifetime();
             self.egui_renderer
                 .render(&mut rpass, &paint_jobs, &screen_descriptor);
-
-            self.timeline_renderer.render(&mut rpass);
         }
 
         self.queue.submit(std::iter::once(render_encoder.finish()));
@@ -386,7 +376,6 @@ pub struct RenderContext<'a> {
     pub camera: &'a Camera,
     pub bflyt_view: Option<&'a mut BflytView>,
     pub ui_state: &'a mut UiState,
-    pub anim_player: &'a mut AnimPlayer,
 }
 
 struct DragState {
@@ -407,7 +396,6 @@ struct App {
     egui_state: Option<egui_winit::State>,
     gpu: Option<GpuState>,
     window: Option<Arc<Window>>,
-    anim_player: AnimPlayer,
     last_tick: Instant,
     drag_state: Option<DragState>,
 }
@@ -423,7 +411,6 @@ impl App {
             egui_state: None,
             gpu: None,
             window: None,
-            anim_player: AnimPlayer::new(),
             last_tick: Instant::now(),
             drag_state: None,
         }
@@ -732,7 +719,7 @@ impl App {
                 .map(|s| s.entries.as_slice()),
         );
 
-        self.anim_player = AnimPlayer::new();
+        self.ui_state.timeline.anim_player = AnimPlayer::new();
 
         for magic_file in all_files {
             match magic_file {
@@ -741,7 +728,7 @@ impl App {
                 }
                 MagicFiles::Bflan(bytes) => {
                     if let Ok(bflan) = Bflan::parse_file(&bytes) {
-                        self.anim_player.load(bflan);
+                        self.ui_state.timeline.anim_player.load(bflan);
                     }
                 }
                 _ => {}
@@ -749,6 +736,8 @@ impl App {
         }
 
         self.ui_state.anim_names = self
+            .ui_state
+            .timeline
             .anim_player
             .anims
             .iter()
@@ -1300,19 +1289,22 @@ impl ApplicationHandler for App {
                         let dt = self.last_tick.elapsed().as_secs_f32();
                         self.last_tick = Instant::now();
 
-                        if let Some(next) =
-                            self.anim_player.tick(dt, self.ui_state.timeline.frame_rate)
+                        if let Some(next) = self
+                            .ui_state
+                            .timeline
+                            .anim_player
+                            .tick(dt, self.ui_state.timeline.frame_rate)
                         {
-                            self.anim_player.play(&next.clone());
+                            self.ui_state.timeline.anim_player.play(&next.clone());
                         }
 
                         if let Some(name) = self.ui_state.pending_play_anim.take() {
-                            self.anim_player.play(&name);
+                            self.ui_state.timeline.anim_player.play(&name);
                         }
 
                         if let Some(view) = &mut self.bflyt_view {
                             view.reset_to_base();
-                            self.anim_player.apply(view);
+                            self.ui_state.timeline.anim_player.apply(view);
                         }
                     }
 
@@ -1324,7 +1316,6 @@ impl ApplicationHandler for App {
                             bflyt_view: self.bflyt_view.as_mut(),
                             ui_state: &mut self.ui_state,
                             camera: &self.camera,
-                            anim_player: &mut self.anim_player,
                         },
                     );
 
@@ -1343,7 +1334,9 @@ impl ApplicationHandler for App {
                         .as_ref()
                         .is_some_and(|s| !s.done && !s.cancelled);
 
-                    if (self.anim_player.is_playing() || scan_active || scan_in_progress)
+                    if (self.ui_state.timeline.anim_player.is_playing()
+                        || scan_active
+                        || scan_in_progress)
                         && window.has_focus()
                     {
                         window.request_redraw();

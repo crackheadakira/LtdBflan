@@ -15,8 +15,8 @@ use nnbfl::{
 
 use crate::bflyt_view::BflytView;
 use crate::pane_tree::DirtyFlags;
-use crate::renderer::timeline::{PendingKeyEdit, TimelineTrack};
 use crate::traits::Displaying;
+use crate::ui::timeline::{PendingKeyEdit, PendingSlopeEdit, TimelineTrack};
 
 fn eval_hermite(keys: &[nnbfl::bflan::curves::HermiteKey], frame: f32) -> f32 {
     if keys.is_empty() {
@@ -265,6 +265,23 @@ impl AnimPlayer {
                     k.value = edit.value;
                 }
             }
+        }
+    }
+
+    pub fn apply_slope_edit(&mut self, edit: &PendingSlopeEdit) {
+        let Some(idx) = self.active else { return };
+        let Some(anim) = self.anims.get_mut(idx) else {
+            return;
+        };
+
+        let Some(curve) = anim.curve_mut(&edit.track) else {
+            return;
+        };
+
+        if let Curve::Hermite(keys) = curve
+            && let Some(k) = keys.get_mut(edit.key_idx)
+        {
+            k.slope = edit.slope;
         }
     }
 }

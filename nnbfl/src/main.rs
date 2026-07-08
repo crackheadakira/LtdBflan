@@ -4,15 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
-use crate::bflan::file::Bflan;
-use crate::bflyt::file::Bflyt;
-use crate::core::{FileReadWriteable, NnbflError, Writer};
-
-mod bflan;
-mod bflyt;
-mod core;
-mod sarc;
-mod ui2d;
+use nnbfl::bflan::file::Bflan;
+use nnbfl::bflyt::file::Bflyt;
+use nnbfl::core::{FileReadWriteable, NnbflError, Writer};
 
 #[derive(Parser)]
 #[command(name = "nnbfl")]

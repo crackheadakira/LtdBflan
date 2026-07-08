@@ -236,7 +236,7 @@ pub enum TexGenSrc {
     Tex1,
     Tex2,
     OrthogonalProjection,
-    PaneBasedProjection,
+    PaneBasedOrthogonalProjection,
     PerspectiveProjection,
     PaneBasedPerspectiveProjection,
     BrickRepeat,

@@ -3,6 +3,7 @@ pub mod context_menu;
 pub mod editors;
 pub mod general;
 pub mod shortcuts;
+pub mod timeline;
 
 pub trait DrawUiWith<T = (), O = bool> {
     fn draw_with(&mut self, ui: &mut egui::Ui, state: T) -> O;

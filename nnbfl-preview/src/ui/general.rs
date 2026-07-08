@@ -8,13 +8,8 @@ use nnbfl::{
 
 use crate::{
     RenderContext,
-    anim_state::AnimPlayer,
     bflyt_view::BflytView,
     pane_tree::DirtyFlags,
-    renderer::timeline::{
-        PendingKeyEdit, TIMELINE_MIN_VISIBLE_FRAMES, TimelineDrag, TimelineGeometry,
-        TimelineLayout, TimelineRow,
-    },
     traits::Displaying,
     ui::{
         DrawUi, DrawUiWith,
@@ -22,6 +17,7 @@ use crate::{
         context_menu::{ContextMenu, ContextMenuAction, ContextMenuState},
         editors::{DetailedPaneEditor, GroupEditor, MaterialEditor},
         shortcuts::Shortcuts,
+        timeline::TimelineState,
     },
 };
 
@@ -55,34 +51,6 @@ pub struct UiState {
     pub material_editor: MaterialEditor,
     pub detailed_pane_editor: DetailedPaneEditor,
     pub group_editor: GroupEditor,
-}
-
-pub struct TimelineState {
-    pub geometry: Option<TimelineGeometry>,
-    pub drag: Option<TimelineDrag>,
-    pub pending_key_edit: Option<PendingKeyEdit>,
-    pub expanded_anim_panes: HashSet<usize>,
-    pub zoom: f32,
-
-    /// First visible frame from the left edge of the graph.
-    pub pan_frame: f32,
-    pub panning: bool,
-    pub frame_rate: f32,
-}
-
-impl Default for TimelineState {
-    fn default() -> Self {
-        Self {
-            geometry: None,
-            drag: None,
-            pending_key_edit: None,
-            expanded_anim_panes: HashSet::new(),
-            zoom: 0.0,
-            pan_frame: 0.0,
-            panning: false,
-            frame_rate: 30.0,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -150,7 +118,7 @@ pub enum UiAction {
 }
 
 pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h: f32) {
-    crate::keybinds::handle(ui.ctx(), ctx.ui_state, ctx.anim_player);
+    crate::keybinds::handle(ui.ctx(), ctx.ui_state);
 
     if let Some(ref mut view) = ctx.bflyt_view {
         let viewport_rect = ui.content_rect();
@@ -470,13 +438,13 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                         ui.vertical(|ui| {
                             ui.heading("Animations");
                             ui.horizontal(|ui| {
-                                if ctx.anim_player.is_playing() {
+                                if ctx.ui_state.timeline.anim_player.is_playing() {
                                     ui.label(
                                         egui::RichText::new("Playing")
                                             .color(egui::Color32::GREEN)
                                             .strong(),
                                     );
-                                } else if ctx.anim_player.active.is_some() {
+                                } else if ctx.ui_state.timeline.anim_player.active.is_some() {
                                     ui.label(
                                         egui::RichText::new("Paused").color(egui::Color32::GOLD),
                                     );
@@ -498,7 +466,9 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                                             for (idx, name) in
                                                 ctx.ui_state.anim_names.iter().enumerate()
                                             {
-                                                let is_active = ctx.anim_player.active == Some(idx);
+                                                let is_active =
+                                                    ctx.ui_state.timeline.anim_player.active
+                                                        == Some(idx);
                                                 if ui.selectable_label(is_active, name).clicked() {
                                                     ctx.ui_state.pending_play_anim =
                                                         Some(name.clone());
@@ -512,8 +482,9 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
 
                             ui.add_space(8.0);
 
-                            if let Some(idx) = ctx.anim_player.active
-                                && let Some(anim) = ctx.anim_player.anims.get_mut(idx)
+                            if let Some(idx) = ctx.ui_state.timeline.anim_player.active
+                                && let Some(anim) =
+                                    ctx.ui_state.timeline.anim_player.anims.get_mut(idx)
                             {
                                 ui.group(|ui| {
                                     ui.horizontal(|ui| {
@@ -612,238 +583,9 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         ctx.ui_state.group_editor.draw_with(ui, &mut view.tree);
     }
 
-    draw_timeline_panel(ui, ctx.ui_state, ctx.anim_player);
+    ctx.ui_state.timeline.draw(ui);
     ctx.ui_state.archive_browser.draw(ui);
     ctx.ui_state.shortcuts_window.draw(ui);
-}
-
-fn draw_timeline_panel(ui: &mut Ui, state: &mut UiState, anim_player: &AnimPlayer) {
-    state.timeline.geometry = None;
-
-    let Some(anim) = anim_player.active.and_then(|i| anim_player.anims.get(i)) else {
-        return;
-    };
-
-    egui::Panel::bottom("timeline_panel")
-        .resizable(true)
-        .default_size(260.0)
-        .min_size(80.0)
-        .show(ui, |ui| {
-            let frame_count = anim.frame_count().max(1.0);
-            let zoom = state.timeline.zoom.max(1.0);
-            let visible_span = (frame_count / zoom).clamp(TIMELINE_MIN_VISIBLE_FRAMES, frame_count);
-            let max_pan = (frame_count - visible_span).max(0.0);
-            state.timeline.pan_frame = state.timeline.pan_frame.clamp(0.0, max_pan);
-
-            ui.horizontal(|ui| {
-                ui.heading("Timeline");
-                ui.separator();
-
-                ui.label(format!(
-                    "{} - frame {:.1} / {frame_count:.0}",
-                    anim.name, anim.frame
-                ));
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add(egui::DragValue::new(&mut state.timeline.frame_rate).speed(1));
-                    ui.label("FPS:");
-
-                    ui.separator();
-
-                    if ui.small_button("Fit").clicked() {
-                        state.timeline.zoom = 1.0;
-                        state.timeline.pan_frame = 0.0;
-                    }
-
-                    ui.label(format!("Zoom {zoom:.1}x"));
-                });
-            });
-
-            ui.separator();
-
-            let rows = TimelineRow::build(anim, &state.timeline.expanded_anim_panes);
-
-            if rows.is_empty() {
-                ui.weak("No animated panes in this animation.");
-                return;
-            }
-
-            const LABEL_COL_WIDTH: f32 = 190.0;
-            const RULER_HEIGHT: f32 = 22.0;
-
-            let row_h = TimelineRow::total_height();
-            let avail = ui.available_rect_before_wrap();
-
-            for (i, row) in rows.iter().enumerate() {
-                let row_top = avail.min.y + RULER_HEIGHT + i as f32 * row_h;
-                if row_top > avail.max.y {
-                    break;
-                }
-
-                let row_rect = egui::Rect::from_min_size(
-                    egui::pos2(avail.min.x, row_top),
-                    egui::vec2(LABEL_COL_WIDTH, row_h),
-                );
-
-                match row {
-                    TimelineRow::PaneHeader { content_idx, label } => {
-                        let expanded = state.timeline.expanded_anim_panes.contains(content_idx);
-                        let header_response = ui.interact(
-                            row_rect,
-                            ui.id().with(("timeline_header", *content_idx)),
-                            egui::Sense::click(),
-                        );
-
-                        if header_response.clicked() {
-                            if expanded {
-                                state.timeline.expanded_anim_panes.remove(content_idx);
-                            } else {
-                                state.timeline.expanded_anim_panes.insert(*content_idx);
-                            }
-                        }
-                        if header_response.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        }
-
-                        let status = if expanded { "Close" } else { "Open" };
-                        ui.painter().text(
-                            egui::pos2(avail.min.x + 4.0, row_top + row_h * 0.5 - 2.0),
-                            egui::Align2::LEFT_CENTER,
-                            format!("{status}, {label}"),
-                            egui::FontId::proportional(12.0),
-                            egui::Color32::WHITE,
-                        );
-                    }
-
-                    TimelineRow::Track(track) => {
-                        ui.painter().text(
-                            egui::pos2(avail.min.x + 16.0, row_top + row_h * 0.5 - 2.0),
-                            egui::Align2::LEFT_CENTER,
-                            &track.label,
-                            egui::FontId::proportional(11.0),
-                            egui::Color32::from_gray(200),
-                        );
-                    }
-                }
-            }
-
-            let graph_rect = egui::Rect::from_min_max(
-                egui::pos2(avail.min.x + LABEL_COL_WIDTH, avail.min.y),
-                avail.max,
-            );
-
-            let ppp = ui.ctx().pixels_per_point();
-            let graph_rect_px = (
-                graph_rect.min.x * ppp,
-                graph_rect.min.y * ppp,
-                graph_rect.width() * ppp,
-                graph_rect.height() * ppp,
-            );
-
-            let layout = TimelineLayout::new(
-                anim,
-                &rows,
-                state.timeline.pan_frame,
-                visible_span,
-                graph_rect_px.0,
-                graph_rect_px.1,
-                graph_rect_px.2,
-                graph_rect_px.3,
-            );
-
-            let graph_response = ui.interact(
-                graph_rect,
-                ui.id().with("timeline_graph"),
-                egui::Sense::click_and_drag(),
-            );
-
-            let current_pointer = graph_response
-                .hover_pos()
-                .or_else(|| graph_response.interact_pointer_pos());
-
-            let hovered_key = current_pointer.and_then(|pos| {
-                let pointer_px = [pos.x * ppp, pos.y * ppp];
-
-                TimelineDrag::find_nearest_key(anim, &rows, &layout, pointer_px)
-            });
-
-            if graph_response.drag_started() {
-                if let Some(target_key) = hovered_key.clone() {
-                    state.timeline.drag = Some(target_key);
-                }
-
-                state.timeline.panning = state.timeline.drag.is_none();
-            }
-
-            if let Some(drag) = state.timeline.drag.clone()
-                && graph_response.dragged()
-                && let Some(pos) = graph_response.interact_pointer_pos()
-            {
-                let pointer_px = [pos.x * ppp, pos.y * ppp];
-
-                state.timeline.pending_key_edit = Some(PendingKeyEdit {
-                    frame: layout.x_to_frame(pointer_px[0]),
-                    value: layout.y_to_value(drag.row, pointer_px[1]),
-                    track: drag.track,
-                    key_idx: drag.key_idx,
-                });
-            } else if state.timeline.panning && graph_response.dragged() {
-                let px_per_frame = graph_rect_px.2 / visible_span;
-                let delta_frames = -(graph_response.drag_delta().x * ppp) / px_per_frame.max(0.001);
-
-                state.timeline.pan_frame =
-                    (state.timeline.pan_frame + delta_frames).clamp(0.0, max_pan);
-            }
-
-            if graph_response.drag_stopped() {
-                state.timeline.drag = None;
-                state.timeline.panning = false;
-            }
-
-            if graph_response.hovered() {
-                let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-
-                if scroll.abs() > f32::EPSILON
-                    && let Some(pos) = graph_response.hover_pos()
-                {
-                    let pointer_frame = layout.x_to_frame(pos.x * ppp);
-                    let max_zoom = frame_count / TIMELINE_MIN_VISIBLE_FRAMES;
-                    let new_zoom = (zoom * (1.0 + scroll * 0.002)).clamp(1.0, max_zoom.max(1.0));
-                    let new_span =
-                        (frame_count / new_zoom).clamp(TIMELINE_MIN_VISIBLE_FRAMES, frame_count);
-
-                    let t = (pointer_frame - state.timeline.pan_frame) / visible_span;
-                    let new_max_pan = (frame_count - new_span).max(0.0);
-
-                    state.timeline.pan_frame =
-                        (pointer_frame - t * new_span).clamp(0.0, new_max_pan);
-                    state.timeline.zoom = new_zoom;
-                }
-
-                let cursor = if state.timeline.drag.is_some() {
-                    egui::CursorIcon::Grabbing
-                } else if state.timeline.panning {
-                    egui::CursorIcon::Grab
-                } else if hovered_key.is_some() {
-                    egui::CursorIcon::PointingHand
-                } else {
-                    egui::CursorIcon::Default
-                };
-
-                ui.ctx().set_cursor_icon(cursor);
-            }
-
-            state.timeline.geometry = Some(TimelineGeometry::build(
-                anim,
-                &rows,
-                anim.frame,
-                state.timeline.pan_frame,
-                visible_span,
-                graph_rect_px,
-            ));
-
-            ui.allocate_rect(avail, egui::Sense::hover());
-        });
 }
 
 fn hide_pane_recursive(idx: usize, view: &BflytView, hidden_set: &mut HashSet<usize>) {

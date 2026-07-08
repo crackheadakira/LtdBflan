@@ -1,9 +1,6 @@
 use egui::{Context, Key, Modifiers};
 
-use crate::{
-    anim_state::AnimPlayer,
-    ui::general::{UiAction, UiState},
-};
+use crate::ui::general::{UiAction, UiState};
 
 #[derive(Clone, Copy)]
 pub struct KeyBind {
@@ -104,7 +101,7 @@ pub const BINDINGS: &[KeyBind] = &[
     },
 ];
 
-pub fn handle(ctx: &Context, state: &mut UiState, anim_player: &mut AnimPlayer) {
+pub fn handle(ctx: &Context, state: &mut UiState) {
     let mut action_to_apply = None;
 
     ctx.input_mut(|i| {
@@ -128,16 +125,16 @@ pub fn handle(ctx: &Context, state: &mut UiState, anim_player: &mut AnimPlayer) 
                 return;
             }
 
-            apply(bind.action, state, anim_player);
+            apply(bind.action, state);
         }
     }
 }
 
-fn apply(action: Action, state: &mut UiState, anim_player: &mut AnimPlayer) {
+fn apply(action: Action, state: &mut UiState) {
     match action {
         Action::TogglePlayback => {
-            if let Some(idx) = anim_player.active
-                && let Some(anim) = anim_player.anims.get_mut(idx)
+            if let Some(idx) = state.timeline.anim_player.active
+                && let Some(anim) = state.timeline.anim_player.anims.get_mut(idx)
             {
                 anim.playing = !anim.playing;
             }

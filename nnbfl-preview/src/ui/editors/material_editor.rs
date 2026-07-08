@@ -237,8 +237,8 @@ impl DrawUi for Material {
                 changed |= ui
                     .selectable_value(
                         &mut tex_coord_gen.tex_gen_source,
-                        TexGenSrc::PaneBasedProjection,
-                        "Pane Based Projection",
+                        TexGenSrc::PaneBasedOrthogonalProjection,
+                        "Pane Based Orthogonal Projection",
                     )
                     .clicked();
 
