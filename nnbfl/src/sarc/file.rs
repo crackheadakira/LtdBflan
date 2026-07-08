@@ -13,7 +13,7 @@ pub struct Sarc {
 }
 
 impl FileReadWriteable for Sarc {
-    const EXTENSION: &'static str = "blarc";
+    const INPUT_EXTENSION: &'static str = "blarc";
 }
 
 impl ReadWriteable for Sarc {

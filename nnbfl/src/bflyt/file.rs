@@ -264,7 +264,7 @@ enum StackFrame {
 }
 
 impl FileReadWriteable for Bflyt {
-    const EXTENSION: &'static str = "bflyt";
+    const INPUT_EXTENSION: &'static str = "bflyt";
 }
 
 impl ReadWriteable for Bflyt {

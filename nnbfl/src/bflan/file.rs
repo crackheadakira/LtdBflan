@@ -17,7 +17,7 @@ pub struct Bflan {
 }
 
 impl FileReadWriteable for Bflan {
-    const EXTENSION: &'static str = "bflan";
+    const INPUT_EXTENSION: &'static str = "bflan";
 }
 
 impl ReadWriteable for Bflan {

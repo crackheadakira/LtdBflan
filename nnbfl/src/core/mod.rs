@@ -18,13 +18,13 @@ pub trait BitPackable<T> {
     fn encode(&self) -> T;
 }
 
-pub trait ReadWriteable: Sized + serde::Serialize + serde::de::DeserializeOwned {
+pub trait ReadWriteable: Sized {
     fn parse(cursor: &mut Cursor) -> Result<Self, FormatError>;
     fn write(&self, writer: &mut Writer);
 }
 
 pub trait FileReadWriteable: ReadWriteable {
-    const EXTENSION: &'static str;
+    const INPUT_EXTENSION: &'static str;
 
     fn parse_file(file: &[u8]) -> Result<Self, FormatError> {
         let mut cursor = Cursor {
@@ -42,6 +42,44 @@ pub trait FileReadWriteable: ReadWriteable {
 
         writer
     }
+}
+
+pub trait FileConverter: FileReadWriteable {
+    const OUTPUT_EXTENSION: &'static str;
+
+    fn extract(&self, output: &std::path::Path) -> Result<(), NnbflError>;
+    fn pack(data: &[u8]) -> Result<Self, NnbflError>;
+}
+
+pub trait JsonFileConverter:
+    FileConverter + serde::Serialize + serde::de::DeserializeOwned
+{
+}
+
+impl<T> FileConverter for T
+where
+    T: FileReadWriteable + serde::Serialize + serde::de::DeserializeOwned,
+{
+    const OUTPUT_EXTENSION: &'static str = "json";
+
+    fn extract(&self, output: &std::path::Path) -> Result<(), NnbflError> {
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| NnbflError::Serialization(e.into()))?;
+
+        std::fs::write(output, json).map_err(|e| NnbflError::Io {
+            path: output.to_path_buf(),
+            source: e,
+        })
+    }
+
+    fn pack(data: &[u8]) -> Result<Self, NnbflError> {
+        serde_json::from_slice(data).map_err(|e| NnbflError::Serialization(e.into()))
+    }
+}
+
+impl<T> JsonFileConverter for T where
+    T: FileReadWriteable + serde::Serialize + serde::de::DeserializeOwned
+{
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone, Copy)]

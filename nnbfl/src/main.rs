@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use nnbfl::bfttf::file::{Bfotf, Bfttf};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,7 +7,7 @@ use std::process::exit;
 
 use nnbfl::bflan::file::Bflan;
 use nnbfl::bflyt::file::Bflyt;
-use nnbfl::core::{FileReadWriteable, NnbflError, Writer};
+use nnbfl::core::{FileConverter, FileReadWriteable, JsonFileConverter, NnbflError, Writer};
 
 #[derive(Parser)]
 #[command(name = "nnbfl")]
@@ -21,18 +22,30 @@ enum Format {
     /// Work with BFLAN (Animation) files
     Bflan {
         #[command(subcommand)]
-        action: Action,
+        action: JsonAction,
     },
 
     /// Work with BFLYT (Layout) files
     Bflyt {
         #[command(subcommand)]
-        action: Action,
+        action: JsonAction,
+    },
+
+    /// Works with BFTTF files
+    Bfttf {
+        #[command(subcommand)]
+        action: BinaryAction,
+    },
+
+    /// Works with BFOTF files
+    Bfotf {
+        #[command(subcommand)]
+        action: BinaryAction,
     },
 }
 
 #[derive(Subcommand)]
-enum Action {
+enum JsonAction {
     /// Extracts a binary file to JSON. Output defaults to input path with .json extension.
     Extract {
         input: PathBuf,
@@ -61,6 +74,21 @@ enum Action {
     Compare { input_a: PathBuf, input_b: PathBuf },
 }
 
+#[derive(Subcommand)]
+enum BinaryAction {
+    /// Extracts a binary file into it's extracted format.
+    Extract {
+        input: PathBuf,
+        output: Option<PathBuf>,
+    },
+
+    /// Packs the input file into a binary.
+    Pack {
+        input: PathBuf,
+        output: Option<PathBuf>,
+    },
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     Extract,
@@ -81,19 +109,21 @@ impl Format {
         match &self {
             Self::Bflan { action } => action.handle::<Bflan>(),
             Self::Bflyt { action } => action.handle::<Bflyt>(),
+            Self::Bfttf { action } => action.handle::<Bfttf>(),
+            Self::Bfotf { action } => action.handle::<Bfotf>(),
         }
     }
 }
 
-impl Action {
-    fn handle<T: FileReadWriteable>(&self) -> Result<(), NnbflError> {
+impl JsonAction {
+    fn handle<T: JsonFileConverter>(&self) -> Result<(), NnbflError> {
         match self {
             Self::Extract { input, output } | Self::Pack { input, output } => {
                 validate_input(input)?;
 
                 let ext = match self {
-                    Self::Extract { .. } => "json",
-                    _ => T::EXTENSION,
+                    Self::Extract { .. } => T::OUTPUT_EXTENSION,
+                    _ => T::INPUT_EXTENSION,
                 };
 
                 let resolved_output = resolve_output(input, output.as_deref(), ext);
@@ -115,7 +145,7 @@ impl Action {
                 let mut files = Vec::new();
 
                 if input.is_dir() {
-                    find_files(input, T::EXTENSION, &mut files)?;
+                    find_files(input, T::INPUT_EXTENSION, &mut files)?;
                 } else {
                     files.push(input.clone());
                 }
@@ -161,12 +191,34 @@ impl Action {
     }
 }
 
+impl BinaryAction {
+    fn handle<T: FileConverter>(&self) -> Result<(), NnbflError> {
+        match self {
+            Self::Extract { input, output } | Self::Pack { input, output } => {
+                validate_input(input)?;
+
+                let ext = match self {
+                    Self::Extract { .. } => T::OUTPUT_EXTENSION,
+                    Self::Pack { .. } => T::INPUT_EXTENSION,
+                };
+
+                let resolved_output = resolve_output(input, output.as_deref(), ext);
+
+                let cmd = match self {
+                    Self::Extract { .. } => Command::Extract,
+                    Self::Pack { .. } => Command::Pack,
+                };
+
+                process_command::<T>(cmd, input, &resolved_output)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl Command {
-    pub fn route<T: FileReadWriteable>(
-        &self,
-        input: &Path,
-        output: &Path,
-    ) -> Result<(), NnbflError> {
+    pub fn route<T: FileConverter>(&self, input: &Path, output: &Path) -> Result<(), NnbflError> {
         match self {
             Self::Extract => extract_file::<T>(input, output),
             Self::Pack => pack_file::<T>(input, output),
@@ -189,7 +241,7 @@ fn validate_input(input: &Path) -> Result<(), NnbflError> {
     Ok(())
 }
 
-fn process_command<T: FileReadWriteable>(
+fn process_command<T: FileConverter>(
     command: Command,
     input_path: &Path,
     output_path: &Path,
@@ -229,7 +281,7 @@ fn test_roundtrip<T: FileReadWriteable>(
             continue;
         }
 
-        if path.extension().is_none_or(|e| e != T::EXTENSION) {
+        if path.extension().is_none_or(|e| e != T::INPUT_EXTENSION) {
             continue;
         }
 
@@ -363,38 +415,26 @@ fn find_files(dir: &Path, target_ext: &str, files: &mut Vec<PathBuf>) -> Result<
     Ok(())
 }
 
-fn extract_file<T: FileReadWriteable>(
-    input_path: &Path,
-    output_path: &Path,
-) -> Result<(), NnbflError> {
+fn extract_file<T: FileConverter>(input_path: &Path, output_path: &Path) -> Result<(), NnbflError> {
     let file_in = fs::read(input_path).map_err(|e| NnbflError::Io {
         path: input_path.to_path_buf(),
         source: e,
     })?;
 
     let parsed = T::parse_file(&file_in).map_err(NnbflError::Format)?;
-    let json =
-        serde_json::to_string_pretty(&parsed).map_err(|e| NnbflError::Serialization(e.into()))?;
-
-    fs::write(output_path, json).map_err(|e| NnbflError::Io {
-        path: output_path.to_path_buf(),
-        source: e,
-    })?;
+    parsed.extract(output_path)?;
 
     println!("Extracted: {:?}", input_path.file_name().unwrap());
     Ok(())
 }
 
-fn pack_file<T: FileReadWriteable>(
-    input_path: &Path,
-    output_path: &Path,
-) -> Result<(), NnbflError> {
-    let json = fs::read_to_string(input_path).map_err(|e| NnbflError::Io {
+fn pack_file<T: FileConverter>(input_path: &Path, output_path: &Path) -> Result<(), NnbflError> {
+    let json = fs::read(input_path).map_err(|e| NnbflError::Io {
         path: input_path.to_path_buf(),
         source: e,
     })?;
 
-    let parsed: T = serde_json::from_str(&json).map_err(|e| NnbflError::Serialization(e.into()))?;
+    let parsed = T::pack(&json)?;
     let out = parsed.write_file().buffer;
 
     fs::write(output_path, out).map_err(|e| NnbflError::Io {
@@ -406,7 +446,7 @@ fn pack_file<T: FileReadWriteable>(
     Ok(())
 }
 
-fn process_batch<T: FileReadWriteable>(
+fn process_batch<T: FileConverter>(
     command: Command,
     in_dir: &Path,
     out_dir: &Path,
@@ -417,9 +457,9 @@ fn process_batch<T: FileReadWriteable>(
     })?;
 
     let search_ext = if command == Command::Extract {
-        T::EXTENSION
+        T::INPUT_EXTENSION
     } else {
-        "json"
+        T::OUTPUT_EXTENSION
     };
 
     let mut target_files = Vec::new();
@@ -439,9 +479,9 @@ fn process_batch<T: FileReadWriteable>(
         let relative = path.strip_prefix(in_dir).unwrap_or(&path);
         let mut out_path = out_dir.join(relative);
         out_path.set_extension(if command == Command::Extract {
-            "json"
+            T::OUTPUT_EXTENSION
         } else {
-            T::EXTENSION
+            T::INPUT_EXTENSION
         });
 
         if let Some(parent) = out_path.parent() {
