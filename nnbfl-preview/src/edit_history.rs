@@ -94,7 +94,7 @@ impl AppliedCommand {
                 before,
                 after,
             } => {
-                let node = tree.find_node_mut(pane_idx)?;
+                let node = tree.find_by_idx_mut(pane_idx)?;
                 let base = node.section.get_base_pane_mut()?;
 
                 base.translation.x = before.translation.0;

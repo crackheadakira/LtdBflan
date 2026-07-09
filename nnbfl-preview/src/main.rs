@@ -473,9 +473,7 @@ impl App {
 
         let handle = match gpu.selection_renderer.hit_test(world_pos, radius) {
             Some(h) => h,
-            None if point_in_quad(world_pos, &node.world_corners) => {
-                crate::renderer::selection::Handle::Body
-            }
+            None if point_in_quad(world_pos, &node.world_corners) => Handle::Body,
             None => return false,
         };
 
@@ -511,7 +509,7 @@ impl App {
         let dx = world_pos[0] - drag.start_world[0];
         let dy = world_pos[1] - drag.start_world[1];
 
-        let Some(node) = view.tree.find_node_mut(drag.pane_idx) else {
+        let Some(node) = view.tree.find_by_idx_mut(drag.pane_idx) else {
             return;
         };
 
@@ -617,7 +615,7 @@ impl App {
             return;
         };
 
-        let Some(node) = view.tree.find_node_mut(drag.pane_idx) else {
+        let Some(node) = view.tree.find_by_idx_mut(drag.pane_idx) else {
             return;
         };
 

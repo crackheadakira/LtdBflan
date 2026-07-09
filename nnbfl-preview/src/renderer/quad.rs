@@ -110,7 +110,7 @@ pub struct RenderPipelineContainer {
 }
 
 impl RenderPipelineContainer {
-    pub fn new<U: bytemuck::Pod + bytemuck::Zeroable>(
+    pub fn new<U: Pod + Zeroable>(
         device: &wgpu::Device,
         label: &str,
         shader_src: &str,

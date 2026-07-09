@@ -211,6 +211,17 @@ impl PaneNode {
         }
     }
 
+    fn walk_mut<F>(&mut self, f: &mut F)
+    where
+        F: FnMut(&mut PaneNode),
+    {
+        f(self);
+
+        for child in &mut self.children {
+            child.walk_mut(f);
+        }
+    }
+
     pub fn find_descendant_by_label_mut(&mut self, label: &str) -> Option<&mut PaneNode> {
         for child in &mut self.children {
             if child.label.trim_end_matches('\0') == label {
@@ -402,36 +413,18 @@ impl PaneTree {
     where
         F: FnMut(&mut PaneNode),
     {
-        fn walk_mut<F>(node: &mut PaneNode, f: &mut F)
-        where
-            F: FnMut(&mut PaneNode),
-        {
-            f(node);
-
-            for child in &mut node.children {
-                walk_mut(child, f);
-            }
-        }
-
         for root in &mut self.roots {
-            walk_mut(root, &mut f);
+            root.walk_mut(&mut f);
         }
     }
 
-    pub fn find_node_mut(&mut self, target_idx: usize) -> Option<&mut PaneNode> {
-        fn find_recursive(nodes: &mut [PaneNode], target_idx: usize) -> Option<&mut PaneNode> {
-            for node in nodes {
-                if node.pane_idx == target_idx {
-                    return Some(node);
-                }
-                if let Some(found) = find_recursive(&mut node.children, target_idx) {
-                    return Some(found);
-                }
-            }
-            None
+    pub fn for_each_descendant_mut<F>(&mut self, target_idx: usize, mut f: F)
+    where
+        F: FnMut(&mut PaneNode),
+    {
+        if let Some(target_node) = self.find_by_idx_mut(target_idx) {
+            target_node.walk_mut(&mut f);
         }
-
-        find_recursive(&mut self.roots, target_idx)
     }
 
     pub fn recompute_dirty(&mut self) {
@@ -497,8 +490,24 @@ impl PaneTree {
         self.find_by_idx(idx)
     }
 
-    pub fn find_by_idx(&self, idx: usize) -> Option<&PaneNode> {
-        self.iter().find(|n| n.pane_idx == idx)
+    pub fn find_by_idx(&self, target_idx: usize) -> Option<&PaneNode> {
+        self.iter().find(|n| n.pane_idx == target_idx)
+    }
+
+    pub fn find_by_idx_mut(&mut self, target_idx: usize) -> Option<&mut PaneNode> {
+        fn find_recursive(nodes: &mut [PaneNode], target_idx: usize) -> Option<&mut PaneNode> {
+            for node in nodes {
+                if node.pane_idx == target_idx {
+                    return Some(node);
+                }
+                if let Some(found) = find_recursive(&mut node.children, target_idx) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        find_recursive(&mut self.roots, target_idx)
     }
 
     pub fn label_to_idx(&self) -> HashMap<String, usize> {
@@ -560,7 +569,7 @@ impl PaneTree {
 
         match parent_idx {
             Some(pid) => {
-                if let Some(parent_node) = self.find_node_mut(pid) {
+                if let Some(parent_node) = self.find_by_idx_mut(pid) {
                     let pos = position.min(parent_node.children.len());
                     parent_node.children.insert(pos, node);
                 }
@@ -590,7 +599,7 @@ impl PaneTree {
 
         let removed_node = match parent_idx {
             Some(pid) => {
-                let parent_node = self.find_node_mut(pid)?;
+                let parent_node = self.find_by_idx_mut(pid)?;
                 let pos = parent_node
                     .children
                     .iter()

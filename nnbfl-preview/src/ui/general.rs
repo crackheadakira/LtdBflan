@@ -411,7 +411,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                             ui.vertical(|ui| {
                                 if let Some(idx) = ctx.ui_state.selected_pane {
                                     let changed = {
-                                        if let Some(node) = view.tree.find_node_mut(idx) {
+                                        if let Some(node) = view.tree.find_by_idx_mut(idx) {
                                             draw_pane_properties(ui, node)
                                         } else {
                                             false
@@ -419,7 +419,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                                     };
 
                                     if changed {
-                                        if let Some(node) = view.tree.find_node_mut(idx) {
+                                        if let Some(node) = view.tree.find_by_idx_mut(idx) {
                                             node.mark_transform_dirty();
                                         }
                                         view.tree.recompute_dirty();
@@ -575,7 +575,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         }
 
         if let Some(idx) = ctx.ui_state.selected_pane
-            && let Some(node) = view.tree.find_node_mut(idx)
+            && let Some(node) = view.tree.find_by_idx_mut(idx)
         {
             ctx.ui_state.detailed_pane_editor.draw_with(ui, node);
         }
@@ -801,13 +801,13 @@ fn draw_pane_section(ui: &mut Ui, pane: &Pane) {
     );
 }
 
-fn draw_vector_2f(ui: &mut egui::Ui, label: &str, vector: Vector2f) {
+fn draw_vector_2f(ui: &mut Ui, label: &str, vector: Vector2f) {
     ui.strong(label);
     ui.label(format!("({:.2}, {:.2})", vector.x, vector.y));
     ui.end_row();
 }
 
-fn draw_vector_3f(ui: &mut egui::Ui, label: &str, vector: Vector3f) {
+fn draw_vector_3f(ui: &mut Ui, label: &str, vector: Vector3f) {
     ui.strong(label);
     ui.label(format!(
         "({:.2}, {:.2}, {:.2})",
@@ -816,25 +816,25 @@ fn draw_vector_3f(ui: &mut egui::Ui, label: &str, vector: Vector3f) {
     ui.end_row();
 }
 
-fn draw_prop(ui: &mut egui::Ui, label: &str, value: impl std::fmt::Display) {
+fn draw_prop(ui: &mut Ui, label: &str, value: impl std::fmt::Display) {
     ui.strong(label);
     ui.label(value.to_string());
     ui.end_row();
 }
 
-fn draw_prop_debug(ui: &mut egui::Ui, label: &str, value: impl std::fmt::Debug) {
+fn draw_prop_debug(ui: &mut Ui, label: &str, value: impl std::fmt::Debug) {
     ui.strong(label);
     ui.label(format!("{:?}", value));
     ui.end_row();
 }
 
-fn draw_string(ui: &mut egui::Ui, label: &str, value: &str) {
+fn draw_string(ui: &mut Ui, label: &str, value: &str) {
     ui.strong(label);
     ui.label(value);
     ui.end_row();
 }
 
-fn draw_prop_f32(ui: &mut egui::Ui, label: &str, value: f32) {
+fn draw_prop_f32(ui: &mut Ui, label: &str, value: f32) {
     ui.strong(label);
     ui.label(format!("{:.2}", value));
     ui.end_row();

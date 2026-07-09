@@ -352,32 +352,24 @@ fn node_screen_pos(node: &crate::pane_tree::PaneNode, trans_x: f32, trans_y: f32
 }
 
 fn cascade_translate(view: &mut BflytView, pane_idx: usize, new_trans_x: f32, new_trans_y: f32) {
-    let idx_map = view.tree.build_idx_map();
-    let Some(&node_ptr) = idx_map.get(&pane_idx) else {
-        return;
-    };
-    let base_node = unsafe { &*node_ptr };
-
-    let Some(base) = base_node.section.get_base_pane() else {
-        return;
-    };
-
-    let (base_tx, base_ty) = (base.translation.x, base.translation.y);
-
-    let (new_x, new_y) = node_screen_pos(base_node, new_trans_x, new_trans_y);
-    let (base_x, base_y) = node_screen_pos(base_node, base_tx, base_ty);
-    let dx = new_x - base_x;
-    let dy = new_y - base_y;
-
-    let mut affected = vec![pane_idx];
-    affected.extend(view.tree.descendants(pane_idx));
-
-    for idx in affected {
-        let Some(&node_ptr) = idx_map.get(&idx) else {
-            continue;
+    let (dx, dy) = {
+        let Some(base_node) = view.tree.find_by_idx(pane_idx) else {
+            return;
         };
-        let node = unsafe { &mut *node_ptr };
 
+        let Some(base) = base_node.section.get_base_pane() else {
+            return;
+        };
+
+        let (base_tx, base_ty) = (base.translation.x, base.translation.y);
+
+        let (new_x, new_y) = node_screen_pos(base_node, new_trans_x, new_trans_y);
+        let (base_x, base_y) = node_screen_pos(base_node, base_tx, base_ty);
+
+        (new_x - base_x, new_y - base_y)
+    };
+
+    view.tree.for_each_descendant_mut(pane_idx, |node| {
         node.world_pos.x += dx;
         node.world_pos.y += dy;
 
@@ -399,19 +391,11 @@ fn cascade_translate(view: &mut BflytView, pane_idx: usize, new_trans_x: f32, ne
         node.world_corners.translate(Vector2f::new(dx, dy));
 
         node.dirty.insert(DirtyFlags::VERTICES);
-    }
+    });
 }
 
 fn cascade_visibility(view: &mut BflytView, pane_idx: usize, visible: bool) {
-    let idx_map = view.tree.build_idx_map();
-    let mut affected = vec![pane_idx];
-    affected.extend(view.tree.descendants(pane_idx));
-
-    for idx in affected {
-        let Some(&node_ptr) = idx_map.get(&idx) else {
-            continue;
-        };
-        let node = unsafe { &mut *node_ptr };
+    view.tree.for_each_descendant_mut(pane_idx, |node| {
         node.visible = visible;
 
         node.plain_quad.color = if visible {
@@ -423,9 +407,10 @@ fn cascade_visibility(view: &mut BflytView, pane_idx: usize, visible: bool) {
         if let Some(tq) = &mut node.textured_quad {
             tq.standard_material.visible = visible as u32;
         }
+
         node.dirty
             .insert(DirtyFlags::MATERIAL | DirtyFlags::VERTICES);
-    }
+    });
 }
 
 fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
@@ -450,8 +435,6 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
 }
 
 fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: &mut BflytView) {
-    let idx_map = view.tree.build_idx_map();
-
     for info in &content.infos {
         let AnimInfo::Standard { anim_type, targets } = info else {
             continue;
@@ -460,10 +443,9 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
         match anim_type {
             AnimInfoType::PaneSrtAnim => {
                 let (base_tx, base_ty, base_w, base_h) = {
-                    let Some(&ptr) = idx_map.get(&pane_idx) else {
+                    let Some(node) = view.tree.find_by_idx(pane_idx) else {
                         continue;
                     };
-                    let node = unsafe { &*ptr };
 
                     let (tx, ty) = node
                         .section
@@ -509,17 +491,18 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
                 let final_h = new_h * scale_y;
                 if ((final_w - base_w).abs() > f32::EPSILON
                     || (final_h - base_h).abs() > f32::EPSILON)
-                    && let Some(&ptr) = idx_map.get(&pane_idx)
+                    && let Some(node) = view.tree.find_by_idx_mut(pane_idx)
                 {
-                    let node = unsafe { &mut *ptr };
                     node.world_size.x = final_w;
                     node.world_size.y = final_h;
                     node.plain_quad.width = final_w;
                     node.plain_quad.height = final_h;
+
                     if let Some(tq) = &mut node.textured_quad {
                         tq.width = final_w;
                         tq.height = final_h;
                     }
+
                     node.dirty.insert(DirtyFlags::VERTICES);
                 }
             }
@@ -532,9 +515,10 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
             }
 
             AnimInfoType::VertexColorAnim => {
-                let has_own_tq = idx_map
-                    .get(&pane_idx)
-                    .map(|&ptr| unsafe { (*ptr).textured_quad.is_some() })
+                let has_own_tq = view
+                    .tree
+                    .find_by_idx(pane_idx)
+                    .map(|node| node.textured_quad.is_some())
                     .unwrap_or(false);
 
                 let apply_to: Vec<usize> = if has_own_tq {
@@ -548,10 +532,10 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
                 for t in targets {
                     let v = eval_curve(&t.curve, frame) / 255.0;
                     for &idx in &apply_to {
-                        let Some(&ptr) = idx_map.get(&idx) else {
+                        let Some(node) = view.tree.find_by_idx_mut(idx) else {
                             continue;
                         };
-                        let node = unsafe { &mut *ptr };
+
                         let Some(tq) = &mut node.textured_quad else {
                             continue;
                         };
@@ -629,24 +613,18 @@ fn apply_material_content(
     view: &mut BflytView,
     pai: &PaneAnimInfo,
 ) {
-    let idx_map = view.tree.build_idx_map();
-
     for info in &content.infos {
         let AnimInfo::Standard { anim_type, targets } = info else {
             continue;
         };
 
-        let tq = {
-            let Some(&ptr) = idx_map.get(&pane_idx) else {
-                continue;
-            };
-            let node = unsafe { &mut *ptr };
-            let Some(tq) = &mut node.textured_quad else {
-                continue;
-            };
-            tq as *mut _
+        let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
+            continue;
         };
-        let tq: &mut crate::renderer::textured_quad::TexturedQuad = unsafe { &mut *tq };
+
+        let Some(tq) = &mut node.textured_quad else {
+            continue;
+        };
 
         match anim_type {
             AnimInfoType::TextureSrtAnim => {
