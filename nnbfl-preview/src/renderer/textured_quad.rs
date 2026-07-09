@@ -258,10 +258,9 @@ impl TexturedQuad {
             .zip(mat.tex_coord_gens.iter().take(texture_count as usize))
         {
             let (mode, is_ortho) = match coord_gen.tex_gen_source {
-                TexGenSrc::PaneBasedPerspectiveProjection => (1, false),
-                TexGenSrc::OrthogonalProjection
-                | TexGenSrc::PerspectiveProjection
-                | TexGenSrc::PaneBasedOrthogonalProjection => (1, true),
+                TexGenSrc::PaneBasedPerspectiveProjection
+                | TexGenSrc::PaneBasedOrthogonalProjection => (1, false),
+                TexGenSrc::OrthogonalProjection | TexGenSrc::PerspectiveProjection => (1, true),
                 TexGenSrc::BrickRepeat => (2, false),
                 _ => (0, false),
             };

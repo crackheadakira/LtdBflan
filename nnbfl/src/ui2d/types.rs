@@ -319,6 +319,12 @@ impl From<Vector2f> for [f32; 2] {
     }
 }
 
+impl From<Vector3f> for Vector2f {
+    fn from(vec: Vector3f) -> Vector2f {
+        Vector2f { x: vec.x, y: vec.y }
+    }
+}
+
 impl std::ops::Add for Vector3f {
     type Output = Self;
 

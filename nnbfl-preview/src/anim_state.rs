@@ -1,4 +1,3 @@
-use nnbfl::bflyt::flags::BflytOrigin;
 use nnbfl::bflyt::list::MaterialTextureSrt;
 use nnbfl::ui2d::userdata::UserDataContent;
 use nnbfl::{
@@ -316,84 +315,6 @@ fn apply_tex_srts(tq: &mut crate::renderer::textured_quad::TexturedQuad) {
     }
 }
 
-fn node_screen_pos(node: &crate::pane_tree::PaneNode, trans_x: f32, trans_y: f32) -> (f32, f32) {
-    let base = node.section.get_base_pane();
-    let (ox, oy, w, h) = base
-        .map(|b| {
-            (
-                b.origin.origin_x,
-                b.origin.origin_y,
-                b.size.x * b.scale.x,
-                b.size.y * b.scale.y,
-            )
-        })
-        .unwrap_or((
-            BflytOrigin::Center,
-            BflytOrigin::Center,
-            node.world_size.x,
-            node.world_size.y,
-        ));
-
-    let cx = node.parent_anchor.x + trans_x;
-    let cy = node.parent_anchor.y - trans_y;
-
-    let tl_x = match ox {
-        BflytOrigin::Center => cx - w * 0.5,
-        BflytOrigin::LeftTop => cx,
-        BflytOrigin::RightBottom => cx - w,
-    };
-    let tl_y = match oy {
-        BflytOrigin::Center => cy - h * 0.5,
-        BflytOrigin::LeftTop => cy,
-        BflytOrigin::RightBottom => cy - h,
-    };
-
-    (tl_x, tl_y)
-}
-
-fn cascade_translate(view: &mut BflytView, pane_idx: usize, new_trans_x: f32, new_trans_y: f32) {
-    let (dx, dy) = {
-        let Some(base_node) = view.tree.find_by_idx(pane_idx) else {
-            return;
-        };
-
-        let Some(base) = base_node.section.get_base_pane() else {
-            return;
-        };
-
-        let (base_tx, base_ty) = (base.translation.x, base.translation.y);
-
-        let (new_x, new_y) = node_screen_pos(base_node, new_trans_x, new_trans_y);
-        let (base_x, base_y) = node_screen_pos(base_node, base_tx, base_ty);
-
-        (new_x - base_x, new_y - base_y)
-    };
-
-    view.tree.for_each_descendant_mut(pane_idx, |node| {
-        node.world_pos.x += dx;
-        node.world_pos.y += dy;
-
-        for corner in &mut node.plain_quad.corners {
-            corner[0] += dx;
-            corner[1] += dy;
-        }
-
-        if let Some(tq) = &mut node.textured_quad {
-            tq.x = node.world_pos.x;
-            tq.y = node.world_pos.y;
-
-            for corner in &mut tq.corners {
-                corner[0] += dx;
-                corner[1] += dy;
-            }
-        }
-
-        node.world_corners.translate(Vector2f::new(dx, dy));
-
-        node.dirty.insert(DirtyFlags::VERTICES);
-    });
-}
-
 fn cascade_visibility(view: &mut BflytView, pane_idx: usize, visible: bool) {
     view.tree.for_each_descendant_mut(pane_idx, |node| {
         node.visible = visible;
@@ -442,51 +363,59 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
 
         match anim_type {
             AnimInfoType::PaneSrtAnim => {
-                let (base_tx, base_ty, base_w, base_h) = {
+                let (base_translation, base_size, base_rotation) = {
                     let Some(node) = view.tree.find_by_idx(pane_idx) else {
                         continue;
                     };
 
-                    let (tx, ty) = node
-                        .section
-                        .get_base_pane()
-                        .map(|base| (base.translation.x, base.translation.y))
-                        .unwrap_or((0.0, 0.0));
-
                     let base = node.section.get_base_pane();
-                    let w = base
-                        .map(|b| b.size.x * b.scale.x)
-                        .unwrap_or(node.world_size.x);
 
-                    let h = base
-                        .map(|b| b.size.y * b.scale.y)
-                        .unwrap_or(node.world_size.y);
+                    let translation = base.map(|b| b.translation).unwrap_or_default();
 
-                    (tx, ty, w, h)
+                    let size = base.map(|b| b.size).unwrap_or(node.world_size);
+
+                    let rotation = base.map(|b| b.rotation).unwrap_or_default();
+
+                    (translation, size, rotation)
                 };
 
-                let mut new_tx = base_tx;
-                let mut new_ty = base_ty;
-                let mut scale_x = 1.0f32;
-                let mut scale_y = 1.0f32;
-                let mut new_w = base_w;
-                let mut new_h = base_h;
+                let mut new_translation = base_translation;
+                let mut new_scale = Vector2f::new(1.0, 1.0);
+                let mut new_size = base_size;
+                let mut new_rotation = base_rotation;
 
                 for t in targets {
                     let v = eval_curve(&t.curve, frame);
+
                     match &t.target {
-                        TargetIndex::PaneSrt(PaneSrtTarget::TranslateX) => new_tx = v,
-                        TargetIndex::PaneSrt(PaneSrtTarget::TranslateY) => new_ty = v,
-                        TargetIndex::PaneSrt(PaneSrtTarget::ScaleX) => scale_x = v,
-                        TargetIndex::PaneSrt(PaneSrtTarget::ScaleY) => scale_y = v,
-                        TargetIndex::PaneSrt(PaneSrtTarget::SizeX) => new_w = v,
-                        TargetIndex::PaneSrt(PaneSrtTarget::SizeY) => new_h = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::TranslateX) => new_translation.x = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::TranslateY) => new_translation.y = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::TranslateZ) => new_translation.z = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::ScaleX) => new_scale.x = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::ScaleY) => new_scale.y = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::SizeX) => new_size.x = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::SizeY) => new_size.y = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::RotateX) => new_rotation.x = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::RotateY) => new_rotation.y = v,
+                        TargetIndex::PaneSrt(PaneSrtTarget::RotateZ) => new_rotation.z = v,
                         _ => {}
                     }
                 }
 
-                cascade_translate(view, pane_idx, new_tx, new_ty);
+                // cascade_translate(view, pane_idx, new_translation);
 
+                if let Some(node) = view.tree.find_by_idx_mut(pane_idx)
+                    && let Some(base) = node.section.get_base_pane_mut()
+                {
+                    base.translation = new_translation;
+                    base.scale = new_scale;
+                    base.size = new_size;
+                    base.rotation = new_rotation;
+
+                    node.mark_transform_dirty();
+                }
+
+                /*let final_size = new_size * new_scale;
                 let final_w = new_w * scale_x;
                 let final_h = new_h * scale_y;
                 if ((final_w - base_w).abs() > f32::EPSILON
@@ -504,7 +433,7 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
                     }
 
                     node.dirty.insert(DirtyFlags::VERTICES);
-                }
+                }*/
             }
 
             AnimInfoType::VisibilityAnim => {
