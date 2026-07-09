@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, IntoPrimitive, FromPrimitive,
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, IntoPrimitive, FromPrimitive,
 )]
 #[repr(u32)]
 pub enum AnimInfoType {
@@ -81,40 +81,35 @@ impl ReadWriteable for AnimInfo {
         let _reserve0 = cursor.read_u8()?;
         let _reserve1 = cursor.read_u16()?;
 
-        let out = match magic {
-            AnimInfoType::ExtendedUserDataAnim => {
-                let mut data_array = Vec::with_capacity(anim_target_count as usize);
-                for _ in 0..anim_target_count {
-                    let data = ExtendedUserDataAnim::parse(cursor)?;
-                    data_array.push(data);
-                }
-
-                Self::ExtendedUserData {
-                    anim_type: magic,
-                    data: data_array,
-                }
+        Ok(if magic == AnimInfoType::ExtendedUserDataAnim {
+            let mut data_array = Vec::with_capacity(anim_target_count as usize);
+            for _ in 0..anim_target_count {
+                let data = ExtendedUserDataAnim::parse(cursor)?;
+                data_array.push(data);
             }
-            _ => {
-                let mut target_offsets = Vec::with_capacity(anim_target_count as usize);
-                for _ in 0..anim_target_count {
-                    target_offsets.push(cursor.read_u32()?);
-                }
 
-                let mut targets = Vec::with_capacity(anim_target_count as usize);
-                for offset in target_offsets {
-                    cursor.section_start = Some(base_offset + offset as usize);
-                    targets.push(AnimTarget::parse(cursor, &magic)?);
-                    cursor.section_start = None;
-                }
-
-                Self::Standard {
-                    anim_type: magic,
-                    targets,
-                }
+            Self::ExtendedUserData {
+                anim_type: magic,
+                data: data_array,
             }
-        };
+        } else {
+            let mut target_offsets = Vec::with_capacity(anim_target_count as usize);
+            for _ in 0..anim_target_count {
+                target_offsets.push(cursor.read_u32()?);
+            }
 
-        Ok(out)
+            let mut targets = Vec::with_capacity(anim_target_count as usize);
+            for offset in target_offsets {
+                cursor.section_start = Some(base_offset + offset as usize);
+                targets.push(AnimTarget::parse(cursor, &magic)?);
+                cursor.section_start = None;
+            }
+
+            Self::Standard {
+                anim_type: magic,
+                targets,
+            }
+        })
     }
 
     fn write(&self, writer: &mut Writer) {
@@ -123,9 +118,8 @@ impl ReadWriteable for AnimInfo {
         writer.mark("AnimInfo");
 
         match self {
-            AnimInfo::Standard { anim_type, targets } => {
-                let magic_val = unsafe { std::mem::transmute_copy::<AnimInfoType, u32>(anim_type) };
-                writer.write_u32(magic_val);
+            Self::Standard { anim_type, targets } => {
+                writer.write_u32((*anim_type).into());
 
                 writer.write_u8(targets.len() as u8);
                 writer.write_u8(0);
@@ -147,16 +141,15 @@ impl ReadWriteable for AnimInfo {
                     writer.section_start = None;
                 }
             }
-            AnimInfo::ExtendedUserData { anim_type, data } => {
-                let magic_val = unsafe { std::mem::transmute_copy::<AnimInfoType, u32>(anim_type) };
-                writer.write_u32(magic_val);
+            Self::ExtendedUserData { anim_type, data } => {
+                writer.write_u32((*anim_type).into());
 
                 writer.write_u8(data.len() as u8);
                 writer.write_u8(0);
                 writer.write_u16(0);
 
-                for data in data.iter() {
-                    data.write(writer);
+                for ext_usd in data {
+                    ext_usd.write(writer);
                 }
             }
         }
@@ -190,7 +183,7 @@ impl ReadWriteable for ExtendedUserDataAnim {
             let mut inner_values = Vec::with_capacity(base_count as usize);
 
             for _ in 0..base_count {
-                inner_values.push(cursor.read_f32()?)
+                inner_values.push(cursor.read_f32()?);
             }
 
             values.push(inner_values);
@@ -279,7 +272,7 @@ impl ReadWriteable for PaneAnimInfo {
         for offset in content_offsets {
             cursor.section_start = Some(section_start + offset as usize);
             contents.push(AnimContent::parse(cursor)?);
-            cursor.section_start = None
+            cursor.section_start = None;
         }
 
         Ok(Self {
@@ -295,7 +288,7 @@ impl ReadWriteable for PaneAnimInfo {
 
         writer.mark("PaneAnimInfo");
         writer.write_u16(self.frame_count);
-        writer.write_u8(if self.is_looping { 1 } else { 0 });
+        writer.write_u8(self.is_looping as u8);
         writer.write_u8(0);
         writer.write_u16(self.textures.len() as u16);
         writer.write_u16(self.contents.len() as u16);

@@ -122,8 +122,8 @@ impl ReadWriteable for Sarc {
             endianness,
             version_number,
             padding,
-            data_alignment,
             hash_multiplier,
+            data_alignment,
             files,
         })
     }
@@ -160,8 +160,8 @@ impl ReadWriteable for Sarc {
         let mut relative_cursor: u32 = 0;
         let mut file_layouts = Vec::with_capacity(sorted_files.len());
 
-        for file in self.files.iter() {
-            let alignment = if let Some(ref name) = file.name {
+        for file in &self.files {
+            let alignment = if let Some(name) = &file.name {
                 if name.ends_with(".bntx") || name.ends_with(".bnsh") || name.ends_with(".baglmf") {
                     self.data_alignment
                 } else if name.ends_with(".szs") {
@@ -262,7 +262,7 @@ impl SarcFile {
     pub fn match_by_magic(self) -> MagicFiles {
         if self.data.len() < 4 {
             return MagicFiles::Unknown(self.data);
-        };
+        }
 
         if self.data.len() >= 8 {
             match &self.data[0..8] {

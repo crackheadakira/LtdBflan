@@ -42,7 +42,7 @@ impl BinaryFontPlatform {
 struct BinaryFont;
 
 impl BinaryFont {
-    pub fn decrypt(data: &[u8]) -> Result<(Vec<u8>, BinaryFontPlatform), FormatError> {
+    pub(crate) fn decrypt(data: &[u8]) -> Result<(Vec<u8>, BinaryFontPlatform), FormatError> {
         if data.len() < 8 {
             return Err(FormatError::MissingLayout);
         }
@@ -67,7 +67,7 @@ impl BinaryFont {
         Ok((out, platform))
     }
 
-    pub fn encrypt(data: &[u8], platform: BinaryFontPlatform) -> Vec<u8> {
+    pub(crate) fn encrypt(data: &[u8], platform: BinaryFontPlatform) -> Vec<u8> {
         let key = platform.key();
 
         let mut out = Vec::with_capacity(data.len() + 8);

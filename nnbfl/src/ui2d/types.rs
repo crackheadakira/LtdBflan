@@ -3,10 +3,18 @@ use serde::{Deserialize, Serialize};
 use crate::core::{Cursor, FormatError, ReadWriteable, Writer};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// A 32-bit floating-point RGBA color, where each channel ranges from `0.0` to `1.0`.
 pub struct Color4f {
+    /// The red channel.
     pub r: f32,
+
+    /// The green channel.
     pub g: f32,
+
+    /// The blue channel.
     pub b: f32,
+
+    /// The alpha channel.
     pub a: f32,
 }
 
@@ -31,10 +39,18 @@ impl ReadWriteable for Color4f {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// A 8-bit unsigned RGBA color, where each channel ranges from `0` to `255`.
 pub struct Color4u8 {
+    /// The red channel.
     pub r: u8,
+
+    /// The green channel.
     pub g: u8,
+
+    /// The blue channel.
     pub b: u8,
+
+    /// The alpha channel.
     pub a: u8,
 }
 
@@ -139,12 +155,17 @@ impl From<[f32; 4]> for Color4u8 {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// A two-dimensional vector representing a point or direction in Cartesian space.
 pub struct Vector2f {
+    /// The horizontal component.
     pub x: f32,
+
+    /// The vertical component.
     pub y: f32,
 }
 
 impl Vector2f {
+    /// Creates a two-dimensional vector.
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
@@ -167,9 +188,15 @@ impl ReadWriteable for Vector2f {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// A three-dimensional vector representing a point or direction in Cartesian space.
 pub struct Vector3f {
+    /// The horizontal component.
     pub x: f32,
+
+    /// The vertical component.
     pub y: f32,
+
+    /// The depth or orthogonal component.
     pub z: f32,
 }
 
@@ -192,10 +219,18 @@ impl ReadWriteable for Vector3f {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// The coordinate space transformations of a vertex.
 pub struct VertexPos {
+    /// The horizontal size scale factor.
     pub size_scale_width: f32,
+
+    /// The vertical size scale factor.
     pub size_scale_height: f32,
+
+    /// The horizontal coordinate position scale factor.
     pub position_x_scale: f32,
+
+    /// The vertical coordinate position scale factor.
     pub position_y_scale: f32,
 }
 

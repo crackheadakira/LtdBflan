@@ -56,7 +56,7 @@ impl ReadWriteable for Bflan {
                 BflanSections::PaneAnimTag(t) => anim_tag = Some(t),
                 BflanSections::PaneAnimInfo(i) => anim_info = Some(i),
                 BflanSections::UserData(usd) => user_data = Some(usd),
-                _ => {}
+                BflanSections::Unknown(..) => {}
             }
         }
 
@@ -149,8 +149,8 @@ enum BflanSectionsRef<'a> {
     PaneAnimInfo(&'a PaneAnimInfo),
 }
 
-impl<'a> BflanSectionsRef<'a> {
-    pub fn serialize(&self, writer: &mut Writer) {
+impl BflanSectionsRef<'_> {
+    pub(crate) fn serialize(&self, writer: &mut Writer) {
         let section_start = writer.pos();
         writer.section_start = Some(section_start);
 

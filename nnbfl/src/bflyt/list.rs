@@ -48,7 +48,9 @@ impl ReadWriteable for Layout {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// A list of textures that the bflyt uses.
 pub struct TextureList {
+    /// An array containing the names of the textures that can be found within the bntx in the same SARC.
     pub textures: Vec<String>,
 }
 
@@ -337,7 +339,7 @@ impl ReadWriteable for MaterialAlphaCompare {
 }
 
 #[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, FromPrimitive, IntoPrimitive, Default,
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum BlendFactor {
@@ -355,7 +357,7 @@ pub enum BlendFactor {
 }
 
 #[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, FromPrimitive, IntoPrimitive, Default,
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum LogicOp {
@@ -381,7 +383,7 @@ pub enum LogicOp {
 }
 
 #[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, FromPrimitive, IntoPrimitive, Default,
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum BlendOp {
@@ -395,7 +397,7 @@ pub enum BlendOp {
     SelectMax,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum MaterialBlendMode {
     #[default]
     None,
@@ -766,13 +768,13 @@ impl MaterialDetailedCombinerEntry {
     fn get_source_count(mode: DetailedCombinerStageMode) -> u32 {
         match mode {
             DetailedCombinerStageMode::Replace => 1,
-            DetailedCombinerStageMode::Modulate => 2,
-            DetailedCombinerStageMode::Add => 2,
-            DetailedCombinerStageMode::AddSigned => 2,
-            DetailedCombinerStageMode::Interpolate => 3,
-            DetailedCombinerStageMode::Subtract => 2,
-            DetailedCombinerStageMode::AddMult => 3,
-            DetailedCombinerStageMode::MultiplicateAdd => 3,
+            DetailedCombinerStageMode::Modulate
+            | DetailedCombinerStageMode::Add
+            | DetailedCombinerStageMode::AddSigned
+            | DetailedCombinerStageMode::Subtract => 2,
+            DetailedCombinerStageMode::Interpolate
+            | DetailedCombinerStageMode::AddMult
+            | DetailedCombinerStageMode::MultiplicateAdd => 3,
         }
     }
 
@@ -1240,7 +1242,7 @@ impl ReadWriteable for Material {
 
         let n = self.colors.len();
         let mut cumulative_offset = (2 + n) as u8;
-        for entry in self.colors.iter() {
+        for entry in &self.colors {
             writer.write_u8(cumulative_offset);
             cumulative_offset += if entry.color_u8.is_some() { 4 } else { 16 };
         }

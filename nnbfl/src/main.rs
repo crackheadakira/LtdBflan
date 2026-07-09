@@ -133,7 +133,7 @@ impl JsonAction {
                     _ => Command::Pack,
                 };
 
-                process_command::<T>(cmd, input, &resolved_output)?
+                process_command::<T>(&cmd, input, &resolved_output)?;
             }
 
             Self::Test {
@@ -150,7 +150,7 @@ impl JsonAction {
                     files.push(input.clone());
                 }
 
-                let had_failures = test_roundtrip::<T>(input, files, *verbose, *quiet)?;
+                let had_failures = test_roundtrip::<T>(input, &files, *verbose, *quiet);
                 if had_failures {
                     return Err(NnbflError::BatchFailure);
                 }
@@ -173,9 +173,7 @@ impl JsonAction {
                 let parsed_a = T::parse_file(&bytes_a).map_err(NnbflError::Format)?;
                 let writer_a = parsed_a.write_file();
 
-                let file_name_a = input_a
-                    .file_name()
-                    .unwrap_or(std::ffi::OsStr::new("Input A"));
+                let file_name_a = input_a.file_name().unwrap_or_else(|| OsStr::new("Input A"));
 
                 let identical = compare_files(&writer_a, file_name_a, &bytes_b, false, true);
 
@@ -209,7 +207,7 @@ impl BinaryAction {
                     Self::Pack { .. } => Command::Pack,
                 };
 
-                process_command::<T>(cmd, input, &resolved_output)?;
+                process_command::<T>(&cmd, input, &resolved_output)?;
             }
         }
 
@@ -218,7 +216,11 @@ impl BinaryAction {
 }
 
 impl Command {
-    pub fn route<T: FileConverter>(&self, input: &Path, output: &Path) -> Result<(), NnbflError> {
+    pub(crate) fn route<T: FileConverter>(
+        &self,
+        input: &Path,
+        output: &Path,
+    ) -> Result<(), NnbflError> {
         match self {
             Self::Extract => extract_file::<T>(input, output),
             Self::Pack => pack_file::<T>(input, output),
@@ -242,7 +244,7 @@ fn validate_input(input: &Path) -> Result<(), NnbflError> {
 }
 
 fn process_command<T: FileConverter>(
-    command: Command,
+    command: &Command,
     input_path: &Path,
     output_path: &Path,
 ) -> Result<(), NnbflError> {
@@ -262,14 +264,14 @@ fn process_command<T: FileConverter>(
 
 fn test_roundtrip<T: FileReadWriteable>(
     input_dir: &Path,
-    files: Vec<PathBuf>,
+    files: &[PathBuf],
     verbose: bool,
     quiet: bool,
-) -> Result<bool, NnbflError> {
+) -> bool {
     let mut success_count = 0i32;
     let mut fail_count = 0i32;
 
-    for path in &files {
+    for path in files {
         let entry = path.strip_prefix(input_dir).unwrap_or(path);
         let entry = if entry == Path::new("") {
             path.as_path()
@@ -285,7 +287,9 @@ fn test_roundtrip<T: FileReadWriteable>(
             continue;
         }
 
-        let file_name = entry.file_name().unwrap_or(OsStr::new("Unknown Name"));
+        let file_name = entry
+            .file_name()
+            .unwrap_or_else(|| OsStr::new("Unknown Name"));
 
         let file_in = match fs::read(path) {
             Ok(bytes) => bytes,
@@ -328,7 +332,7 @@ fn test_roundtrip<T: FileReadWriteable>(
         if single_file {
             let file_name = files[0]
                 .file_name()
-                .unwrap_or(OsStr::new("Unknown Name"))
+                .unwrap_or_else(|| OsStr::new("Unknown Name"))
                 .to_string_lossy();
 
             if fail_count == 0 {
@@ -340,7 +344,7 @@ fn test_roundtrip<T: FileReadWriteable>(
         }
     }
 
-    Ok(fail_count > 0)
+    fail_count > 0
 }
 
 fn compare_files(
@@ -447,7 +451,7 @@ fn pack_file<T: FileConverter>(input_path: &Path, output_path: &Path) -> Result<
 }
 
 fn process_batch<T: FileConverter>(
-    command: Command,
+    command: &Command,
     in_dir: &Path,
     out_dir: &Path,
 ) -> Result<(), NnbflError> {
@@ -456,7 +460,7 @@ fn process_batch<T: FileConverter>(
         source: e,
     })?;
 
-    let search_ext = if command == Command::Extract {
+    let search_ext = if *command == Command::Extract {
         T::INPUT_EXTENSION
     } else {
         T::OUTPUT_EXTENSION
@@ -478,7 +482,7 @@ fn process_batch<T: FileConverter>(
     for path in target_files {
         let relative = path.strip_prefix(in_dir).unwrap_or(&path);
         let mut out_path = out_dir.join(relative);
-        out_path.set_extension(if command == Command::Extract {
+        out_path.set_extension(if *command == Command::Extract {
             T::OUTPUT_EXTENSION
         } else {
             T::INPUT_EXTENSION
@@ -492,7 +496,7 @@ fn process_batch<T: FileConverter>(
         }
 
         match command.route::<T>(&path, &out_path) {
-            Ok(_) => success += 1,
+            Ok(()) => success += 1,
             Err(e) => {
                 eprintln!("Error processing {path:?}: {e}");
                 failed += 1;

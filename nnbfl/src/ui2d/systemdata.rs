@@ -3,13 +3,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     bflyt::flags::{DropShadowFlags, TexOptions},
-    core::{BitPackable, Cursor, FormatError, ReadWriteable, Writer},
+    core::{BitPackable as _, Cursor, FormatError, ReadWriteable, Writer},
     ui2d::types::{Color4f, VertexPos},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// System data configurations for either an entire layout or an individual pane.
 pub enum SystemData {
+    /// Global configuration belonging to the entire layout.
     Layout(LayoutData),
+
+    /// Visual modifiers
     Pane(PaneData),
 }
 
@@ -21,32 +25,62 @@ impl Default for SystemData {
 
 #[derive(Debug, FromPrimitive, IntoPrimitive, Default)]
 #[repr(u32)]
+/// The possible types of [`LayoutData`].
 pub enum LayoutDataType {
+    /// The animation tag name to be found in the bflan for this layout.
     AnimTagName = 0,
+
     #[default]
-    Unknown = 1,
+    /// An invalid layout data type.
+    Invalid = 1,
 }
 
 #[derive(Debug, FromPrimitive, IntoPrimitive, Default)]
 #[repr(u32)]
+/// The possible types of [`PaneData`].
 pub enum PaneDataType {
+    /// Maps to vertex layout scale data.
     VertexPos0 = 0,
+
+    /// Maps to secondary vertex layout scale data.
     VertexPos1 = 1,
+
+    /// Maps to layout alignment options and margins.
     Alignment = 2,
+
+    /// Maps to masking texture configurations.
     MaskTexture = 3,
+
+    /// Maps to pane drop shadow and glow styling parameters.
     DropShadow = 4,
+
+    /// Maps to procedurally generated geometry & vector shape properties.
     ProceduralShape = 6,
+
     #[default]
+    /// An invalid pane data type.
     Invalid,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// A container for specialized pane data properties.
 pub enum PaneData {
+    /// The primary coordinate space transformations of a vertex.
     VertexPos0(VertexPos),
+
+    /// The secondary coordinate space transformations of a vertex.
     VertexPos1(VertexPos),
+
+    /// Properties for procedurally generated UI geometry.
     ProceduralShape(ProceduralShape),
+
+    /// Layout alignment and margin settings.
     Alignment(Alignment),
+
+    /// Drop shadow and styling properties.
     DropShadow(DropShadow),
+
+    /// Masking texture configuration properties.
     MaskTexture(MaskTexture),
 }
 
@@ -68,7 +102,7 @@ impl ReadWriteable for PaneData {
             PaneDataType::DropShadow => Self::DropShadow(DropShadow::parse(cursor)?),
             PaneDataType::Alignment => Self::Alignment(Alignment::parse(cursor)?),
             PaneDataType::ProceduralShape => Self::ProceduralShape(ProceduralShape::parse(cursor)?),
-            _ => {
+            PaneDataType::Invalid => {
                 return Err(FormatError::UnknownTag {
                     enum_name: "PaneDataType",
                     tag: data_type.into(),
@@ -84,30 +118,34 @@ impl ReadWriteable for PaneData {
         writer.mark("PaneDataType");
 
         let type_id: u32 = match self {
-            PaneData::VertexPos0(_) => 0,
-            PaneData::VertexPos1(_) => 1,
-            PaneData::Alignment(_) => 2,
-            PaneData::MaskTexture(_) => 3,
-            PaneData::DropShadow(_) => 4,
-            PaneData::ProceduralShape(_) => 6,
+            Self::VertexPos0(_) => 0,
+            Self::VertexPos1(_) => 1,
+            Self::Alignment(_) => 2,
+            Self::MaskTexture(_) => 3,
+            Self::DropShadow(_) => 4,
+            Self::ProceduralShape(_) => 6,
         };
 
         writer.write_u32(type_id);
 
         match self {
-            PaneData::VertexPos0(v) | PaneData::VertexPos1(v) => v.write(writer),
-            PaneData::Alignment(a) => a.write(writer),
-            PaneData::MaskTexture(m) => m.write(writer),
-            PaneData::DropShadow(d) => d.write(writer),
-            PaneData::ProceduralShape(p) => p.write(writer),
+            Self::VertexPos0(v) | Self::VertexPos1(v) => v.write(writer),
+            Self::Alignment(a) => a.write(writer),
+            Self::MaskTexture(m) => m.write(writer),
+            Self::DropShadow(d) => d.write(writer),
+            Self::ProceduralShape(p) => p.write(writer),
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// A container for the layout-specific data.
 pub enum LayoutData {
+    /// A list containing the animation tag names.
     AnimTagName(Vec<String>),
-    Unknown,
+
+    /// An invalid layout data.
+    Invalid,
 }
 
 impl Default for LayoutData {
@@ -136,12 +174,12 @@ impl ReadWriteable for LayoutData {
 
                     cursor.seek(restore_point)?;
 
-                    strings.push(string)
+                    strings.push(string);
                 }
 
                 Self::AnimTagName(strings)
             }
-            _ => Self::Unknown,
+            LayoutDataType::Invalid => Self::Invalid,
         };
 
         Ok(res)
@@ -149,7 +187,7 @@ impl ReadWriteable for LayoutData {
 
     fn write(&self, writer: &mut Writer) {
         match self {
-            LayoutData::AnimTagName(strings) => {
+            Self::AnimTagName(strings) => {
                 let base_offset = writer.pos();
 
                 writer.write_u32(LayoutDataType::AnimTagName as u32);
@@ -176,7 +214,7 @@ impl ReadWriteable for LayoutData {
                 }
             }
 
-            LayoutData::Unknown => {
+            Self::Invalid => {
                 writer.write_u32(0xFFFFFFFF);
                 writer.write_u32(0);
             }
@@ -187,8 +225,12 @@ impl ReadWriteable for LayoutData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// Configuration properties for pane alignment.
 pub struct Alignment {
+    /// Packed options for the pane alignment.
     pub options: u32,
+
+    /// The margin applied to every direction.
     pub margin: f32,
 }
 
@@ -211,38 +253,80 @@ impl ReadWriteable for Alignment {
     Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, IntoPrimitive, FromPrimitive, Default,
 )]
 #[repr(u8)]
+/// The possible blend modes for [`DropShadow`].
 pub enum DropShadowBlendMode {
     #[default]
+    /// Normal blend mode.
     Normal = 0,
+
+    /// Multiply blend mode.
     Multiply = 1,
+
+    /// Addition blend mode.
     Addition = 2,
+
+    /// Subtraction blend mode.
     Subtraction = 3,
+
+    /// Normal blend mode using maximum alpha.
     NormalMaxAlpha = 4,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// Styling and transformation properties for a pane's stroke, outer glow, and drop shadow.
 pub struct DropShadow {
+    /// The 0-based index of the shadow texture within [`TextureList`](crate::bflyt::list::TextureList).
     pub texture_id: u16,
+
+    /// Texture coordinate wrap and filtering options along the horizontal (U) axis.
     pub u_options: TexOptions,
+
+    /// Texture coordinate wrap and filtering options along the vertical (V) axis.
     pub v_options: TexOptions,
+
+    /// Configuration and state flags for the shadow effects.
     pub flags: DropShadowFlags,
 
+    /// The maximum size boundary allowed for the shadow effect.
     pub max_size: u8,
+
+    /// The blend mode used for rendering the stroke layer.
     pub stroke_blend_mode: DropShadowBlendMode,
+
+    /// The blend mode used for rendering the outer glow layer.
     pub outer_glow_blend_mode: DropShadowBlendMode,
+
+    /// The blend mode used for rendering the drop shadow layer.
     pub drop_shadow_blend_mode: DropShadowBlendMode,
 
+    /// The width of the outline stroke.
     pub stroke_size: f32,
+
+    /// The color of the outline stroke.
     pub stroke_color: Color4f,
 
+    /// The color of the outer glow layer.
     pub outer_glow_color: Color4f,
+
+    /// The blur spread factor of the outer glow layer.
     pub outer_glow_spread: f32,
+
+    /// The total size radius of the outer glow layer.
     pub outer_glow_size: f32,
 
+    /// The color of the drop shadow layer.
     pub drop_shadow_color: Color4f,
+
+    /// The angle in degrees indicating the shadow's projection direction.
     pub drop_shadow_angle: f32,
+
+    /// The offset distance from the source pane to project the shadow.
     pub drop_shadow_distance: f32,
+
+    /// The blur spread factor of the drop shadow layer.
     pub drop_shadow_spread: f32,
+
+    /// The total size radius of the drop shadow layer.
     pub drop_shadow_size: f32,
 }
 
@@ -345,18 +429,42 @@ impl ReadWriteable for DropShadow {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// Configuration properties for a layout masking texture and its coordinate space transformations.
 pub struct MaskTexture {
+    /// Packed feature and state flags for the masking behavior.
     pub flags: u8,
+
+    /// The 0-based index of the mask texture within [`TextureList`](crate::bflyt::list::TextureList).
     pub texture_id: u16,
+
+    /// Texture coordinate wrap and filtering options along the horizontal (U) axis.
     pub u_options: u8,
+
+    /// Texture coordinate wrap and filtering options along the vertical (V) axis.
     pub v_options: u8,
+
+    /// Extended texture mapping and rendering flags.
     pub tex_ext_flags: u32,
+
+    /// The 0-based index of the capture texture within [`TextureList`](crate::bflyt::list::TextureList).
     pub capture_texture_id: u16,
+
+    /// Capture texture coordinate options along the horizontal (U) axis.
     pub capture_u_options: u8,
+
+    /// Capture texture coordinate options along the vertical (V) axis.
     pub capture_v_options: u8,
+
+    /// If a capture mask should be used on the mask texture.
     pub is_use_capture_mask: bool,
+
+    /// The 2D spatial translation offset `[x, y]` applied to the mask coordinates.
     pub translation: [f32; 2],
+
+    /// The Z-rotation of the mask texture.
     pub rotation: f32,
+
+    /// The 2D scale factors `[x, y]` applied to the mask coordinates.
     pub scale: [f32; 2],
 }
 
@@ -427,29 +535,66 @@ impl ReadWriteable for MaskTexture {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// Properties for procedurally generated UI geometry.
 pub struct ProceduralShape {
+    /// Packed feature and state flags for the procedural shape behavior.
     pub options: u8,
+
+    /// Packed feature and state flags for the inner-shape color.
     pub color0_options: u8,
+
+    /// Packed feature and state flags for the inner-shape shadow color.
     pub inner_shadow_options: u8,
+
+    /// Packed feature and state flags for the inner-shape base comp?.
     pub inner_shadow_base_comp: u8,
+
+    /// Packed feature and state flags for the solid color overlay.
     pub color_overlay_options: u8,
+
+    /// Packed feature and state flags for the gradient (gradation) overlay.
     pub gradation_overlay_options: u8,
+
+    /// Enum for the procedural shape drop shadow blend mode.
     pub drop_shadow_blend_mode: u8,
+
+    /// Enum for the procedural shape drop shadow base component.
     pub drop_shadow_base_comp: u8,
 
+    /// The inner corner rounding factors going: `[TL, TR, BL, BR]`.
     pub rounded_corner0: [f32; 4],
+
+    /// The outer corner rounding factors going: `[TL, TR, BL, BR]`.
     pub rounded_corner1: [f32; 4],
 
+    /// The width the inner stroke should be drawn at.
     pub inner_stroke_size: f32,
 
+    /// The primary color of the shape geometry.
     pub color0: Color4f,
+
+    /// The color of the inner shadow effect.
     pub inner_shadow_color: Color4f,
+
+    /// The 3D spatial transformation `[x, y, z]` applied to the inner shadow.
     pub inner_shadow_transform: [f32; 3],
+
+    /// The color applied as a solid overlay over the base shape.
     pub color_overlay: Color4f,
+
+    /// The interpolation weights or stop positions `[w0, w1, w2, w3]` for the gradient overlay.
     pub gradation_weights: [f32; 4],
+
+    /// The array of color values matching each stop in the gradient overlay.
     pub gradation_color_array: [Color4f; 4],
+
+    /// The rotation angle of the gradient overlay.
     pub gradation_rotation: f32,
+
+    /// The color of the external procedural drop shadow.
     pub drop_shadow_color: Color4f,
+
+    /// The 3D spatial transformation `[x, y, z]` applied to the procedural shape drop shadow.
     pub drop_shadow_transform: [f32; 3],
 }
 

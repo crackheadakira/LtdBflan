@@ -39,7 +39,7 @@ impl Writer {
     }
 
     pub fn mark(&mut self, name: &str) {
-        self.breadcrumbs.push((self.pos(), name.to_string()));
+        self.breadcrumbs.push((self.pos(), name.to_owned()));
     }
 
     pub fn pos(&self) -> usize {

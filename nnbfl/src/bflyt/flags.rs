@@ -261,7 +261,9 @@ impl BitPackable<u16> for TextPaneFlags {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, IntoPrimitive, FromPrimitive,
+)]
 #[repr(u8)]
 pub enum WindowKind {
     #[default]
@@ -284,12 +286,7 @@ impl BitPackable<u8> for WindowFlags {
         Self {
             use_layout_material: (raw & 0x01) != 0,
             use_vertex_color_for_all_window: ((raw >> 1) & 0x01) != 0,
-            window_kind: match kind_bits {
-                0 => WindowKind::Around,
-                1 => WindowKind::Horizontal,
-                2 => WindowKind::HorizontalNoContent,
-                _ => WindowKind::Around,
-            },
+            window_kind: kind_bits.into(),
             not_draw_content: ((raw >> 4) & 0x01) != 0,
         }
     }

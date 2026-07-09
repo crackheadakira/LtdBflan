@@ -107,9 +107,9 @@ impl<'a> Cursor<'a> {
         }
         if end >= self.data.len() {
             return Err(FormatError::MalformedSection {
-                section_type: "StringPool".to_string(),
+                section_type: "StringPool".to_owned(),
                 offset: start,
-                reason: "Unterminated string literal reached EOF".to_string(),
+                reason: "Unterminated string literal reached EOF".to_owned(),
             });
         }
 

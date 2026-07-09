@@ -91,7 +91,7 @@ pub struct VersionFormat {
 
 impl ReadWriteable for VersionFormat {
     fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
-        Ok(VersionFormat {
+        Ok(Self {
             micro: cursor.read_u16()?,
             minor: cursor.read_u8()?,
             major: cursor.read_u8()?,

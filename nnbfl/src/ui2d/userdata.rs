@@ -6,21 +6,35 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+/// A container for multiple user-defined data entries.
 pub struct UserDataArray {
+    /// The user-defined data entries.
     pub user_data: Vec<UserData>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+/// A user-defined data entry containing a name and its associated content.
 pub struct UserData {
+    /// The user-defined data stored in this entry.
     pub content: UserDataContent,
+
+    /// The name of this user data entry.
     pub o_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// The possible types of data stored in a [`UserData`] entry.
 pub enum UserDataContent {
+    /// A user-defined string whose length is specified by the `data_count` field.
     String(String),
+
+    /// A user-defined list of signed 32-bit integer values.
     S32(Vec<i32>),
+
+    /// A user-defined list of 32-bit floating-point values.
     Float(Vec<f32>),
+
+    /// A user-defined list of system data entries.
     SystemData(Vec<Vec<SystemData>>),
 }
 
@@ -31,6 +45,7 @@ impl Default for UserDataContent {
 }
 
 impl UserDataContent {
+    /// Converts the entry type into a u8.
     pub fn type_tag(&self) -> u8 {
         match self {
             Self::String(_) => 0,
@@ -48,7 +63,7 @@ impl ReadWriteable for UserDataArray {
         let mut user_data = Vec::with_capacity(user_data_count as usize);
 
         for _ in 0..user_data_count {
-            user_data.push(UserData::parse(cursor)?)
+            user_data.push(UserData::parse(cursor)?);
         }
 
         Ok(Self { user_data })
@@ -97,12 +112,12 @@ impl ReadWriteable for UserDataArray {
                 match &data.content {
                     UserDataContent::Float(floats) => {
                         for &f in floats {
-                            writer.write_f32(f)
+                            writer.write_f32(f);
                         }
                     }
                     UserDataContent::S32(ints) => {
                         for &s in ints {
-                            writer.write_i32(s)
+                            writer.write_i32(s);
                         }
                     }
                     UserDataContent::SystemData(blocks) => {
@@ -145,7 +160,7 @@ impl ReadWriteable for UserDataArray {
                         }
                     }
                     // strings are handled afterwards
-                    _ => {}
+                    UserDataContent::String(_) => {}
                 }
             }
         }
@@ -175,6 +190,7 @@ impl ReadWriteable for UserDataArray {
 }
 
 impl UserData {
+    /// Parses the binary section data from a file into [`UserData`],
     pub fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let base_offset = cursor.pos;
 
@@ -264,6 +280,6 @@ impl UserData {
 
         cursor.seek(restore_point)?;
 
-        Ok(Self { o_name, content })
+        Ok(Self { content, o_name })
     }
 }

@@ -61,7 +61,7 @@ impl ReadWriteable for BflytSection {
         let section = match header.magic {
             SectionMagic::UserData => {
                 let s = UserDataArray::parse(cursor)?;
-                BflytSection::UserData(s)
+                Self::UserData(s)
             }
             SectionMagic::Layout => {
                 let s = Layout::parse(cursor)?;
@@ -70,32 +70,32 @@ impl ReadWriteable for BflytSection {
                     cursor.last_was_pane = false;
                 }
 
-                BflytSection::Layout(s)
+                Self::Layout(s)
             }
             SectionMagic::TextureList => {
                 let s = TextureList::parse(cursor)?;
-                BflytSection::TextureList(s)
+                Self::TextureList(s)
             }
             SectionMagic::FontList => {
                 let s = FontList::parse(cursor)?;
-                BflytSection::FontList(s)
+                Self::FontList(s)
             }
             SectionMagic::MaterialList => {
                 let s = MaterialList::parse(cursor)?;
-                BflytSection::MaterialList(s)
+                Self::MaterialList(s)
             }
             SectionMagic::CaptureTextureList => {
                 let s = CaptureTextureList::parse(cursor)?;
-                BflytSection::CaptureTextureList(s)
+                Self::CaptureTextureList(s)
             }
             SectionMagic::VectorGraphicsList => {
                 let s = VectorGraphicsList::parse(cursor)?;
-                BflytSection::VectorGraphicsList(s)
+                Self::VectorGraphicsList(s)
             }
-            SectionMagic::PaneStart => BflytSection::PaneStart,
-            SectionMagic::PaneEnd => BflytSection::PaneEnd,
-            SectionMagic::GroupStart => BflytSection::GroupStart,
-            SectionMagic::GroupEnd => BflytSection::GroupEnd,
+            SectionMagic::PaneStart => Self::PaneStart,
+            SectionMagic::PaneEnd => Self::PaneEnd,
+            SectionMagic::GroupStart => Self::GroupStart,
+            SectionMagic::GroupEnd => Self::GroupEnd,
             SectionMagic::Pane => {
                 let s = Pane::parse(cursor)?;
 
@@ -103,51 +103,51 @@ impl ReadWriteable for BflytSection {
                     cursor.last_was_pane = true;
                 }
 
-                BflytSection::Pane(s)
+                Self::Pane(s)
             }
             SectionMagic::PicturePane => {
                 let s = PicturePane::parse(cursor)?;
-                BflytSection::PicturePane(s)
+                Self::PicturePane(s)
             }
             SectionMagic::TextBoxPane => {
                 let s = TextBoxPane::parse(cursor)?;
-                BflytSection::TextBoxPane(s)
+                Self::TextBoxPane(s)
             }
             SectionMagic::WindowPane => {
                 let s = WindowPane::parse(cursor)?;
-                BflytSection::WindowPane(s)
+                Self::WindowPane(s)
             }
             SectionMagic::PartsPane => {
                 let s = PartsPane::parse(cursor)?;
-                BflytSection::PartsPane(s)
+                Self::PartsPane(s)
             }
             SectionMagic::AlignmentPane => {
                 let s = AlignmentPane::parse(cursor)?;
-                BflytSection::AlignmentPane(s)
+                Self::AlignmentPane(s)
             }
             SectionMagic::CapturePane => {
                 let s = Pane::parse(cursor)?;
-                BflytSection::CapturePane(s)
+                Self::CapturePane(s)
             }
             SectionMagic::BoundingPane => {
                 let s = Pane::parse(cursor)?;
-                BflytSection::BoundingPane(s)
+                Self::BoundingPane(s)
             }
             SectionMagic::ScissorPane => {
                 let s = Pane::parse(cursor)?;
-                BflytSection::ScissorPane(s)
+                Self::ScissorPane(s)
             }
             SectionMagic::Group => {
                 let s = Group::parse(cursor)?;
-                BflytSection::Group(s)
+                Self::Group(s)
             }
             SectionMagic::ControlSource => {
                 let s = ControlSource::parse(cursor)?;
-                BflytSection::ControlSource(s)
+                Self::ControlSource(s)
             }
             SectionMagic::ShapeInfo => {
                 let s = ShapeInfoList::parse(cursor)?;
-                BflytSection::ShapeInfoList(s)
+                Self::ShapeInfoList(s)
             }
             _ => {
                 println!("Got unknown pane w/ magic: {:?}", header.magic);
@@ -157,7 +157,7 @@ impl ReadWriteable for BflytSection {
                     .read_bytes(data_size.min(end.saturating_sub(cursor.pos)))?
                     .to_vec();
 
-                BflytSection::Unknown(header, data)
+                Self::Unknown(header, data)
             }
         };
 
@@ -186,13 +186,14 @@ impl ReadWriteable for BflytSection {
             Self::MaterialList(s) => s.write(writer),
             Self::CaptureTextureList(s) => s.write(writer),
             Self::VectorGraphicsList(s) => s.write(writer),
-            Self::Pane(s) | Self::BoundingPane(s) | Self::ScissorPane(s) => s.write(writer),
+            Self::Pane(s) | Self::BoundingPane(s) | Self::ScissorPane(s) | Self::CapturePane(s) => {
+                s.write(writer);
+            }
             Self::PicturePane(s) => s.write(writer),
             Self::TextBoxPane(s) => s.write(writer),
             Self::WindowPane(s) => s.write(writer),
             Self::PartsPane(s) => s.write(writer),
             Self::AlignmentPane(s) => s.write(writer),
-            Self::CapturePane(s) => s.write(writer),
             Self::Group(s) => s.write(writer),
             Self::ControlSource(s) => s.write(writer),
             Self::ShapeInfoList(s) => s.write(writer),
@@ -355,10 +356,10 @@ impl ReadWriteable for Bflyt {
                     if let Some(StackFrame::Pane(finished_pane)) = tree_stack.pop() {
                         match tree_stack.last_mut() {
                             Some(StackFrame::Root(layer)) => {
-                                layer.push(BflytNode::Pane(*finished_pane))
+                                layer.push(BflytNode::Pane(*finished_pane));
                             }
                             Some(StackFrame::Pane(parent)) => {
-                                parent.children.push(BflytNode::Pane(*finished_pane))
+                                parent.children.push(BflytNode::Pane(*finished_pane));
                             }
                             _ => unreachable!(),
                         }
@@ -400,7 +401,6 @@ impl ReadWriteable for Bflyt {
                             }
                             _ => unreachable!("GroupEnd cannot occur inside another Group frame"),
                         }
-                        continue;
                     } else {
                         return Err(FormatError::InvalidHierarchyChange(
                             "Mismatched GroupEnd encountered",
@@ -465,13 +465,10 @@ impl ReadWriteable for Bflyt {
             }
         }
 
-        let mut nodes = match tree_stack.pop() {
-            Some(StackFrame::Root(layer)) => layer,
-            _ => {
-                return Err(FormatError::InvalidHierarchyChange(
-                    "Unclosed hierarchy elements remaining at EOF",
-                ));
-            }
+        let Some(StackFrame::Root(mut nodes)) = tree_stack.pop() else {
+            return Err(FormatError::InvalidHierarchyChange(
+                "Unclosed hierarchy elements remaining at EOF",
+            ));
         };
 
         let root_group = match nodes.iter().position(|n| matches!(n, BflytNode::Group(_))) {
@@ -489,23 +486,24 @@ impl ReadWriteable for Bflyt {
             }
         };
 
-        let mut control_source = None;
-        if let Some(pos) = nodes
+        let control_source = if let Some(pos) = nodes
             .iter()
             .position(|n| matches!(n, BflytNode::ControlSource(_)))
             && let BflytNode::ControlSource(c) = nodes.remove(pos)
         {
-            control_source = Some(c);
-        }
+            Some(c)
+        } else {
+            None
+        };
 
-        if layout.is_none() {
+        let Some(layout) = layout else {
             return Err(FormatError::MissingLayout);
-        }
+        };
 
         let mut bflyt = Self {
             endianness,
             version,
-            layout: layout.unwrap(),
+            layout,
             user_data,
             texture_list,
             font_list,
@@ -567,7 +565,7 @@ impl ReadWriteable for Bflyt {
 
         if let Some(ctl) = &self.capture_texture_list {
             BflytSection::write_raw_block(writer, SectionMagic::CaptureTextureList, |w| {
-                ctl.write(w)
+                ctl.write(w);
             });
         }
 
@@ -598,7 +596,7 @@ impl Bflyt {
             for mat in &mut ml.materials {
                 for tm in &mut mat.tex_maps {
                     if let Some(name) = textures.get(tm.texture_index.get() as usize) {
-                        tm.texture_name = name.to_string();
+                        tm.texture_name = name.clone();
                     }
                 }
             }

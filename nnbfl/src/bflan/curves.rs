@@ -27,7 +27,7 @@ impl Curve {
                 for _ in 0..frame_count {
                     keys.push(cursor.read_f32()?);
                 }
-                Curve::Constant(keys)
+                Self::Constant(keys)
             }
             1 => {
                 let mut keys = Vec::with_capacity(frame_count);
@@ -39,7 +39,7 @@ impl Curve {
 
                     cursor.seek_relative(2);
                 }
-                Curve::Step(keys)
+                Self::Step(keys)
             }
             2 => {
                 let mut keys = Vec::with_capacity(frame_count);
@@ -50,9 +50,9 @@ impl Curve {
                         slope: cursor.read_f32()?,
                     });
                 }
-                Curve::Hermite(keys)
+                Self::Hermite(keys)
             }
-            _ => Curve::Constant(Vec::new()),
+            _ => Self::Constant(Vec::new()),
         };
 
         Ok(out)

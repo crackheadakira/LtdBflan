@@ -58,7 +58,7 @@ pub enum FormatError {
         expected: u32,
         actual: u32,
         #[source]
-        source: Box<FormatError>,
+        source: Box<Self>,
     },
 
     #[error("Malformed section block '{section_type}' at offset 0x{offset:X}: {reason}")]
@@ -108,11 +108,11 @@ pub enum SerializationError {
 impl From<serde_json::Error> for SerializationError {
     fn from(err: serde_json::Error) -> Self {
         if err.is_data() {
-            SerializationError::SemanticMismatch {
+            Self::SemanticMismatch {
                 reason: err.to_string(),
             }
         } else {
-            SerializationError::JsonSyntax {
+            Self::JsonSyntax {
                 line: err.line(),
                 column: err.column(),
                 message: err.to_string(),
