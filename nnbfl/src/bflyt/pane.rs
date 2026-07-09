@@ -5,7 +5,7 @@ use crate::{
     bflan::anim_info::AnimInfo,
     bflyt::{
         file::BflytSection,
-        flags::{BflytOrigins, PaneFlags, PaneFlagsEx, TextPaneFlags, WindowFlags},
+        flags::{BflytPosition, PaneFlags, PaneFlagsEx, TextPaneFlags, WindowFlags},
     },
     core::{BitPackable, Cursor, FormatError, Placeholder32, ReadWriteable, Writer},
     ui2d::types::{Color4u8, Vector2f, Vector3f},
@@ -17,7 +17,7 @@ pub const USER_NAME_LEN: usize = 0x08;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Pane {
     pub pane_flags: PaneFlags,
-    pub origin: BflytOrigins,
+    pub position: BflytPosition,
     pub alpha: u8,
     pub flag_ex: PaneFlagsEx,
     pub pane_name: String,
@@ -32,7 +32,7 @@ impl ReadWriteable for Pane {
     fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
             pane_flags: PaneFlags::decode(cursor.read_u8()?),
-            origin: BflytOrigins::decode(cursor.read_u8()?),
+            position: BflytPosition::decode(cursor.read_u8()?),
             alpha: cursor.read_u8()?,
             flag_ex: PaneFlagsEx::decode(cursor.read_u8()?),
             pane_name: cursor.read_fixed_string(PANE_NAME_LEN)?,
@@ -48,7 +48,7 @@ impl ReadWriteable for Pane {
         writer.mark("Pane (generic)");
 
         writer.write_u8(self.pane_flags.encode());
-        writer.write_u8(self.origin.encode());
+        writer.write_u8(self.position.encode());
         writer.write_u8(self.alpha);
         writer.write_u8(self.flag_ex.encode());
         writer.write_fixed_string(&self.pane_name, PANE_NAME_LEN);

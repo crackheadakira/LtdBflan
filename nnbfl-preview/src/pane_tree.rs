@@ -4,7 +4,7 @@ use bitflags::bitflags;
 use nnbfl::{
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection, ControlSourceElement, GroupElement, PaneElement},
-        flags::{BflytOrigin, BflytParentOrigin},
+        flags::{HorizontalPosition, VerticalPosition},
         list::{CaptureTextureList, FontList, Material, MaterialList, TextureList},
         pane::{BasePaneUsageFlags, Pane, PartsPane, PartsPaneBasicInfo, PicturePane},
     },
@@ -61,20 +61,20 @@ impl Corners {
     pub fn compute(
         center: Vector2f,
         size: Vector2f,
-        origin_x: &BflytOrigin,
-        origin_y: &BflytOrigin,
+        origin_x: &HorizontalPosition,
+        origin_y: &VerticalPosition,
         rotation: Vector3f,
     ) -> Self {
         let lx = match origin_x {
-            BflytOrigin::Center => -size.x * 0.5,
-            BflytOrigin::LeftTop => 0.0,
-            BflytOrigin::RightBottom => -size.x,
+            HorizontalPosition::Center => -size.x * 0.5,
+            HorizontalPosition::Left => 0.0,
+            HorizontalPosition::Right => -size.x,
         };
 
         let ly = match origin_y {
-            BflytOrigin::Center => -size.y * 0.5,
-            BflytOrigin::LeftTop => 0.0,
-            BflytOrigin::RightBottom => -size.y,
+            VerticalPosition::Center => -size.y * 0.5,
+            VerticalPosition::Top => 0.0,
+            VerticalPosition::Bottom => -size.y,
         };
 
         let tl = Vector2f::new(lx, ly);
@@ -257,8 +257,8 @@ impl PaneNode {
                 let corners = Corners::compute(
                     center,
                     size,
-                    &base.origin.origin_x,
-                    &base.origin.origin_y,
+                    &base.position.position_x,
+                    &base.position.position_y,
                     base.rotation,
                 );
 
@@ -296,7 +296,7 @@ impl PaneNode {
         }
 
         for child in &mut self.children {
-            child.recompute(self.world_pos, self.world_size, child_scale);
+            child.recompute(self.world_center, self.world_size, child_scale);
         }
     }
 
@@ -428,12 +428,13 @@ impl PaneTree {
     }
 
     pub fn recompute_dirty(&mut self) {
+        let layout_center = Vector2f {
+            x: self.layout_size.x * 0.5,
+            y: self.layout_size.y * 0.5,
+        };
+
         for root in &mut self.roots {
-            root.recompute(
-                Vector2f::default(),
-                self.layout_size,
-                Vector2f { x: 1.0, y: 1.0 },
-            );
+            root.recompute(layout_center, self.layout_size, Vector2f { x: 1.0, y: 1.0 });
         }
     }
 
@@ -701,9 +702,14 @@ impl PaneTree {
             next_pane_idx: 0,
         };
 
+        let layout_center = Vector2f {
+            x: file.layout.width * 0.5,
+            y: file.layout.height * 0.5,
+        };
+
         let roots = builder.build_nodes(
             &file.nodes,
-            Vector2f::default(),
+            layout_center,
             layout_size,
             Vector2f { x: 1.0, y: 1.0 },
             true,
@@ -854,8 +860,8 @@ impl<'a> Builder<'a> {
         let corners = Corners::compute(
             center,
             size,
-            &base.origin.origin_x,
-            &base.origin.origin_y,
+            &base.position.position_x,
+            &base.position.position_y,
             base.rotation,
         );
 
@@ -996,11 +1002,6 @@ impl<'a> Builder<'a> {
             y: sub_bflyt.layout.height,
         };
 
-        let sub_parent_pos = Vector2f {
-            x: -sub_size.x * 0.5,
-            y: -sub_size.y * 0.5,
-        };
-
         let old_source = self.parts_source.clone();
         self.parts_source = Some(layout_name.to_string());
         self.parts_depth += 1;
@@ -1010,7 +1011,7 @@ impl<'a> Builder<'a> {
 
         let mut sub_children = self.build_nodes(
             &sub_nodes,
-            sub_parent_pos + parent_node.world_center,
+            parent_node.world_center,
             sub_size * scale,
             scale,
             parent_visible,
@@ -1112,8 +1113,8 @@ impl<'a> Builder<'a> {
         let corners = Corners::compute(
             center,
             size,
-            &pic.base.origin.origin_x,
-            &pic.base.origin.origin_y,
+            &pic.base.position.position_x,
+            &pic.base.position.position_y,
             rotation,
         );
 
@@ -1135,16 +1136,16 @@ fn resolve_rect(
     parent_size: Vector2f,
     parent_scale: Vector2f,
 ) -> (Vector2f, Vector2f, Vector2f, Vector2f) {
-    let anchor_x = match pane.origin.parent_origin_x {
-        BflytParentOrigin::None => parent_pos.x + parent_size.x * 0.5,
-        BflytParentOrigin::LeftTop => parent_pos.x,
-        BflytParentOrigin::RightBottom => parent_pos.x + parent_size.x,
+    let anchor_x = match pane.position.parent_relative_position_x {
+        HorizontalPosition::Center => parent_pos.x,
+        HorizontalPosition::Left => parent_pos.x - parent_size.x * 0.5,
+        HorizontalPosition::Right => parent_pos.x + parent_size.x * 0.5,
     };
 
-    let anchor_y = match pane.origin.parent_origin_y {
-        BflytParentOrigin::None => parent_pos.y + parent_size.y * 0.5,
-        BflytParentOrigin::LeftTop => parent_pos.y,
-        BflytParentOrigin::RightBottom => parent_pos.y + parent_size.y,
+    let anchor_y = match pane.position.parent_relative_position_y {
+        VerticalPosition::Center => parent_pos.y,
+        VerticalPosition::Top => parent_pos.y - parent_size.y * 0.5,
+        VerticalPosition::Bottom => parent_pos.y + parent_size.y * 0.5,
     };
 
     let cx = anchor_x + pane.translation.x * parent_scale.x;
@@ -1153,16 +1154,16 @@ fn resolve_rect(
     let w = pane.size.x * pane.scale.x;
     let h = pane.size.y * pane.scale.y;
 
-    let tl_x = match pane.origin.origin_x {
-        BflytOrigin::Center => cx - w * 0.5,
-        BflytOrigin::LeftTop => cx,
-        BflytOrigin::RightBottom => cx - w,
+    let tl_x = match pane.position.position_x {
+        HorizontalPosition::Center => cx - w * 0.5,
+        HorizontalPosition::Left => cx,
+        HorizontalPosition::Right => cx - w,
     };
 
-    let tl_y = match pane.origin.origin_y {
-        BflytOrigin::Center => cy - h * 0.5,
-        BflytOrigin::LeftTop => cy,
-        BflytOrigin::RightBottom => cy - h,
+    let tl_y = match pane.position.position_y {
+        VerticalPosition::Center => cy - h * 0.5,
+        VerticalPosition::Top => cy,
+        VerticalPosition::Bottom => cy - h,
     };
 
     (

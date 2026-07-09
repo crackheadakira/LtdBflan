@@ -363,7 +363,7 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
 
         match anim_type {
             AnimInfoType::PaneSrtAnim => {
-                let (base_translation, base_size, base_rotation) = {
+                let (base_translation, base_size, base_rotation, base_scale) = {
                     let Some(node) = view.tree.find_by_idx(pane_idx) else {
                         continue;
                     };
@@ -376,11 +376,13 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
 
                     let rotation = base.map(|b| b.rotation).unwrap_or_default();
 
-                    (translation, size, rotation)
+                    let scale = base.map(|b| b.scale).unwrap_or(Vector2f::new(1.0, 1.0));
+
+                    (translation, size, rotation, scale)
                 };
 
                 let mut new_translation = base_translation;
-                let mut new_scale = Vector2f::new(1.0, 1.0);
+                let mut new_scale = base_scale;
                 let mut new_size = base_size;
                 let mut new_rotation = base_rotation;
 
@@ -402,8 +404,6 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
                     }
                 }
 
-                // cascade_translate(view, pane_idx, new_translation);
-
                 if let Some(node) = view.tree.find_by_idx_mut(pane_idx)
                     && let Some(base) = node.section.get_base_pane_mut()
                 {
@@ -414,26 +414,6 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
 
                     node.mark_transform_dirty();
                 }
-
-                /*let final_size = new_size * new_scale;
-                let final_w = new_w * scale_x;
-                let final_h = new_h * scale_y;
-                if ((final_w - base_w).abs() > f32::EPSILON
-                    || (final_h - base_h).abs() > f32::EPSILON)
-                    && let Some(node) = view.tree.find_by_idx_mut(pane_idx)
-                {
-                    node.world_size.x = final_w;
-                    node.world_size.y = final_h;
-                    node.plain_quad.width = final_w;
-                    node.plain_quad.height = final_h;
-
-                    if let Some(tq) = &mut node.textured_quad {
-                        tq.width = final_w;
-                        tq.height = final_h;
-                    }
-
-                    node.dirty.insert(DirtyFlags::VERTICES);
-                }*/
             }
 
             AnimInfoType::VisibilityAnim => {
@@ -472,6 +452,7 @@ fn apply_pane_content(content: &AnimContent, frame: f32, pane_idx: usize, view: 
                         match &t.target {
                             TargetIndex::VertexColor(VertexColorTarget::PaneAlpha) => {
                                 tq.tint[3] = v;
+
                                 for c in tq.corner_tints.iter_mut() {
                                     c[3] = v;
                                 }

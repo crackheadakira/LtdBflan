@@ -3,49 +3,53 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::BitPackable;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive, Default)]
+#[derive(
+    Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive, Default, PartialEq,
+)]
 #[repr(u8)]
-pub enum BflytOrigin {
+pub enum HorizontalPosition {
     #[default]
     Center,
-    LeftTop,
-    RightBottom,
+    Left,
+    Right,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive, Default)]
+#[derive(
+    Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive, Default, PartialEq,
+)]
 #[repr(u8)]
-pub enum BflytParentOrigin {
+pub enum VerticalPosition {
     #[default]
-    None,
-    LeftTop,
-    RightBottom,
+    Center,
+    Top,
+    Bottom,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
-pub struct BflytOrigins {
-    pub origin_x: BflytOrigin,
-    pub origin_y: BflytOrigin,
-    pub parent_origin_x: BflytParentOrigin,
-    pub parent_origin_y: BflytParentOrigin,
+pub struct BflytPosition {
+    pub position_x: HorizontalPosition,
+    pub position_y: VerticalPosition,
+    pub parent_relative_position_x: HorizontalPosition,
+    pub parent_relative_position_y: VerticalPosition,
 }
 
-impl BitPackable<u8> for BflytOrigins {
+impl BitPackable<u8> for BflytPosition {
     fn decode(raw: u8) -> Self {
         Self {
-            origin_x: (raw & 0x03).into(),
-            origin_y: ((raw >> 2) & 0x03).into(),
-            parent_origin_x: ((raw >> 4) & 0x03).into(),
-            parent_origin_y: (raw >> 6).into(),
+            position_x: (raw & 0x03).into(),
+            position_y: ((raw >> 2) & 0x03).into(),
+            parent_relative_position_x: ((raw >> 4) & 0x03).into(),
+            parent_relative_position_y: (raw >> 6).into(),
         }
     }
 
     fn encode(&self) -> u8 {
         let mut raw = 0u8;
 
-        raw |= (self.origin_x as u8) & 0x03;
-        raw |= ((self.origin_y as u8) & 0x03) << 2;
-        raw |= ((self.parent_origin_x as u8) & 0x03) << 4;
-        raw |= ((self.parent_origin_y as u8) & 0x03) << 6;
+        raw |= (self.position_x as u8) & 0x03;
+        raw |= ((self.position_y as u8) & 0x03) << 2;
+        raw |= ((self.parent_relative_position_x as u8) & 0x03) << 4;
+        raw |= ((self.parent_relative_position_y as u8) & 0x03) << 6;
 
         raw
     }

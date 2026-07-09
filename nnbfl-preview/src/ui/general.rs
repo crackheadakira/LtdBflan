@@ -778,10 +778,18 @@ fn draw_layout_section(ui: &mut Ui, layout: &Layout) {
 
 fn draw_pane_section(ui: &mut Ui, pane: &Pane) {
     draw_string(ui, "Name", &pane.pane_name);
-    draw_prop_debug(ui, "Origin X", pane.origin.origin_x);
-    draw_prop_debug(ui, "Origin Y", pane.origin.origin_y);
-    draw_prop_debug(ui, "Parent Origin X", pane.origin.parent_origin_x);
-    draw_prop_debug(ui, "Parent Origin Y", pane.origin.parent_origin_y);
+    draw_prop_debug(ui, "Position X", pane.position.position_x);
+    draw_prop_debug(ui, "Position Y", pane.position.position_y);
+    draw_prop_debug(
+        ui,
+        "Parent Relative Position X",
+        pane.position.parent_relative_position_x,
+    );
+    draw_prop_debug(
+        ui,
+        "Parent Relative Position Y",
+        pane.position.parent_relative_position_y,
+    );
 
     draw_vector_3f(ui, "Translation", pane.translation);
     draw_vector_3f(ui, "Rotation", pane.rotation);

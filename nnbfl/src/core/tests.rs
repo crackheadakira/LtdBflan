@@ -298,13 +298,13 @@ mod tchar_tests {
 #[cfg(test)]
 mod flag_tests {
     use crate::{
-        bflyt::flags::{BflytOrigins, PaneFlagsEx},
+        bflyt::flags::{BflytPosition, PaneFlagsEx},
         core::BitPackable,
     };
 
     #[test]
     fn bflyt_origins_roundtrip_all_zeros() {
-        let origins = BflytOrigins::decode(0x00);
+        let origins = BflytPosition::decode(0x00);
 
         assert_eq!(origins.encode(), 0x00);
     }
@@ -316,7 +316,7 @@ mod flag_tests {
                 for p_x in 0u8..3 {
                     for p_y in 0u8..3 {
                         let raw = o_x | (o_y << 2) | (p_x << 4) | (p_y << 6);
-                        let decoded = BflytOrigins::decode(raw);
+                        let decoded = BflytPosition::decode(raw);
                         assert_eq!(decoded.encode(), raw);
                     }
                 }
@@ -336,7 +336,7 @@ mod flag_tests {
 mod bflyt_roundtrip_tests {
     use crate::{
         bflyt::{
-            flags::{BflytOrigins, PaneFlags, PaneFlagsEx},
+            flags::{BflytPosition, PaneFlags, PaneFlagsEx},
             list::{FontList, Layout, TextureList},
             pane::Pane,
         },
@@ -488,7 +488,7 @@ mod bflyt_roundtrip_tests {
                 is_global_matrix_user: false,
                 is_constant_buffer_ready: false,
             },
-            origin: BflytOrigins::decode(0x00),
+            position: BflytPosition::decode(0x00),
             alpha: 255,
             flag_ex: PaneFlagsEx::decode(0x00),
             pane_name: name.to_string(),
