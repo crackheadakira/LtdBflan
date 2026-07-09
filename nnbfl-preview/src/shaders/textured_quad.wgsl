@@ -568,7 +568,8 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     if mat.use_texture_only == 1u {
-        var color = textureSample(t_texture0, s_sampler0, in.uv0);
+        var color = textureSample(t_texture0, s_sampler0, in.uv0) * in.tint;
+
         if mat.use_thresholding_alpha_interpolation == 1u {
             color.a = select(0.0, 1.0, color.a >= 0.5);
         }
@@ -654,6 +655,7 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     if mat.debug_stage == 8u { return vec4<f32>(vec3<f32>(tex_color.a), 1.0); }
 
     var color = mat.interpolate_offset + mat.interpolate_width * tex_color;
+    color *= in.tint;
     color.a     = clamp(color.a, 0.0, 1.0);
 
     if mat.debug_stage == 9u { return color; }
