@@ -5,12 +5,12 @@ use crate::{
     ui2d::systemdata::{LayoutData, PaneData, SystemData},
 };
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct UserDataArray {
     pub user_data: Vec<UserData>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct UserData {
     pub content: UserDataContent,
     pub o_name: String,
@@ -22,6 +22,12 @@ pub enum UserDataContent {
     S32(Vec<i32>),
     Float(Vec<f32>),
     SystemData(Vec<Vec<SystemData>>),
+}
+
+impl Default for UserDataContent {
+    fn default() -> Self {
+        Self::Float(Vec::new())
+    }
 }
 
 impl UserDataContent {

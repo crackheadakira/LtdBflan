@@ -45,6 +45,12 @@ pub enum BflytSection {
     Unknown(SectionHeader, Vec<u8>),
 }
 
+impl Default for BflytSection {
+    fn default() -> Self {
+        Self::Layout(Default::default())
+    }
+}
+
 impl ReadWriteable for BflytSection {
     fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let section_start = cursor.pos;
@@ -240,7 +246,7 @@ impl BflytSection {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Bflyt {
     pub endianness: u16,
     pub version: VersionFormat,

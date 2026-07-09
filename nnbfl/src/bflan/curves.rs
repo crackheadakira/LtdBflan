@@ -9,6 +9,12 @@ pub enum Curve {
     Hermite(Vec<HermiteKey>),
 }
 
+impl Default for Curve {
+    fn default() -> Self {
+        Self::Constant(Vec::new())
+    }
+}
+
 impl Curve {
     pub fn parse(
         cursor: &mut Cursor,
@@ -77,13 +83,13 @@ impl Curve {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct StepKey {
     pub frame: f32,
     pub value: u16,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct HermiteKey {
     pub frame: f32,
     pub value: f32,

@@ -7,7 +7,7 @@ use crate::{
     ui2d::userdata::UserDataArray,
 };
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct Bflan {
     pub endianness: u16,
     pub version: VersionFormat,

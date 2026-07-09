@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::{Cursor, FormatError, ReadWriteable, Writer};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct Color4f {
     pub r: f32,
     pub g: f32,
@@ -30,7 +30,7 @@ impl ReadWriteable for Color4f {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct Color4u8 {
     pub r: u8,
     pub g: u8,
@@ -191,7 +191,7 @@ impl ReadWriteable for Vector3f {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct VertexPos {
     pub size_scale_width: f32,
     pub size_scale_height: f32,

@@ -3,25 +3,25 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::BitPackable;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive, Default)]
 #[repr(u8)]
 pub enum BflytOrigin {
-    #[num_enum(default)]
+    #[default]
     Center,
     LeftTop,
     RightBottom,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive, Default)]
 #[repr(u8)]
 pub enum BflytParentOrigin {
-    #[num_enum(default)]
+    #[default]
     None,
     LeftTop,
     RightBottom,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct BflytOrigins {
     pub origin_x: BflytOrigin,
     pub origin_y: BflytOrigin,
@@ -51,7 +51,7 @@ impl BitPackable<u8> for BflytOrigins {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct PaneFlags {
     pub is_visible: bool,
     pub influenced_alpha: bool,
@@ -116,7 +116,7 @@ impl BitPackable<u8> for PaneFlags {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct PaneFlagsEx {
     pub is_no_scale_by_parts: bool,
     pub is_scale_size_by_parts_root: bool,
@@ -153,7 +153,8 @@ impl BitPackable<u8> for PaneFlagsEx {
         raw
     }
 }
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct TextPaneFlags {
     pub is_enable_shadow: bool,
     pub is_limit_glyph_count_to_length: bool,
@@ -260,15 +261,16 @@ impl BitPackable<u16> for TextPaneFlags {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum WindowKind {
+    #[default]
     Around,
     Horizontal,
     HorizontalNoContent,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct WindowFlags {
     pub use_layout_material: bool,
     pub use_vertex_color_for_all_window: bool,
@@ -309,22 +311,22 @@ impl BitPackable<u8> for WindowFlags {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive,
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum TexWrapMode {
-    #[num_enum(default)]
+    #[default]
     Clamp,
     Repeat,
     Mirror,
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive,
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum TexResourceType {
-    #[num_enum(default)]
+    #[default]
     LocalFile,
     LocalCaptured,
     OverrideCaptured,
@@ -332,16 +334,16 @@ pub enum TexResourceType {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, IntoPrimitive, FromPrimitive,
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, IntoPrimitive, FromPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum TexFilter {
-    #[num_enum(default)]
+    #[default]
     Near,
     Linear,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TexOptions {
     pub wrap_mode: TexWrapMode,
     pub filter_mode: TexFilter,
@@ -360,7 +362,7 @@ impl BitPackable<u8> for TexOptions {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DropShadowFlags {
     pub is_stroke_enabled: bool,
     pub is_outer_glow_enabled: bool,

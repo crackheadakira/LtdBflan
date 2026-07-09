@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::{Cursor, FormatError, ReadWriteable, Writer, tchar_code32};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct SectionHeader {
     pub magic: SectionMagic,
     pub section_size: u32,
@@ -33,6 +33,7 @@ impl ReadWriteable for SectionHeader {
     Eq,
     IntoPrimitive,
     FromPrimitive,
+    Default,
 )]
 #[repr(u32)]
 pub enum SectionMagic {

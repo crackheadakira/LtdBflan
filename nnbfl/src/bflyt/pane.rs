@@ -14,7 +14,7 @@ use crate::{
 pub const PANE_NAME_LEN: usize = 0x18;
 pub const USER_NAME_LEN: usize = 0x08;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Pane {
     pub pane_flags: PaneFlags,
     pub origin: BflytOrigins,
@@ -60,7 +60,7 @@ impl ReadWriteable for Pane {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TextureUv {
     pub top_left: Vector2f,
     pub top_right: Vector2f,
@@ -88,7 +88,7 @@ impl ReadWriteable for TextureUv {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PicturePane {
     pub base: Pane,
     pub top_left_vertex_color: Color4u8,
@@ -159,7 +159,7 @@ impl ReadWriteable for PicturePane {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive,
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum VerticalPosition {
@@ -170,7 +170,7 @@ pub enum VerticalPosition {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive,
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum HorizontalPosition {
@@ -181,7 +181,7 @@ pub enum HorizontalPosition {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive,
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum PerCharacterTransformLoopType {
@@ -190,7 +190,7 @@ pub enum PerCharacterTransformLoopType {
     Loop,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PerCharacterTransform {
     pub eval_time_offset: f32,
     pub eval_time_width: f32,
@@ -275,17 +275,17 @@ impl ReadWriteable for PerCharacterTransform {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, FromPrimitive, IntoPrimitive)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, FromPrimitive, IntoPrimitive, Default)]
 #[repr(u8)]
 pub enum TextAlignment {
-    #[num_enum(default)]
+    #[default]
     Synchronous,
     Left,
     Center,
     Right,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TextBoxPane {
     pub base: Pane,
     pub text_buffer_size: u16,
@@ -485,7 +485,7 @@ impl ReadWriteable for TextBoxPane {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WindowContent {
     pub top_left_vertex_color: Color4u8,
     pub top_right_vertex_color: Color4u8,
@@ -539,7 +539,7 @@ impl ReadWriteable for WindowContent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WindowFrame {
     pub material_index: u16,
     pub texture_flip_mode: u8,
@@ -565,7 +565,7 @@ impl ReadWriteable for WindowFrame {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WindowPane {
     pub base: Pane,
     pub inflation_left: i16,
@@ -678,7 +678,7 @@ impl ReadWriteable for WindowPane {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PartsPaneBasicInfo {
     pub user_name: String,
     pub translation_x: f32,
@@ -867,7 +867,7 @@ impl BitPackable<u8> for MaterialUsageFlags {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PartsProperty {
     pub property_name: String,
     pub usage_flag: TextBoxUsageFlags,
@@ -958,7 +958,7 @@ impl PartsProperty {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PartsPane {
     pub base: Pane,
     pub magnify_x: f32,
@@ -1044,7 +1044,7 @@ impl ReadWriteable for PartsPane {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AlignmentPane {
     pub base: Pane,
     pub direction: u32,

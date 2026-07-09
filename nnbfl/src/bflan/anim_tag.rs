@@ -5,7 +5,7 @@ use crate::{
     ui2d::userdata::UserDataArray,
 };
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct PaneAnimTag {
     pub tag_order: u16,
     pub start_frame: u16,

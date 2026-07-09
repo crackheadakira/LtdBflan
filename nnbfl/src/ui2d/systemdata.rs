@@ -13,15 +13,21 @@ pub enum SystemData {
     Pane(PaneData),
 }
 
-#[derive(Debug, FromPrimitive, IntoPrimitive)]
+impl Default for SystemData {
+    fn default() -> Self {
+        Self::Layout(Default::default())
+    }
+}
+
+#[derive(Debug, FromPrimitive, IntoPrimitive, Default)]
 #[repr(u32)]
 pub enum LayoutDataType {
     AnimTagName = 0,
-    #[num_enum(default)]
+    #[default]
     Unknown = 1,
 }
 
-#[derive(Debug, FromPrimitive, IntoPrimitive)]
+#[derive(Debug, FromPrimitive, IntoPrimitive, Default)]
 #[repr(u32)]
 pub enum PaneDataType {
     VertexPos0 = 0,
@@ -30,7 +36,7 @@ pub enum PaneDataType {
     MaskTexture = 3,
     DropShadow = 4,
     ProceduralShape = 6,
-    #[num_enum(default)]
+    #[default]
     Invalid,
 }
 
@@ -42,6 +48,12 @@ pub enum PaneData {
     Alignment(Alignment),
     DropShadow(DropShadow),
     MaskTexture(MaskTexture),
+}
+
+impl Default for PaneData {
+    fn default() -> Self {
+        Self::VertexPos0(Default::default())
+    }
 }
 
 impl ReadWriteable for PaneData {
@@ -96,6 +108,12 @@ impl ReadWriteable for PaneData {
 pub enum LayoutData {
     AnimTagName(Vec<String>),
     Unknown,
+}
+
+impl Default for LayoutData {
+    fn default() -> Self {
+        Self::AnimTagName(Vec::new())
+    }
 }
 
 impl ReadWriteable for LayoutData {
@@ -168,7 +186,7 @@ impl ReadWriteable for LayoutData {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct Alignment {
     pub options: u32,
     pub margin: f32,
@@ -190,11 +208,11 @@ impl ReadWriteable for Alignment {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, IntoPrimitive, FromPrimitive,
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, IntoPrimitive, FromPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum DropShadowBlendMode {
-    #[num_enum(default)]
+    #[default]
     Normal = 0,
     Multiply = 1,
     Addition = 2,
@@ -202,7 +220,7 @@ pub enum DropShadowBlendMode {
     NormalMaxAlpha = 4,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct DropShadow {
     pub texture_id: u16,
     pub u_options: TexOptions,
@@ -326,7 +344,7 @@ impl ReadWriteable for DropShadow {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct MaskTexture {
     pub flags: u8,
     pub texture_id: u16,
@@ -408,7 +426,7 @@ impl ReadWriteable for MaskTexture {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct ProceduralShape {
     pub options: u8,
     pub color0_options: u8,

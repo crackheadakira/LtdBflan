@@ -9,7 +9,7 @@ use crate::{
     ui2d::types::{Color4f, Color4u8, Vector2f},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Layout {
     pub is_centered: bool,
     pub width: f32,
@@ -47,7 +47,7 @@ impl ReadWriteable for Layout {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TextureList {
     pub textures: Vec<String>,
 }
@@ -90,7 +90,7 @@ impl ReadWriteable for TextureList {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FontList {
     pub fonts: Vec<String>,
 }
@@ -133,7 +133,7 @@ impl ReadWriteable for FontList {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialTextureOptions {
     pub wrap_mode: TexWrapMode,
     pub filter: TexFilter,
@@ -152,7 +152,7 @@ impl BitPackable<u8> for MaterialTextureOptions {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialTextureExtension {
     pub is_capture_texture: bool,
     pub is_vector_texture: bool,
@@ -171,7 +171,7 @@ impl BitPackable<u32> for MaterialTextureExtension {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialTextureMap {
     #[serde(skip)]
     pub texture_index: Cell<u16>,
@@ -197,7 +197,7 @@ impl ReadWriteable for MaterialTextureMap {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialTextureSrt {
     pub translate_u: f32,
     pub translate_v: f32,
@@ -227,11 +227,11 @@ impl ReadWriteable for MaterialTextureSrt {
 }
 
 #[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromPrimitive, IntoPrimitive,
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum TexGenSrc {
-    #[num_enum(default)]
+    #[default]
     Tex0,
     Tex1,
     Tex2,
@@ -242,7 +242,7 @@ pub enum TexGenSrc {
     BrickRepeat,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialTexCoordGen {
     pub tex_gen_source: TexGenSrc,
 }
@@ -268,7 +268,7 @@ impl ReadWriteable for MaterialTexCoordGen {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialTevCombiner {
     pub rgb_mode: CombinerTevMode,
     pub alpha_mode: CombinerTevMode,
@@ -295,7 +295,7 @@ impl ReadWriteable for MaterialTevCombiner {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, FromPrimitive, IntoPrimitive,
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum AlphaCompare {
@@ -306,11 +306,11 @@ pub enum AlphaCompare {
     NeverEqual,
     GreaterThanEqual,
     Greater,
-    #[num_enum(default)]
+    #[default]
     Always,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialAlphaCompare {
     pub compare: AlphaCompare,
     pub alpha_compare_ref_value: f32,
@@ -336,10 +336,12 @@ impl ReadWriteable for MaterialAlphaCompare {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, FromPrimitive, IntoPrimitive)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, FromPrimitive, IntoPrimitive, Default,
+)]
 #[repr(u8)]
 pub enum BlendFactor {
-    #[num_enum(default)]
+    #[default]
     V0,
     V1_0,
     DstColor,
@@ -352,10 +354,12 @@ pub enum BlendFactor {
     InvSrcColor,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, FromPrimitive, IntoPrimitive)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, FromPrimitive, IntoPrimitive, Default,
+)]
 #[repr(u8)]
 pub enum LogicOp {
-    #[num_enum(default)]
+    #[default]
     Invalid,
 
     NoOp,
@@ -376,10 +380,12 @@ pub enum LogicOp {
     InvOr,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, FromPrimitive, IntoPrimitive)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, FromPrimitive, IntoPrimitive, Default,
+)]
 #[repr(u8)]
 pub enum BlendOp {
-    #[num_enum(default)]
+    #[default]
     Invalid,
 
     Add,
@@ -389,8 +395,9 @@ pub enum BlendOp {
     SelectMax,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum MaterialBlendMode {
+    #[default]
     None,
     Blend {
         blend_op: BlendOp,
@@ -449,7 +456,7 @@ impl ReadWriteable for MaterialBlendMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialIndirectMatrix {
     pub rotation: f32,
     pub scale: Vector2f,
@@ -469,7 +476,7 @@ impl ReadWriteable for MaterialIndirectMatrix {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct MaterialProjectionTexGenFlags {
     pub fitting_layout_size: bool,
     pub fitting_pane_size: bool,
@@ -492,7 +499,7 @@ impl BitPackable<u32> for MaterialProjectionTexGenFlags {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialProjectionTexGen {
     pub translation: Vector2f,
     pub scale: Vector2f,
@@ -518,7 +525,7 @@ impl ReadWriteable for MaterialProjectionTexGen {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialFontShadowColor {
     pub black_color: Color4u8,
     pub white_color: Color4u8,
@@ -539,7 +546,17 @@ impl ReadWriteable for MaterialFontShadowColor {
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, FromPrimitive, IntoPrimitive, Hash,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    FromPrimitive,
+    IntoPrimitive,
+    Hash,
+    Default,
 )]
 #[repr(u8)]
 pub enum TevSource {
@@ -549,28 +566,38 @@ pub enum TevSource {
     Texture2 = 5,
     Texture3 = 6,
     Register = 13,
-    #[num_enum(default)]
+    #[default]
     Constant = 14,
     Previous = 15,
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, FromPrimitive, IntoPrimitive,
+    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, FromPrimitive, IntoPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum TevScale {
-    #[num_enum(default)]
+    #[default]
     V1,
     V2,
     V4,
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, FromPrimitive, IntoPrimitive, Hash,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    FromPrimitive,
+    IntoPrimitive,
+    Hash,
+    Default,
 )]
 #[repr(u8)]
 pub enum CombinerTevMode {
-    #[num_enum(default)]
+    #[default]
     Replace,
     Modulate,
     Add,
@@ -588,11 +615,11 @@ pub enum CombinerTevMode {
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive,
+    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum TevColorOp {
-    #[num_enum(default)]
+    #[default]
     Rgb,
     InvRgb,
     Alpha,
@@ -606,11 +633,11 @@ pub enum TevColorOp {
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive,
+    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum TevAlphaOp {
-    #[num_enum(default)]
+    #[default]
     Alpha,
     InvAlpha,
     R,
@@ -622,12 +649,12 @@ pub enum TevAlphaOp {
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive,
+    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum TevKonstSel {
     BlackColor,
-    #[num_enum(default)]
+    #[default]
     WhiteColor,
     K0,
     K1,
@@ -637,11 +664,11 @@ pub enum TevKonstSel {
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive,
+    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive, Default,
 )]
 #[repr(u8)]
 pub enum DetailedCombinerStageMode {
-    #[num_enum(default)]
+    #[default]
     Replace,
     Modulate,
     Add,
@@ -652,7 +679,7 @@ pub enum DetailedCombinerStageMode {
     MultiplicateAdd,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct DetailedCombinerColorStageConfig {
     pub sources: [TevSource; 3],
     pub operands: [TevColorOp; 3],
@@ -662,7 +689,7 @@ pub struct DetailedCombinerColorStageConfig {
     pub konst_sel: TevKonstSel,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct DetailedCombinerAlphaStageConfig {
     pub sources: [TevSource; 3],
     pub operands: [TevAlphaOp; 3],
@@ -672,7 +699,7 @@ pub struct DetailedCombinerAlphaStageConfig {
     pub konst_sel: TevKonstSel,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialDetailedCombinerEntry {
     pub color_config: DetailedCombinerColorStageConfig,
     pub alpha_config: DetailedCombinerAlphaStageConfig,
@@ -784,7 +811,7 @@ impl MaterialDetailedCombinerEntry {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialDetailedCombiner {
     pub value: i32,
 
@@ -834,7 +861,7 @@ impl MaterialDetailedCombiner {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialUserCombiner {
     pub name: String,
     pub reserve: [u32; 5],
@@ -861,7 +888,7 @@ impl ReadWriteable for MaterialUserCombiner {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialVectorTextureInfo {
     pub time: f32,
     pub color: Color4u8,
@@ -883,7 +910,7 @@ impl ReadWriteable for MaterialVectorTextureInfo {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialBrickRepeatShaderInfo {
     pub data: Vec<u8>,
 }
@@ -900,7 +927,7 @@ impl ReadWriteable for MaterialBrickRepeatShaderInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct MaterialInfo {
     pub tex_map_count: u8,
     pub tex_srt_count: u8,
@@ -967,7 +994,7 @@ impl BitPackable<u32> for MaterialInfo {
 
 pub const MATERIAL_NAME_LEN: usize = 0x1c;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialColorEntry {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub color_u8: Option<Color4u8>,
@@ -976,7 +1003,7 @@ pub struct MaterialColorEntry {
     pub color_f32: Option<Color4f>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Material {
     pub material_name: String,
 
@@ -1288,7 +1315,7 @@ impl ReadWriteable for Material {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialList {
     pub materials: Vec<Material>,
 }
@@ -1341,12 +1368,12 @@ impl ReadWriteable for MaterialList {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CaptureTextureFilter {
     pub scale: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CaptureTexture {
     pub texture_name: String,
     pub pane_name: String,
@@ -1427,7 +1454,7 @@ impl CaptureTexture {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CaptureTextureList {
     pub infos: Vec<CaptureTexture>,
 }
@@ -1473,7 +1500,7 @@ impl ReadWriteable for CaptureTextureList {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VectorGraphics {
     pub reserve1: u32,
     pub reserve2: u32,
@@ -1481,7 +1508,7 @@ pub struct VectorGraphics {
     pub bnvg_name: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VectorGraphicsList {
     pub infos: Vec<VectorGraphics>,
 }
@@ -1573,7 +1600,7 @@ impl ReadWriteable for Group {
         }
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ControlSource {
     pub control_name: String,
     pub reserve0_name: String,
@@ -1739,7 +1766,7 @@ impl ReadWriteable for ControlSource {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive,
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, IntoPrimitive, FromPrimitive, Default,
 )]
 #[repr(u16)]
 pub enum ShapeInfoType {
@@ -1749,14 +1776,20 @@ pub enum ShapeInfoType {
     PrimitiveCircle,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ShapeParam {
+    #[default]
     NormalQuad,
-    PrimitiveRoundRect { radius: u32, slice: u32 },
-    PrimitiveCircle { slice: u32 },
+    PrimitiveRoundRect {
+        radius: u32,
+        slice: u32,
+    },
+    PrimitiveCircle {
+        slice: u32,
+    },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ShapeInfoList {
     pub shapes: Vec<ShapeParam>,
 }

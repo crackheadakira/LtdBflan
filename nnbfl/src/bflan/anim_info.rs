@@ -6,9 +6,12 @@ use crate::{
     core::{Cursor, FormatError, Placeholder32, ReadWriteable, Writer, tchar_code32},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, IntoPrimitive, FromPrimitive,
+)]
 #[repr(u32)]
 pub enum AnimInfoType {
+    #[default]
     Invalid = 0,
     PerCharacterTransformCurveAnim = tchar_code32(b"FLCC"),
     ExtendedUserDataAnim = tchar_code32(b"FLEU"),
@@ -33,42 +36,15 @@ pub enum AnimInfoType {
     VectorGraphicsAnim = tchar_code32(b"FVGA"),
 }
 
-impl From<u32> for AnimInfoType {
-    fn from(v: u32) -> Self {
-        match v {
-            x if x == tchar_code32(b"FLCC") => Self::PerCharacterTransformCurveAnim,
-            x if x == tchar_code32(b"FLEU") => Self::ExtendedUserDataAnim,
-            x if x == tchar_code32(b"FLCT") => Self::PerCharacterTransformAnim,
-            x if x == tchar_code32(b"FLPA") => Self::PaneSrtAnim,
-            x if x == tchar_code32(b"FLVC") => Self::VertexColorAnim,
-            x if x == tchar_code32(b"FLVI") => Self::VisibilityAnim,
-            x if x == tchar_code32(b"FLDS") => Self::DropShadowAnim,
-            x if x == tchar_code32(b"FLMT") => Self::MaskTextureAnim,
-            x if x == tchar_code32(b"FLPS") => Self::ProceduralShapeAnim,
-            x if x == tchar_code32(b"FLWN") => Self::WindowAnim,
-            x if x == tchar_code32(b"FSMA") => Self::StateMachineAnim,
-            x if x == tchar_code32(b"FLAC") => Self::AlphaCompareAnim,
-            x if x == tchar_code32(b"FLFS") => Self::FontShadowAnim,
-            x if x == tchar_code32(b"FLIM") => Self::IndirectSrtAnim,
-            x if x == tchar_code32(b"FLMC") => Self::MaterialColorAnim,
-            x if x == tchar_code32(b"FLTS") => Self::TextureSrtAnim,
-            x if x == tchar_code32(b"FLTP") => Self::TexturePatternAnim,
-            x if x == tchar_code32(b"FTBR") => Self::BrickRepeatAnim,
-            x if x == tchar_code32(b"FVGA") => Self::VectorGraphicsAnim,
-            _ => Self::Invalid,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, IntoPrimitive, FromPrimitive)]
+#[derive(Debug, Clone, Serialize, Deserialize, IntoPrimitive, FromPrimitive, Default)]
 #[repr(u8)]
 pub enum AnimType {
-    #[num_enum(default)]
-    Pane = 0,
-    Material = 1,
-    User = 2,
-    PaneExt = 3,
-    StateMachine = 4,
+    #[default]
+    Pane,
+    Material,
+    User,
+    PaneExt,
+    StateMachine,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +57,15 @@ pub enum AnimInfo {
         anim_type: AnimInfoType,
         data: Vec<ExtendedUserDataAnim>,
     },
+}
+
+impl Default for AnimInfo {
+    fn default() -> Self {
+        Self::Standard {
+            anim_type: AnimInfoType::default(),
+            targets: Vec::new(),
+        }
+    }
 }
 
 impl ReadWriteable for AnimInfo {
@@ -178,7 +163,7 @@ impl ReadWriteable for AnimInfo {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExtendedUserDataAnim {
     pub header_size: u32,
     pub unk_1: u16,
@@ -253,7 +238,7 @@ impl ReadWriteable for ExtendedUserDataAnim {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PaneAnimInfo {
     pub frame_count: u16,
     pub is_looping: bool,
@@ -357,7 +342,7 @@ impl ReadWriteable for PaneAnimInfo {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AnimContent {
     pub name: String,
     pub anim_type: AnimType,
