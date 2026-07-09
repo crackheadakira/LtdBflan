@@ -53,6 +53,13 @@ pub struct UiState {
     pub group_editor: GroupEditor,
 }
 
+impl UiState {
+    pub fn reset(&mut self) {
+        self.hidden_panes.clear();
+        self.selected_pane = None;
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PaneVisibilityFlags {
     /// Clips panes to fit within root pane.
@@ -201,8 +208,6 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
             ui.menu_button("File", |ui| {
                 if ui.button("Load File...").clicked() {
                     ctx.ui_state.pending_action = Some(UiAction::LoadFile);
-                    ctx.ui_state.hidden_panes.clear();
-                    ctx.ui_state.selected_pane = None;
 
                     ui.close();
                 }
@@ -584,7 +589,11 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
     }
 
     ctx.ui_state.timeline.draw(ui);
-    ctx.ui_state.archive_browser.draw(ui);
+
+    if let Some(action) = ctx.ui_state.archive_browser.draw(ui) {
+        ctx.ui_state.pending_action = Some(action);
+    };
+
     ctx.ui_state.shortcuts_window.draw(ui);
 }
 

@@ -1049,6 +1049,8 @@ impl ApplicationHandler for App {
                         .iter()
                         .any(|ext| path_str.ends_with(&format!(".{}", ext.to_lowercase())));
 
+                    self.ui_state.reset();
+
                     if is_sarc {
                         if let Some(all_files) = self.extract_blarc_from_sarc_bytes(&path) {
                             self.load_file_from_buffer(all_files);
@@ -1120,8 +1122,7 @@ impl ApplicationHandler for App {
                         archive_browser::resolve_nested_package_bytes(bytes, &entry.nested_path)
                     });
 
-                    self.ui_state.selected_pane = None;
-                    self.ui_state.hidden_panes.clear();
+                    self.ui_state.reset();
 
                     match resolved {
                         Some(package_bytes) => {
