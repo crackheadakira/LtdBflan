@@ -228,11 +228,7 @@ impl TexturedQuad {
         }
 
         let tl: [f32; 4] = pic.top_left_vertex_color.into();
-        let tint = if is_visible {
-            if tl[3] > 0.0 { tl } else { [1.0; 4] }
-        } else {
-            [0.0; 4]
-        };
+        let tint = if tl[3] > 0.0 { tl } else { [1.0; 4] };
 
         let (base_uvs, uvs) = PaneNode::compute_uvs(pic, mat);
 
@@ -1042,6 +1038,7 @@ impl PaneRenderer {
                     PaneQuadData::Plain(q) => flags.plain_color(q, hidden),
                     PaneQuadData::Textured(tq) => flags.textured_tint(tq, hidden),
                 };
+
                 let tint = if selected && !hidden {
                     highlight(base_tint)
                 } else {

@@ -154,7 +154,7 @@ impl From<[f32; 4]> for Color4u8 {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq)]
 /// A two-dimensional vector representing a point or direction in Cartesian space.
 pub struct Vector2f {
     /// The horizontal component.
@@ -187,7 +187,7 @@ impl ReadWriteable for Vector2f {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq)]
 /// A three-dimensional vector representing a point or direction in Cartesian space.
 pub struct Vector3f {
     /// The horizontal component.

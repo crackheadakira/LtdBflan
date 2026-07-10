@@ -99,18 +99,6 @@ struct DetailedCombinerMaterial {
 @group(1) @binding(6) var<uniform> u_standard:  StandardMaterial;
 @group(1) @binding(7) var<uniform> u_detailed:  DetailedCombinerMaterial;
 
-fn scale_vertex_uv(uv: vec2<f32>, ratio: f32) -> vec2<f32> {
-    var scaled = uv;
-
-    if (ratio > 1.0) {
-        scaled.y = uv.y * ratio;
-    } else {
-        scaled.x = uv.x / ratio; 
-    }
-
-    return scaled;
-}
-
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -120,9 +108,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.pos_mesh = in.position;
     out.quad_size = in.quad_size;
 
-    out.uv0 = scale_vertex_uv(in.uv0, in.tex_aspects.x);
-    out.uv1 = scale_vertex_uv(in.uv1, in.tex_aspects.y);
-    out.uv2 = scale_vertex_uv(in.uv2, in.tex_aspects.z);
+    out.uv0 = in.uv0;
+    out.uv1 = in.uv1;
+    out.uv2 = in.uv2;
     
     return out;
 }
@@ -228,7 +216,7 @@ fn sample_indirect(
     m0:  vec4<f32>, m1: vec4<f32>,
     t:   texture_2d<f32>, s: sampler,
 ) -> vec4<f32> {
-    let iv  = vec4<f32>(ic.xy, 0.0, 1.0);
+    let iv  = vec4<f32>(ic.xy - 0.25, 0.0, 1.0);
     let offset = vec2<f32>(dot(iv, m0), dot(iv, m1));
     
     var c = textureSample(t, s, uv + offset);
@@ -255,8 +243,8 @@ fn sample_double_indirect(
     color0 = combine_layer(color0, color1, combine_mode2, true);
 
     let off = vec2<f32>(
-        dot(color0.xy, m0.xy), 
-        dot(color0.xy, m1.xy)
+        dot(color0.xyz, m0.xyz), 
+        dot(color0.xyz, m1.xyz)
     ) * 0.5;
 
     var c = textureSample(t, s, uv + off);
@@ -598,7 +586,7 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     let is_proj1    = (byte1 & 0x3u) != 0u;
     let adjust_sr1  = (byte1 & (1u << 4u)) != 0u;
     let uv1_indirect = select(
-        in.uv1,
+        in.uv0,
         vec2<f32>(dot(pos4, mat.proj_mtx1[0]), dot(pos4, mat.proj_mtx1[1])),
         is_proj1 && !adjust_sr1,
     );

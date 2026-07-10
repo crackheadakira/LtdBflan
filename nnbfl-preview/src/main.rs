@@ -20,6 +20,7 @@ use nnbfl::{
     bflyt::{file::Bflyt, list::Layout},
     core::FileReadWriteable,
     sarc::file::{MagicFiles, Sarc, SarcFile},
+    ui2d::types::{Vector2f, Vector3f},
 };
 use pollster::FutureExt;
 use renderer::quad::GridRenderer;
@@ -382,8 +383,8 @@ struct DragState {
     pane_idx: usize,
     handle: Handle,
     start_world: [f32; 2],
-    start_translation: (f32, f32),
-    start_size: (f32, f32),
+    start_translation: Vector3f,
+    start_size: Vector2f,
     rotate_z: f32,
 }
 
@@ -478,13 +479,9 @@ impl App {
         };
 
         let base = node.section.get_base_pane();
-        let translation = base
-            .map(|b| (b.translation.x, b.translation.y))
-            .unwrap_or((0.0, 0.0));
+        let translation = base.map(|b| b.translation).unwrap_or_default();
 
-        let size = base
-            .map(|b| (b.size.x * b.scale.x, b.size.y * b.scale.y))
-            .unwrap_or((node.world_size.x, node.world_size.y));
+        let size = base.map(|b| b.size).unwrap_or(node.world_size);
         let rotate_z = base.map(|b| b.rotation.z).unwrap_or(0.0);
 
         self.drag_state = Some(DragState {
@@ -523,8 +520,8 @@ impl App {
 
         match drag.handle {
             Handle::Body => {
-                base.translation.x = drag.start_translation.0 + dx;
-                base.translation.y = drag.start_translation.1 - dy;
+                base.translation.x = drag.start_translation.x + dx;
+                base.translation.y = drag.start_translation.y - dy;
             }
             Handle::Rotation => {
                 let tl = [node.world_corners.top_left.x, node.world_corners.top_left.y];
@@ -576,8 +573,8 @@ impl App {
                             1.0
                         };
 
-                        base.size.x = (drag.start_size.0 + local_dx * sx * 2.0).max(1.0);
-                        base.size.y = (drag.start_size.1 + local_dy * sy * 2.0).max(1.0);
+                        base.size.x = (drag.start_size.x + local_dx * sx * 2.0).max(1.0);
+                        base.size.y = (drag.start_size.y + local_dy * sy * 2.0).max(1.0);
                     }
 
                     Handle::Left | Handle::Right => {
@@ -586,7 +583,7 @@ impl App {
                         } else {
                             1.0
                         };
-                        base.size.x = (drag.start_size.0 + local_dx * sx * 2.0).max(1.0);
+                        base.size.x = (drag.start_size.x + local_dx * sx * 2.0).max(1.0);
                     }
 
                     Handle::Top | Handle::Bottom => {
@@ -595,7 +592,7 @@ impl App {
                         } else {
                             1.0
                         };
-                        base.size.y = (drag.start_size.1 + local_dy * sy * 2.0).max(1.0);
+                        base.size.y = (drag.start_size.y + local_dy * sy * 2.0).max(1.0);
                     }
                     _ => {}
                 }
@@ -630,8 +627,8 @@ impl App {
         };
 
         let after = edit_history::PaneTransform {
-            translation: (base.translation.x, base.translation.y),
-            size: (base.size.x, base.size.y),
+            translation: base.translation,
+            size: base.size,
             rotation_z: base.rotation.z,
         };
 

@@ -329,8 +329,7 @@ fn cascade_visibility(view: &mut BflytView, pane_idx: usize, visible: bool) {
             tq.standard_material.visible = visible as u32;
         }
 
-        node.dirty
-            .insert(DirtyFlags::MATERIAL | DirtyFlags::VERTICES);
+        node.dirty.insert(DirtyFlags::VERTICES);
     });
 }
 
@@ -569,6 +568,7 @@ fn apply_material_content(
             AnimInfoType::IndirectSrtAnim => {
                 for t in targets {
                     let v = eval_curve(&t.curve, frame);
+
                     match &t.target {
                         TargetIndex::IndirectSrt(IndirectSrtTarget::Rotate) => {
                             let rad = v.to_radians();
@@ -630,22 +630,62 @@ fn apply_material_content(
 
             AnimInfoType::VertexColorAnim => {
                 for t in targets {
-                    let v = eval_curve(&t.curve, frame);
+                    let v = eval_curve(&t.curve, frame) / 255.0;
                     match &t.target {
+                        TargetIndex::VertexColor(VertexColorTarget::PaneAlpha) => {
+                            tq.tint[3] = v;
+
+                            for c in tq.corner_tints.iter_mut() {
+                                c[3] = v;
+                            }
+                        }
                         TargetIndex::VertexColor(VertexColorTarget::LeftTopRed) => {
-                            tq.tint[0] = v / 255.0
+                            tq.corner_tints[0][0] = v
                         }
                         TargetIndex::VertexColor(VertexColorTarget::LeftTopGreen) => {
-                            tq.tint[1] = v / 255.0
+                            tq.corner_tints[0][1] = v
                         }
                         TargetIndex::VertexColor(VertexColorTarget::LeftTopBlue) => {
-                            tq.tint[2] = v / 255.0
+                            tq.corner_tints[0][2] = v
                         }
                         TargetIndex::VertexColor(VertexColorTarget::LeftTopAlpha) => {
-                            tq.tint[3] = v / 255.0
+                            tq.corner_tints[0][3] = v
                         }
-                        TargetIndex::VertexColor(VertexColorTarget::PaneAlpha) => {
-                            tq.tint[3] = v / 255.0
+                        TargetIndex::VertexColor(VertexColorTarget::RightTopRed) => {
+                            tq.corner_tints[1][0] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::RightTopGreen) => {
+                            tq.corner_tints[1][1] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::RightTopBlue) => {
+                            tq.corner_tints[1][2] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::RightTopAlpha) => {
+                            tq.corner_tints[1][3] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::LeftBottomRed) => {
+                            tq.corner_tints[2][0] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::LeftBottomGreen) => {
+                            tq.corner_tints[2][1] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::LeftBottomBlue) => {
+                            tq.corner_tints[2][2] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::LeftBottomAlpha) => {
+                            tq.corner_tints[2][3] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::RightBottomRed) => {
+                            tq.corner_tints[3][0] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::RightBottomGreen) => {
+                            tq.corner_tints[3][1] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::RightBottomBlue) => {
+                            tq.corner_tints[3][2] = v
+                        }
+                        TargetIndex::VertexColor(VertexColorTarget::RightBottomAlpha) => {
+                            tq.corner_tints[3][3] = v
                         }
                         _ => {}
                     }

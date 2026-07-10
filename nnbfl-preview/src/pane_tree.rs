@@ -241,6 +241,7 @@ impl PaneNode {
         parent_pos: Vector2f,
         parent_size: Vector2f,
         parent_scale: Vector2f,
+        parent_rotation: Vector3f,
     ) {
         let child_scale;
 
@@ -259,7 +260,7 @@ impl PaneNode {
                     size,
                     &base.position.position_x,
                     &base.position.position_y,
-                    base.rotation,
+                    base.rotation + parent_rotation,
                 );
 
                 self.world_corners = corners;
@@ -295,8 +296,14 @@ impl PaneNode {
                 .unwrap_or(parent_scale);
         }
 
+        let (child_rotation, child_size) = self
+            .section
+            .get_base_pane()
+            .map(|b| (b.rotation, self.world_size))
+            .unwrap_or((parent_rotation, parent_size));
+
         for child in &mut self.children {
-            child.recompute(self.world_center, self.world_size, child_scale);
+            child.recompute(self.world_center, child_size, child_scale, child_rotation);
         }
     }
 
@@ -434,7 +441,12 @@ impl PaneTree {
         };
 
         for root in &mut self.roots {
-            root.recompute(layout_center, self.layout_size, Vector2f { x: 1.0, y: 1.0 });
+            root.recompute(
+                layout_center,
+                self.layout_size,
+                Vector2f { x: 1.0, y: 1.0 },
+                Vector3f::default(),
+            );
         }
     }
 

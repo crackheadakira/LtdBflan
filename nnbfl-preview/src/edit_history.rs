@@ -1,3 +1,5 @@
+use nnbfl::ui2d::types::{Vector2f, Vector3f};
+
 use crate::{
     pane_tree::{PaneNode, PaneTree},
     traits::Displaying,
@@ -5,8 +7,8 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PaneTransform {
-    pub translation: (f32, f32),
-    pub size: (f32, f32),
+    pub translation: Vector3f,
+    pub size: Vector2f,
     pub rotation_z: f32,
 }
 
@@ -97,10 +99,8 @@ impl AppliedCommand {
                 let node = tree.find_by_idx_mut(pane_idx)?;
                 let base = node.section.get_base_pane_mut()?;
 
-                base.translation.x = before.translation.0;
-                base.translation.y = before.translation.1;
-                base.size.x = before.size.0;
-                base.size.y = before.size.1;
+                base.translation = before.translation;
+                base.size = before.size;
                 base.rotation.z = before.rotation_z;
 
                 node.mark_transform_dirty();
