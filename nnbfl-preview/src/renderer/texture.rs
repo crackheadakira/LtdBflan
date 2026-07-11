@@ -38,9 +38,30 @@ impl TextureCache {
             }
         };
 
-        log::info!("TextureCache: loading {} textures", bntx.textures.len());
+        let all_exist = !bntx.textures.is_empty()
+            && bntx
+                .textures
+                .iter()
+                .all(|tex| self.textures.contains_key(&tex.name));
+
+        if all_exist {
+            log::debug!(
+                "TextureCache: skipping BNTX payload processing. All {} textures are already loaded.",
+                bntx.textures.len()
+            );
+            return;
+        }
+
+        log::info!(
+            "TextureCache: processing {} textures...",
+            bntx.textures.len()
+        );
 
         for tex in &bntx.textures {
+            if self.textures.contains_key(&tex.name) {
+                continue;
+            }
+
             match decode_texture_rgba_with(tex, 0, ChannelResolve::Resolved) {
                 Ok(rgba) => {
                     let gpu_tex = upload_rgba(
@@ -50,13 +71,6 @@ impl TextureCache {
                         rgba.width,
                         rgba.height,
                         &tex.name,
-                    );
-
-                    log::debug!(
-                        "TextureCache: uploaded '{}' ({}x{})",
-                        tex.name,
-                        rgba.width,
-                        rgba.height
                     );
 
                     self.textures.insert(tex.name.clone(), gpu_tex);
