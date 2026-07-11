@@ -1,11 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
-};
+use std::{collections::HashMap, path::Path};
 
 use bitflags::bitflags;
 use nnbfl::{
-    bflan::anim_tag::PaneAnimTag,
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection, ControlSourceElement, GroupElement, PaneElement},
         flags::{HorizontalPosition, VerticalPosition},
@@ -941,9 +937,11 @@ impl<'a> Builder<'a> {
 
     fn load_bflyt_from_archive_index(&self, layout_name: &str) -> Option<Vec<MagicFiles>> {
         let entries = self.archive_entries?;
-        let target = layout_name.to_lowercase();
 
-        let entry = entries.iter().find(|e| e.layout_key() == target)?;
+        let entry = entries
+            .iter()
+            .find(|e| e.matches_layout_name(layout_name))?;
+
         let bytes = std::fs::read(&entry.path).ok()?;
         let package_bytes = resolve_nested_package_bytes(bytes, &entry.nested_path)?;
 

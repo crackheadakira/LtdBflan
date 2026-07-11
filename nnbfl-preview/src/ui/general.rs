@@ -15,7 +15,7 @@ use crate::{
         DrawUi, DrawUiWith,
         archive_browser::ArchiveBrowser,
         context_menu::{ContextMenu, ContextMenuAction, ContextMenuState},
-        editors::{DetailedPaneEditor, GroupEditor, MaterialEditor},
+        editors::{GroupEditor, MaterialEditor, PaneEditor},
         shortcuts::Shortcuts,
         timeline::TimelineState,
     },
@@ -49,7 +49,7 @@ pub struct UiState {
 
     pub timeline: TimelineState,
     pub material_editor: MaterialEditor,
-    pub detailed_pane_editor: DetailedPaneEditor,
+    pub pane_editor: PaneEditor,
     pub group_editor: GroupEditor,
 }
 
@@ -259,10 +259,8 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     ctx.ui_state.material_editor.is_editor_visible = true;
                 }
 
-                if ctx.ui_state.selected_pane.is_some()
-                    && ui.button("Detailed Pane Editor").clicked()
-                {
-                    ctx.ui_state.detailed_pane_editor.is_editor_visible = true;
+                if ctx.ui_state.selected_pane.is_some() && ui.button("Pane Editor").clicked() {
+                    ctx.ui_state.pane_editor.is_editor_visible = true;
                 };
             }
 
@@ -587,7 +585,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         if let Some(idx) = ctx.ui_state.selected_pane
             && let Some(node) = view.tree.find_by_idx_mut(idx)
         {
-            ctx.ui_state.detailed_pane_editor.draw_with(ui, node);
+            ctx.ui_state.pane_editor.draw_with(ui, node);
         }
 
         ctx.ui_state.group_editor.draw_with(ui, &mut view.tree);

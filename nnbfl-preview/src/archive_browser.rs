@@ -20,6 +20,9 @@ pub struct ArchiveEntry {
     pub path: PathBuf,
     pub nested_path: Vec<usize>,
     pub display_name: String,
+    pub file_idx: usize,
+    pub hash: u32,
+    pub hash_multiplier: u32,
     /// The name of the innermost SARC entry, used for matching PartsPane's `o_layout_name`.
     pub last_label: Option<String>,
 }
@@ -33,10 +36,34 @@ impl ArchiveEntry {
                 .unwrap_or_default()
         });
 
-        match raw.rsplit_once('.') {
+        let filename = match raw.rsplit_once('/') {
+            Some((_path, fname)) => fname,
+            None => &raw,
+        };
+
+        match filename.rsplit_once('.') {
             Some((stem, _ext)) => stem.to_lowercase(),
-            None => raw.to_lowercase(),
+            None => filename.to_lowercase(),
         }
+    }
+
+    pub fn matches_layout_name(&self, requested_name: &str) -> bool {
+        if self.layout_key() == requested_name.to_lowercase() {
+            return true;
+        }
+
+        if self.hash_multiplier != 0 {
+            let target_hash_blyt = calculate_sarc_hash(
+                &format!("blyt/{requested_name}.bflyt"),
+                self.hash_multiplier,
+            );
+
+            if self.hash == target_hash_blyt {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
@@ -74,24 +101,42 @@ impl ArchiveScan {
                     break;
                 }
 
-                for (nested_path, labels) in find_bflyt_packages(&path) {
-                    let relative = path
-                        .strip_prefix(&thread_root)
-                        .unwrap_or(&path)
-                        .to_string_lossy()
-                        .to_string();
+                for (nested_path, file_idx, file_hash, hash_multiplier, labels) in
+                    find_bflyt_packages(&path)
+                {
+                    let raw_filename = path
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+
+                    let container_name = match raw_filename.split_once('.') {
+                        Some((base, _extensions)) => base.to_string(),
+                        None => raw_filename,
+                    };
+
+                    let clean_labels: Vec<String> = labels
+                        .iter()
+                        .map(|label| match label.rsplit_once('/') {
+                            Some((_dir, name)) => name.to_string(),
+                            None => label.clone(),
+                        })
+                        .collect();
+
+                    let display_name = if clean_labels.is_empty() {
+                        container_name
+                    } else {
+                        format!("{container_name} > {}", clean_labels.join(" > "))
+                    };
 
                     let last_label = labels.last().cloned();
-                    let display_name = if labels.is_empty() {
-                        relative
-                    } else {
-                        format!("{relative} -> {}", labels.join(" -> "))
-                    };
 
                     let _ = tx.send(ArchiveScanEvent::Found(ArchiveEntry {
                         path: path.clone(),
                         nested_path,
                         display_name,
+                        file_idx,
+                        hash: file_hash,
+                        hash_multiplier,
                         last_label,
                     }));
                 }
@@ -244,7 +289,7 @@ fn unwrap_compression(mut data: Vec<u8>, origin: &Path, depth: u32) -> Option<Ve
     }
 }
 
-fn find_bflyt_packages(path: &Path) -> Vec<(Vec<usize>, Vec<String>)> {
+fn find_bflyt_packages(path: &Path) -> Vec<(Vec<usize>, usize, u32, u32, Vec<String>)> {
     let mut out = Vec::new();
 
     let Ok(bytes) = std::fs::read(path) else {
@@ -257,7 +302,7 @@ fn find_bflyt_packages(path: &Path) -> Vec<(Vec<usize>, Vec<String>)> {
     };
 
     if is_bflyt(&bytes) {
-        out.push((Vec::new(), Vec::new()));
+        out.push((Vec::new(), 0, 0, 0, Vec::new()));
         return out;
     }
 
@@ -274,7 +319,7 @@ fn walk_sarc_for_packages(
     depth: u32,
     nested_path: &mut Vec<usize>,
     labels: &mut Vec<String>,
-    out: &mut Vec<(Vec<usize>, Vec<String>)>,
+    out: &mut Vec<(Vec<usize>, usize, u32, u32, Vec<String>)>,
 ) {
     if depth >= MAX_RECURSION_DEPTH {
         log::warn!(
@@ -305,17 +350,27 @@ fn walk_sarc_for_packages(
         }
     };
 
-    if sarc.files.iter().any(|f| is_bflyt(&f.data)) {
-        out.push((nested_path.clone(), labels.clone()));
-        return;
-    }
-
     for (i, file) in sarc.files.iter().enumerate() {
         let Some(unwrapped) = unwrap_compression(file.data.clone(), origin, depth + 1) else {
             continue;
         };
 
-        if !matches!(
+        let label = file
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("#{i} (0x{:08X})", file.hash));
+
+        if is_bflyt(&unwrapped) {
+            let mut final_labels = labels.clone();
+            final_labels.push(label);
+            out.push((
+                nested_path.clone(),
+                i,
+                file.hash,
+                sarc.hash_multiplier,
+                final_labels,
+            ));
+        } else if matches!(
             SarcFile {
                 name: None,
                 hash: 0,
@@ -324,21 +379,14 @@ fn walk_sarc_for_packages(
             .match_by_magic(),
             MagicFiles::Sarc(_)
         ) {
-            continue;
+            nested_path.push(i);
+            labels.push(label);
+
+            walk_sarc_for_packages(&unwrapped, origin, depth + 1, nested_path, labels, out);
+
+            labels.pop();
+            nested_path.pop();
         }
-
-        let label = file
-            .name
-            .clone()
-            .unwrap_or_else(|| format!("#{i} (0x{:08X})", file.hash));
-
-        nested_path.push(i);
-        labels.push(label);
-
-        walk_sarc_for_packages(&unwrapped, origin, depth + 1, nested_path, labels, out);
-
-        labels.pop();
-        nested_path.pop();
     }
 }
 
@@ -367,4 +415,14 @@ pub fn resolve_nested_package_bytes(
     }
 
     Some(data)
+}
+
+fn calculate_sarc_hash(filename: &str, multiplier: u32) -> u32 {
+    let mut hash: u32 = 0;
+
+    for &byte in filename.as_bytes() {
+        hash = hash.wrapping_mul(multiplier).wrapping_add(byte as u32);
+    }
+
+    hash
 }

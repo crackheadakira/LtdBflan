@@ -40,11 +40,14 @@ impl DrawUiWith<&mut MaterialList> for MaterialEditor {
                                     ));
 
                                     if ui.button("➕ Add").clicked() {
-                                        let mut new_material = Material::default();
-                                        new_material.material_name = format!(
-                                            "Material_{}",
-                                            material_list.materials.len() + 1
-                                        );
+                                        let new_material = Material {
+                                            material_name: format!(
+                                                "Material_{}",
+                                                material_list.materials.len() + 1
+                                            ),
+                                            ..Default::default()
+                                        };
+
                                         material_list.materials.push(new_material);
 
                                         self.selected_material = material_list.materials.len() - 1;

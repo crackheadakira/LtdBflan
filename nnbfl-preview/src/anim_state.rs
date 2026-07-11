@@ -192,10 +192,10 @@ impl AnimInstance {
 
             for child_name in &group.child_names {
                 let clean_name = child_name.trim_end_matches('\0');
-                if let Some(&pane_idx) = label_to_idx.get(clean_name) {
-                    if !fully_allowed_indices.contains(&pane_idx) {
-                        hidden_panes.insert(pane_idx);
-                    }
+                if let Some(&pane_idx) = label_to_idx.get(clean_name)
+                    && !fully_allowed_indices.contains(&pane_idx)
+                {
+                    hidden_panes.insert(pane_idx);
                 }
             }
         }

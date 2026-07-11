@@ -1126,18 +1126,25 @@ impl ApplicationHandler for App {
                             let mut all_files = Vec::new();
                             extract_all_files_recursive(package_bytes, &mut all_files);
 
-                            let has_bflyt =
-                                all_files.iter().any(|f| matches!(f, MagicFiles::Bflyt(_)));
+                            let mut final_files = Vec::new();
+                            let mut target_layout = None;
 
-                            if has_bflyt {
-                                self.load_file_from_buffer(all_files);
+                            for (idx, file) in all_files.into_iter().enumerate() {
+                                if matches!(file, MagicFiles::Bflyt(_)) && idx == entry.file_idx {
+                                    target_layout = Some(file);
+                                } else {
+                                    final_files.push(file);
+                                }
+                            }
+
+                            if let Some(target) = target_layout {
+                                final_files.insert(0, target);
+                                self.load_file_from_buffer(final_files);
                             } else {
-                                self.ui_state.error_message = Some(format!(
-                                    "Couldn't find layout '{}' inside the archive payload.",
-                                    entry.display_name
-                                ));
+                                self.load_file_from_buffer(final_files);
                             }
                         }
+
                         None => {
                             self.ui_state.error_message =
                                 Some(format!("Failed to unpack '{}'.", entry.display_name));
@@ -1148,6 +1155,7 @@ impl ApplicationHandler for App {
                         w.request_redraw();
                     }
                 }
+
                 UiAction::DeletePane(target_idx) => {
                     self.perform_pane_edit(edit_history::PaneEdit::Delete { target_idx })
                 }
