@@ -2,8 +2,11 @@ use num_enum::{FromPrimitive, IntoPrimitive};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    bflyt::flags::{DropShadowFlags, TexOptions},
-    core::{BitPackable as _, Cursor, FormatError, ReadWriteable, Writer},
+    bflyt::{
+        flags::{DropShadowFlags, TexOptions},
+        list::MaterialTextureOptions,
+    },
+    core::{BitPackable, Cursor, FormatError, ReadWriteable, Writer},
     ui2d::types::{Color4f, VertexPos},
 };
 
@@ -429,19 +432,48 @@ impl ReadWriteable for DropShadow {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+pub struct MaskTextureFlags {
+    pub mask_with_pane: bool,
+    pub mask_static_rendering: bool,
+}
+
+impl BitPackable<u8> for MaskTextureFlags {
+    fn decode(raw: u8) -> Self {
+        Self {
+            mask_with_pane: (raw & 0x01) != 0,
+            mask_static_rendering: ((raw >> 1) & 0x01) != 0,
+        }
+    }
+
+    fn encode(&self) -> u8 {
+        let mut raw = 0u8;
+
+        if self.mask_with_pane {
+            raw |= 0x01;
+        }
+
+        if self.mask_static_rendering {
+            raw |= 0x02;
+        }
+
+        raw
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 /// Configuration properties for a layout masking texture and its coordinate space transformations.
 pub struct MaskTexture {
     /// Packed feature and state flags for the masking behavior.
-    pub flags: u8,
+    pub flags: MaskTextureFlags,
 
     /// The 0-based index of the mask texture within [`TextureList`](crate::bflyt::list::TextureList).
     pub texture_id: u16,
 
     /// Texture coordinate wrap and filtering options along the horizontal (U) axis.
-    pub u_options: u8,
+    pub u_options: MaterialTextureOptions,
 
     /// Texture coordinate wrap and filtering options along the vertical (V) axis.
-    pub v_options: u8,
+    pub v_options: MaterialTextureOptions,
 
     /// Extended texture mapping and rendering flags.
     pub tex_ext_flags: u32,
@@ -450,10 +482,10 @@ pub struct MaskTexture {
     pub capture_texture_id: u16,
 
     /// Capture texture coordinate options along the horizontal (U) axis.
-    pub capture_u_options: u8,
+    pub capture_u_options: MaterialTextureOptions,
 
     /// Capture texture coordinate options along the vertical (V) axis.
-    pub capture_v_options: u8,
+    pub capture_v_options: MaterialTextureOptions,
 
     /// If a capture mask should be used on the mask texture.
     pub is_use_capture_mask: bool,
@@ -470,15 +502,15 @@ pub struct MaskTexture {
 
 impl ReadWriteable for MaskTexture {
     fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
-        let flags = cursor.read_u8()?;
+        let flags = MaskTextureFlags::decode(cursor.read_u8()?);
         let _reserve0 = [cursor.read_u8()?, cursor.read_u8()?, cursor.read_u8()?];
         let texture_id = cursor.read_u16()?;
-        let u_options = cursor.read_u8()?;
-        let v_options = cursor.read_u8()?;
+        let u_options = MaterialTextureOptions::decode(cursor.read_u8()?);
+        let v_options = MaterialTextureOptions::decode(cursor.read_u8()?);
         let tex_ext_flags = cursor.read_u32()?;
         let capture_texture_id = cursor.read_u16()?;
-        let capture_u_options = cursor.read_u8()?;
-        let capture_v_options = cursor.read_u8()?;
+        let capture_u_options = MaterialTextureOptions::decode(cursor.read_u8()?);
+        let capture_v_options = MaterialTextureOptions::decode(cursor.read_u8()?);
         let is_use_capture_mask = cursor.read_u8()? != 0;
         let _reserve1 = [cursor.read_u8()?, cursor.read_u8()?, cursor.read_u8()?];
         let translation = [cursor.read_f32()?, cursor.read_f32()?];
@@ -504,19 +536,19 @@ impl ReadWriteable for MaskTexture {
     fn write(&self, writer: &mut Writer) {
         writer.mark("Mask Texture");
 
-        writer.write_u8(self.flags);
+        writer.write_u8(self.flags.encode());
 
         writer.write_u8(0);
         writer.write_u8(0);
         writer.write_u8(0);
 
         writer.write_u16(self.texture_id);
-        writer.write_u8(self.u_options);
-        writer.write_u8(self.v_options);
+        writer.write_u8(self.u_options.encode());
+        writer.write_u8(self.v_options.encode());
         writer.write_u32(self.tex_ext_flags);
         writer.write_u16(self.capture_texture_id);
-        writer.write_u8(self.capture_u_options);
-        writer.write_u8(self.capture_v_options);
+        writer.write_u8(self.capture_u_options.encode());
+        writer.write_u8(self.capture_v_options.encode());
         writer.write_u8(self.is_use_capture_mask.into());
 
         writer.write_u8(0);

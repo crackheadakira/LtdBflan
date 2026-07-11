@@ -258,10 +258,10 @@ pub struct Bflyt {
     pub font_list: Option<FontList>,
     pub material_list: Option<MaterialList>,
     pub capture_texture_list: Option<CaptureTextureList>,
-
-    pub nodes: Vec<BflytNode>,
     pub root_group: GroupElement,
     pub control_source: Option<ControlSourceElement>,
+
+    pub nodes: Vec<BflytNode>,
 }
 
 enum StackFrame {

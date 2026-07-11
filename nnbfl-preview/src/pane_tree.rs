@@ -1,7 +1,11 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 use bitflags::bitflags;
 use nnbfl::{
+    bflan::anim_tag::PaneAnimTag,
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection, ControlSourceElement, GroupElement, PaneElement},
         flags::{HorizontalPosition, VerticalPosition},
@@ -272,16 +276,15 @@ impl PaneNode {
                 if let Some(tq) = &mut self.textured_quad {
                     tq.x = pos.x;
                     tq.y = pos.y;
+
                     tq.width = size.x;
                     tq.height = size.y;
+
                     tq.corners = corners.to_array();
                 }
 
                 self.dirty.remove(DirtyFlags::TRANSFORM);
-                child_scale = Vector2f {
-                    x: base.scale.x * parent_scale.x,
-                    y: base.scale.y * parent_scale.y,
-                }
+                child_scale = base.scale * parent_scale;
             } else {
                 child_scale = parent_scale;
             }
@@ -289,17 +292,14 @@ impl PaneNode {
             child_scale = self
                 .section
                 .get_base_pane()
-                .map(|b| Vector2f {
-                    x: b.scale.x * parent_scale.x,
-                    y: b.scale.y * parent_scale.y,
-                })
+                .map(|b| b.scale * parent_scale)
                 .unwrap_or(parent_scale);
         }
 
         let (child_rotation, child_size) = self
             .section
             .get_base_pane()
-            .map(|b| (b.rotation, self.world_size))
+            .map(|b| (b.rotation + parent_rotation, self.world_size))
             .unwrap_or((parent_rotation, parent_size));
 
         for child in &mut self.children {
@@ -739,6 +739,10 @@ impl PaneTree {
             l_map: &mut HashMap<String, usize>,
             max_idx: &mut usize,
         ) {
+            if node.parts_source.is_some() {
+                return;
+            }
+
             let idx = node.pane_idx;
             *max_idx = (*max_idx).max(idx);
             p_map.insert(idx, parent);
@@ -1163,8 +1167,8 @@ fn resolve_rect(
     let cx = anchor_x + pane.translation.x * parent_scale.x;
     let cy = anchor_y - pane.translation.y * parent_scale.y;
 
-    let w = pane.size.x * pane.scale.x;
-    let h = pane.size.y * pane.scale.y;
+    let w = pane.size.x * pane.scale.x * parent_scale.x;
+    let h = pane.size.y * pane.scale.y * parent_scale.y;
 
     let tl_x = match pane.position.position_x {
         HorizontalPosition::Center => cx - w * 0.5,

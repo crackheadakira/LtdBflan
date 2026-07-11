@@ -135,7 +135,7 @@ impl ReadWriteable for FontList {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct MaterialTextureOptions {
     pub wrap_mode: TexWrapMode,
     pub filter: TexFilter,

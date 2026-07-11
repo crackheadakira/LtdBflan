@@ -458,6 +458,11 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                                         egui::RichText::new("Idle").color(egui::Color32::GRAY),
                                     );
                                 }
+
+                                ui.checkbox(
+                                    &mut ctx.ui_state.timeline.anim_player.limit_to_group,
+                                    "Hide non-group panes",
+                                );
                             });
 
                             ui.separator();

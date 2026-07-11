@@ -4,8 +4,7 @@ struct VertexInput {
     @location(2) uv1:      vec2<f32>,
     @location(3) uv2:      vec2<f32>,
     @location(4) tint:     vec4<f32>,
-    @location(5) tex_aspects: vec3<f32>,
-    @location(6) quad_size: vec2<f32>,
+    @location(5) quad_size: vec2<f32>,
 }
 
 struct VertexOutput {
@@ -216,7 +215,7 @@ fn sample_indirect(
     m0:  vec4<f32>, m1: vec4<f32>,
     t:   texture_2d<f32>, s: sampler,
 ) -> vec4<f32> {
-    let iv  = vec4<f32>(ic.xy - 0.25, 0.0, 1.0);
+    let iv  = vec4<f32>(ic.xyz, 1.0);
     let offset = vec2<f32>(dot(iv, m0), dot(iv, m1));
     
     var c = textureSample(t, s, uv + offset);
@@ -576,19 +575,17 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     let pos4  = vec4<f32>(in.pos_mesh, 0.0, 1.0);
 
     let is_proj0    = (byte0 & 0x3u) != 0u;
-    let adjust_sr0  = (byte0 & (1u << 4u)) != 0u;
     let uv0_indirect = select(
         in.uv0,
         vec2<f32>(dot(pos4, mat.proj_mtx0[0]), dot(pos4, mat.proj_mtx0[1])),
-        is_proj0 && !adjust_sr0,
+        is_proj0,
     );
 
     let is_proj1    = (byte1 & 0x3u) != 0u;
-    let adjust_sr1  = (byte1 & (1u << 4u)) != 0u;
     let uv1_indirect = select(
         in.uv0,
         vec2<f32>(dot(pos4, mat.proj_mtx1[0]), dot(pos4, mat.proj_mtx1[1])),
-        is_proj1 && !adjust_sr1,
+        is_proj1,
     );
 
     let iv = vec4<f32>(t[1].xyz, 1.0);

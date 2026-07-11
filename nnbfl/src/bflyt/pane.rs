@@ -278,10 +278,10 @@ impl ReadWriteable for PerCharacterTransform {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, FromPrimitive, IntoPrimitive, Default)]
 #[repr(u8)]
 pub enum TextAlignment {
-    #[default]
     Synchronous,
     Left,
     Center,
+    #[default]
     Right,
 }
 
@@ -298,14 +298,13 @@ pub struct TextBoxPane {
     pub italic_tilt: f32,
     pub font_top_color: Color4u8,
     pub font_bottom_color: Color4u8,
-    pub font_size_x: f32,
-    pub font_size_y: f32,
+
+    /// When [`TextPaneFlags::is_keeping_font_scale`] is true it stores  the font scale instead.
+    pub font_size: Vector2f,
     pub character_space: f32,
     pub line_space: f32,
-    pub shadow_translation_x: f32,
-    pub shadow_translation_y: f32,
-    pub shadow_size_x: f32,
-    pub shadow_size_y: f32,
+    pub shadow_translation: Vector2f,
+    pub shadow_size: Vector2f,
     pub shadow_top_color: Color4u8,
     pub shadow_bottom_color: Color4u8,
     pub shadow_italic_tilt: f32,
@@ -333,15 +332,12 @@ impl ReadWriteable for TextBoxPane {
         let text_offset = cursor.read_u32()?;
         let font_top_color = Color4u8::parse(cursor)?;
         let font_bottom_color = Color4u8::parse(cursor)?;
-        let font_size_x = cursor.read_f32()?;
-        let font_size_y = cursor.read_f32()?;
+        let font_size = Vector2f::parse(cursor)?;
         let character_space = cursor.read_f32()?;
         let line_space = cursor.read_f32()?;
         let label_offset = cursor.read_u32()?;
-        let shadow_translation_x = cursor.read_f32()?;
-        let shadow_translation_y = cursor.read_f32()?;
-        let shadow_size_x = cursor.read_f32()?;
-        let shadow_size_y = cursor.read_f32()?;
+        let shadow_translation = Vector2f::parse(cursor)?;
+        let shadow_size = Vector2f::parse(cursor)?;
         let shadow_top_color = Color4u8::parse(cursor)?;
         let shadow_bottom_color = Color4u8::parse(cursor)?;
         let shadow_italic_tilt = cursor.read_f32()?;
@@ -401,14 +397,11 @@ impl ReadWriteable for TextBoxPane {
             italic_tilt,
             font_top_color,
             font_bottom_color,
-            font_size_x,
-            font_size_y,
+            font_size,
             character_space,
             line_space,
-            shadow_translation_x,
-            shadow_translation_y,
-            shadow_size_x,
-            shadow_size_y,
+            shadow_translation,
+            shadow_size,
             shadow_top_color,
             shadow_bottom_color,
             shadow_italic_tilt,
@@ -438,15 +431,12 @@ impl ReadWriteable for TextBoxPane {
         let text_offset_pos = writer.write_placeholder_u32();
         self.font_top_color.write(writer);
         self.font_bottom_color.write(writer);
-        writer.write_f32(self.font_size_x);
-        writer.write_f32(self.font_size_y);
+        self.font_size.write(writer);
         writer.write_f32(self.character_space);
         writer.write_f32(self.line_space);
         let label_offset_pos = writer.write_placeholder_u32();
-        writer.write_f32(self.shadow_translation_x);
-        writer.write_f32(self.shadow_translation_y);
-        writer.write_f32(self.shadow_size_x);
-        writer.write_f32(self.shadow_size_y);
+        self.shadow_translation.write(writer);
+        self.shadow_size.write(writer);
         self.shadow_top_color.write(writer);
         self.shadow_bottom_color.write(writer);
         writer.write_f32(self.shadow_italic_tilt);

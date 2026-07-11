@@ -181,7 +181,7 @@ impl DrawUi<()> for TimelineState {
             return;
         };
 
-        let (frame_count, anim_name, anim_frame, rows) = {
+        let (frame_count, anim_name, anim_frame, rows, anim_groups) = {
             let Some(anim) = self.anim_player.anims.get(active_idx) else {
                 return;
             };
@@ -189,7 +189,13 @@ impl DrawUi<()> for TimelineState {
             let frame_count = anim.frame_count().max(1.0);
             let rows = TimelineRow::build(anim, &self.expanded_anim_panes);
 
-            (frame_count, anim.name.clone(), anim.frame, rows)
+            (
+                frame_count,
+                anim.name.clone(),
+                anim.frame,
+                rows,
+                anim.bflan.anim_tag.groups.clone(),
+            )
         };
 
         egui::Panel::bottom("timeline_panel")
@@ -211,6 +217,13 @@ impl DrawUi<()> for TimelineState {
                         "{} - frame {:.1} / {frame_count:.0}",
                         anim_name, anim_frame
                     ));
+
+                    ui.separator();
+
+                    ui.label("Groups:");
+                    for group in anim_groups {
+                        ui.label(group);
+                    }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add(egui::DragValue::new(&mut self.frame_rate).speed(1));

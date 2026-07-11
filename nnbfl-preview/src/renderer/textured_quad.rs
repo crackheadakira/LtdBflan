@@ -21,19 +21,17 @@ pub struct Vertex {
     pub uv1: [f32; 2],
     pub uv2: [f32; 2],
     pub tint: [f32; 4],
-    pub tex_aspects: [f32; 3],
     pub quad_size: [f32; 2],
 }
 
 impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+    const ATTRIBS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
         0 => Float32x2, // position
         1 => Float32x2, // uv0
         2 => Float32x2, // uv1
         3 => Float32x2, // uv2
         4 => Float32x4, // tint
-        5 => Float32x3, // tex_aspects
-        6 => Float32x2, // quad_size
+        5 => Float32x2, // quad_size
     ];
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
@@ -208,6 +206,23 @@ pub struct TexturedQuad {
 
     pub proj_scales: [[f32; 2]; 3],
     pub proj_translations: [[f32; 2]; 3],
+
+    pub indirect_rotation: f32,
+    pub indirect_scale: [f32; 2],
+}
+
+pub fn build_indirect_matrices(rotation_deg: f32, scale: [f32; 2]) -> ([f32; 4], [f32; 4]) {
+    let rad = rotation_deg.to_radians();
+
+    let a0x = rad.cos() * scale[0] * 2.0;
+    let a1x = -rad.sin() * scale[1] * 2.0;
+    let a0y = rad.sin() * scale[0] * 2.0;
+    let a1y = rad.cos() * scale[1] * 2.0;
+
+    let tx = a0x * -0.5 + a1x * -0.5;
+    let ty = a0y * -0.5 + a1y * -0.5;
+
+    ([a0x, a1x, 0.0, tx], [a0y, a1y, 0.0, ty])
 }
 
 impl TexturedQuad {
@@ -356,15 +371,14 @@ impl TexturedQuad {
             (0, 0)
         };
 
-        let (indirect_mtx0, indirect_mtx1) = if let Some(im) = &mat.indirect_matrix {
-            let rad = im.rotation.to_radians();
-            (
-                [rad.cos() * im.scale.x, -rad.sin() * im.scale.x, 0.0, 0.0],
-                [rad.sin() * im.scale.y, rad.cos() * im.scale.y, 0.0, 0.0],
-            )
+        let (indirect_rotation, indirect_scale) = if let Some(im) = &mat.indirect_matrix {
+            (im.rotation, [im.scale.x, im.scale.y])
         } else {
-            ([0.0f32; 4], [0.0f32; 4])
+            (0.0, [0.0, 0.0])
         };
+
+        let (indirect_mtx0, indirect_mtx1) =
+            build_indirect_matrices(indirect_rotation, indirect_scale);
 
         let standard_material = StandardMaterial {
             interpolate_width,
@@ -405,6 +419,8 @@ impl TexturedQuad {
             tex_srts: mat.tex_srts.clone(),
             proj_scales,
             proj_translations,
+            indirect_rotation,
+            indirect_scale,
         })
     }
 }
@@ -433,12 +449,7 @@ fn highlight(color: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-fn corner_vertex(
-    data: &PaneQuadData,
-    corner: usize,
-    tex_aspects: [f32; 3],
-    tint: [f32; 4],
-) -> Vertex {
+fn corner_vertex(data: &PaneQuadData, corner: usize, tint: [f32; 4]) -> Vertex {
     match data {
         PaneQuadData::Plain(q) => Vertex {
             position: q.corners[corner],
@@ -446,7 +457,6 @@ fn corner_vertex(
             uv1: PLAIN_UVS[corner],
             uv2: PLAIN_UVS[corner],
             tint,
-            tex_aspects,
             quad_size: [q.width, q.height],
         },
         PaneQuadData::Textured(tq) => {
@@ -462,7 +472,6 @@ fn corner_vertex(
                     tint[2] * ct[2],
                     tint[3] * ct[3],
                 ],
-                tex_aspects,
                 quad_size: [tq.width, tq.height],
             }
         }
@@ -741,23 +750,13 @@ impl PaneRenderer {
             let key = Self::batch_key_for(data);
             let pane_idx = data.pane_idx();
 
-            let tex_aspects = match data {
-                PaneQuadData::Plain(_) => [1.0, 1.0, 1.0],
-                PaneQuadData::Textured(tq) => [
-                    Self::get_layer_aspect(tq, texture_cache, layout_w, layout_h, 0),
-                    Self::get_layer_aspect(tq, texture_cache, layout_w, layout_h, 1),
-                    Self::get_layer_aspect(tq, texture_cache, layout_w, layout_h, 2),
-                ],
-            };
-
             let flags = PaneVisibilityFlags::default();
             let base_tint = match data {
                 PaneQuadData::Plain(q) => flags.plain_color(q, false),
                 PaneQuadData::Textured(tq) => flags.textured_tint(tq, false),
             };
 
-            let verts: [Vertex; 4] =
-                std::array::from_fn(|i| corner_vertex(data, i, tex_aspects, base_tint));
+            let verts: [Vertex; 4] = std::array::from_fn(|i| corner_vertex(data, i, base_tint));
 
             let mut match_found = false;
             if let Some(last) = self.batches.last_mut()
@@ -1034,15 +1033,17 @@ impl PaneRenderer {
                 let hidden = hidden_panes.contains(&pane_idx);
                 let selected = Some(pane_idx) == selected_idx;
 
-                let base_tint = match data {
-                    PaneQuadData::Plain(q) => flags.plain_color(q, hidden),
-                    PaneQuadData::Textured(tq) => flags.textured_tint(tq, hidden),
-                };
+                let tint = match data {
+                    PaneQuadData::Plain(q) => {
+                        let base_tint = flags.plain_color(q, hidden);
 
-                let tint = if selected && !hidden {
-                    highlight(base_tint)
-                } else {
-                    base_tint
+                        if selected && !hidden {
+                            highlight(base_tint)
+                        } else {
+                            base_tint
+                        }
+                    }
+                    PaneQuadData::Textured(tq) => flags.textured_tint(tq, hidden),
                 };
 
                 for v_offset in 0..4 {
@@ -1228,9 +1229,6 @@ impl PaneRenderer {
         layout_h: f32,
         layer_idx: usize,
     ) -> [[f32; 4]; 2] {
-        let tex_aspect_ratio =
-            Self::get_layer_aspect(quad, texture_cache, layout_w, layout_h, layer_idx);
-
         let pane_cx = quad.x + quad.width * 0.5;
         let pane_cy = quad.y + quad.height * 0.5;
 
@@ -1243,16 +1241,25 @@ impl PaneRenderer {
         }
 
         let fitting_layout_size = (packed & (1 << 2)) != 0;
-        let _fitting_pane_size = (packed & (1 << 3)) != 0;
+        let fitting_pane_size = (packed & (1 << 3)) != 0;
         let adjust_sr = (packed & (1 << 4)) != 0;
         let orthogonal = (packed & (1 << 5)) != 0;
 
-        let (base_w, base_h, cx, cy) = if orthogonal {
-            (layout_w, layout_h, layout_w * 0.5, layout_h * 0.5)
-        } else if fitting_layout_size {
-            (layout_w, layout_h, pane_cx, pane_cy)
+        let (base_w, base_h) = if fitting_layout_size {
+            (layout_w, layout_h)
+        } else if fitting_pane_size {
+            (quad.width, quad.height)
         } else {
-            (quad.width, quad.height, pane_cx, pane_cy)
+            let (tex_w, tex_h) =
+                Self::get_texture_size(quad, texture_cache, layer_idx).unwrap_or((0, 0));
+
+            (tex_w as f32, tex_h as f32)
+        };
+
+        let (cx, cy) = if orthogonal {
+            (layout_w * 0.5, layout_h * 0.5)
+        } else {
+            (pane_cx, pane_cy)
         };
 
         let srt_tu = quad
@@ -1267,84 +1274,55 @@ impl PaneRenderer {
             .map(|s| s.translate_v)
             .unwrap_or(0.0);
 
+        let proj_scale_x = quad.proj_scales[layer_idx][0];
+        let proj_scale_y = quad.proj_scales[layer_idx][1];
+
+        let proj_translate_x = quad.proj_translations[layer_idx][0];
+        let proj_translate_y = quad.proj_translations[layer_idx][1];
+
+        let m_s = 1.0 / (base_w * proj_scale_x);
+        let m_t = 1.0 / (base_h * proj_scale_y);
+
         if adjust_sr {
-            let sx = quad.proj_scales[layer_idx][0];
-            let sy = quad.proj_scales[layer_idx][1];
+            let srt = quad.tex_srts.get(layer_idx);
+            let srt_scale_x = srt.map(|s| s.scale_u).unwrap_or(1.0);
+            let srt_scale_y = srt.map(|s| s.scale_v).unwrap_or(1.0);
+            let srt_rotate = srt.map(|s| s.rotate).unwrap_or(0.0);
 
-            let tx = quad.proj_translations[layer_idx][0];
-            let ty = quad.proj_translations[layer_idx][1];
+            let rad = srt_rotate.to_radians();
+            let (sin_r, cos_r) = rad.sin_cos();
 
-            let (input_w, input_h) = if orthogonal {
-                (layout_w, layout_h)
-            } else {
-                (quad.width, quad.height)
-            };
+            let base_scale_s = 1.0 / (base_w * proj_scale_x);
+            let base_scale_t = 1.0 / (base_h * proj_scale_y);
 
-            let reciprocal_width = 1.0 / input_w;
-            let reciprocal_height = 1.0 / input_h;
+            let s_factor = base_scale_s * srt_scale_x;
+            let t_factor = base_scale_t * srt_scale_y;
 
-            let mut scale_s = 0.5 / sx;
-            let mut scale_t = 0.5 / sy;
+            let m00 = s_factor * cos_r;
+            let m01 = s_factor * sin_r;
+            let m10 = -t_factor * sin_r;
+            let m11 = t_factor * cos_r;
 
-            let mut trans_s = 0.5 - (tx / sx / base_w) + srt_tu;
-            let mut trans_t = 0.5 - (ty / sy / base_h) + srt_tv;
+            let total_x = proj_translate_x + cx;
+            let total_y = proj_translate_y + cy;
 
-            if tex_aspect_ratio > 1.0 {
-                scale_t *= tex_aspect_ratio;
-                trans_t = trans_t * tex_aspect_ratio + (0.5 - 0.5 * tex_aspect_ratio);
-            } else {
-                let inv_ratio = 1.0 / tex_aspect_ratio;
-                scale_s *= inv_ratio;
-                trans_s = trans_s * inv_ratio + (0.5 - 0.5 * inv_ratio);
-            }
+            let trans_s = 0.5 - (total_x * m00 + total_y * m01) + srt_tu;
+            let trans_t = 0.5 - (total_x * m10 + total_y * m11) + srt_tv;
 
-            [
-                [2.0 * reciprocal_width * scale_s, 0.0, 0.0, trans_s],
-                [0.0, 2.0 * reciprocal_height * scale_t, 0.0, trans_t],
-            ]
+            [[m00, m01, 0.0, trans_s], [m10, m11, 0.0, trans_t]]
         } else {
-            let mut m_s = 1.0 / base_w;
-            let mut m_t = 1.0 / base_h;
-
-            let (scale_s, scale_t) = if tex_aspect_ratio > 1.0 {
-                (1.0, tex_aspect_ratio)
-            } else {
-                (1.0 / tex_aspect_ratio, 1.0)
-            };
-
-            m_s *= scale_s;
-            m_t *= scale_t;
-
-            let trans_s = 0.5 - (cx * m_s) + srt_tu;
-            let trans_t = 0.5 - (cy * m_t) + srt_tv;
+            let trans_s = 0.5 - (proj_translate_x + cx) * m_s + srt_tu;
+            let trans_t = 0.5 - (proj_translate_y + cy) * m_t + srt_tv;
 
             [[m_s, 0.0, 0.0, trans_s], [0.0, m_t, 0.0, trans_t]]
         }
     }
 
-    fn get_layer_aspect(
+    fn get_texture_size(
         quad: &TexturedQuad,
         texture_cache: &TextureCache,
-        layout_w: f32,
-        layout_h: f32,
         layer_idx: usize,
-    ) -> f32 {
-        let shift = layer_idx * 8;
-        let packed = quad.standard_material.tex_gen_mode >> shift;
-        let orthogonal = (packed & (1 << 5)) != 0;
-
-        let base_aspect = if orthogonal {
-            if layout_h > 0.0 {
-                layout_w / layout_h
-            } else {
-                1.0
-            }
-        } else if quad.height > 0.0 {
-            quad.width / quad.height
-        } else {
-            1.0
-        };
-
+    ) -> Option<(u32, u32)> {
         let tex_name = match layer_idx {
             1 => quad.texture_name1.as_deref(),
             2 => quad.texture_name2.as_deref(),
@@ -1353,8 +1331,7 @@ impl PaneRenderer {
 
         tex_name
             .and_then(|name| texture_cache.get(name))
-            .map(|t| (t.width as f32 / t.height as f32) / base_aspect)
-            .unwrap_or(1.0)
+            .map(|t| (t.width, t.height))
     }
 
     pub fn update_anim(
@@ -1386,11 +1363,8 @@ impl PaneRenderer {
                     PaneQuadData::Textured(tq) => flags.textured_tint(tq, hidden),
                 };
 
-                let tex_aspects = batch.vertices[base].tex_aspects;
-
                 for v_offset in 0..4 {
-                    batch.vertices[base + v_offset] =
-                        corner_vertex(data, v_offset, tex_aspects, tint);
+                    batch.vertices[base + v_offset] = corner_vertex(data, v_offset, tint);
                 }
 
                 dirty = true;
