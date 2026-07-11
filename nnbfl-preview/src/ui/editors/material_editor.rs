@@ -1,8 +1,8 @@
 use nnbfl::{
     bflyt::list::{
         BlendFactor, BlendOp, CombinerTevMode, DetailedCombinerAlphaStageConfig,
-        DetailedCombinerColorStageConfig, DetailedCombinerStageMode, LogicOp, Material,
-        MaterialBlendMode, MaterialList, MaterialTextureOptions, TevAlphaOp, TevColorOp,
+        DetailedCombinerColorStageConfig, DetailedCombinerStageMode, LogicOp, MATERIAL_NAME_LEN,
+        Material, MaterialBlendMode, MaterialList, MaterialTextureOptions, TevAlphaOp, TevColorOp,
         TevKonstSel, TevScale, TevSource,
     },
     ui2d::types::{Color4f, Color4u8, Vector2f},
@@ -33,10 +33,26 @@ impl DrawUiWith<&mut MaterialList> for MaterialEditor {
                         egui::ScrollArea::vertical()
                             .auto_shrink(false)
                             .show(ui, |ui| {
-                                ui.weak(format!(
-                                    "{} Total Materials",
-                                    material_list.materials.len()
-                                ));
+                                ui.horizontal(|ui| {
+                                    ui.weak(format!(
+                                        "{} Total Materials",
+                                        material_list.materials.len()
+                                    ));
+
+                                    if ui.button("➕ Add").clicked() {
+                                        let mut new_material = Material::default();
+                                        new_material.material_name = format!(
+                                            "Material_{}",
+                                            material_list.materials.len() + 1
+                                        );
+                                        material_list.materials.push(new_material);
+
+                                        self.selected_material = material_list.materials.len() - 1;
+                                        changed = true;
+                                    }
+                                });
+
+                                ui.separator();
 
                                 for (idx, material) in material_list.materials.iter().enumerate() {
                                     let text = format!("[{}] {}", idx + 1, material.material_name);
@@ -77,6 +93,8 @@ impl DrawUi for Material {
     fn draw(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
 
+        ui.add(egui::TextEdit::singleline(&mut self.material_name).char_limit(MATERIAL_NAME_LEN));
+
         changed |= ui
             .checkbox(&mut self.use_texture_only, "Use Texture Only")
             .changed();
@@ -88,9 +106,13 @@ impl DrawUi for Material {
             )
             .changed();
 
-        if !self.colors.is_empty() {
+        ui.horizontal(|ui| {
             ui.heading("Material Colors");
-        }
+            if ui.button("➕ Add Entry").clicked() {
+                self.colors.push(Default::default());
+                changed |= true;
+            }
+        });
 
         for (idx, color) in self.colors.iter_mut().enumerate() {
             ui.horizontal(|ui| {
@@ -104,10 +126,15 @@ impl DrawUi for Material {
             });
         }
 
-        if !self.tex_maps.is_empty() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Texture Maps");
-        }
+
+            if ui.button("➕ Add Entry").clicked() {
+                self.tex_maps.push(Default::default());
+                changed |= true;
+            }
+        });
 
         for (idx, tex_map) in self.tex_maps.iter_mut().enumerate() {
             ui.label(&tex_map.texture_name);
@@ -138,60 +165,72 @@ impl DrawUi for Material {
             ui.add_space(12.0);
         }
 
-        if !self.tex_srts.is_empty() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Texture SRTs");
 
-            ui.horizontal_wrapped(|ui| {
-                for (idx, tex_srt) in self.tex_srts.iter_mut().enumerate() {
-                    ui.vertical(|ui| {
-                        ui.weak(format!("Texture {}", idx + 1));
+            if self.tex_srts.len() < self.tex_maps.len() && ui.button("➕ Add Entry").clicked() {
+                self.tex_srts.push(Default::default());
+                changed |= true;
+            }
+        });
 
-                        egui::Grid::new(format!("tex_srt_grid_{idx}"))
-                            .num_columns(2)
-                            .spacing([12.0, 6.0])
-                            .show(ui, |ui| {
-                                ui.label("Rotate");
-                                changed |= ui
-                                    .add(egui::DragValue::new(&mut tex_srt.rotate).speed(0.1))
-                                    .changed();
-                                ui.end_row();
+        ui.horizontal_wrapped(|ui| {
+            for (idx, tex_srt) in self.tex_srts.iter_mut().enumerate() {
+                ui.vertical(|ui| {
+                    ui.weak(format!("Texture {}", idx + 1));
 
-                                ui.label("Translate U");
-                                changed |= ui
-                                    .add(egui::DragValue::new(&mut tex_srt.translate_u).speed(0.5))
-                                    .changed();
-                                ui.end_row();
+                    egui::Grid::new(format!("tex_srt_grid_{idx}"))
+                        .num_columns(2)
+                        .spacing([12.0, 6.0])
+                        .show(ui, |ui| {
+                            ui.label("Rotate");
+                            changed |= ui
+                                .add(egui::DragValue::new(&mut tex_srt.rotate).speed(0.1))
+                                .changed();
+                            ui.end_row();
 
-                                ui.label("Translate V");
-                                changed |= ui
-                                    .add(egui::DragValue::new(&mut tex_srt.translate_v).speed(0.5))
-                                    .changed();
-                                ui.end_row();
+                            ui.label("Translate U");
+                            changed |= ui
+                                .add(egui::DragValue::new(&mut tex_srt.translate_u).speed(0.5))
+                                .changed();
+                            ui.end_row();
 
-                                ui.label("Scale U");
-                                changed |= ui
-                                    .add(egui::DragValue::new(&mut tex_srt.scale_u).speed(0.01))
-                                    .changed();
-                                ui.end_row();
+                            ui.label("Translate V");
+                            changed |= ui
+                                .add(egui::DragValue::new(&mut tex_srt.translate_v).speed(0.5))
+                                .changed();
+                            ui.end_row();
 
-                                ui.label("Scale V");
-                                changed |= ui
-                                    .add(egui::DragValue::new(&mut tex_srt.scale_v).speed(0.01))
-                                    .changed();
-                                ui.end_row();
-                            });
-                    });
+                            ui.label("Scale U");
+                            changed |= ui
+                                .add(egui::DragValue::new(&mut tex_srt.scale_u).speed(0.01))
+                                .changed();
+                            ui.end_row();
 
-                    ui.add_space(24.0);
-                }
-            });
-        }
+                            ui.label("Scale V");
+                            changed |= ui
+                                .add(egui::DragValue::new(&mut tex_srt.scale_v).speed(0.01))
+                                .changed();
+                            ui.end_row();
+                        });
+                });
 
-        if !self.tex_coord_gens.is_empty() {
-            ui.separator();
+                ui.add_space(24.0);
+            }
+        });
+
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Texture Coordinate Generators");
-        }
+
+            if self.tex_coord_gens.len() < self.tex_maps.len()
+                && ui.button("➕ Add Entry").clicked()
+            {
+                self.tex_coord_gens.push(Default::default());
+                changed |= true;
+            }
+        });
 
         for (idx, tex_coord_gen) in self.tex_coord_gens.iter_mut().enumerate() {
             egui::ComboBox::new(
@@ -270,10 +309,17 @@ impl DrawUi for Material {
             ui.add_space(12.0);
         }
 
-        if !self.projection_tex_gens.is_empty() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Projection Texture Generators");
-        }
+
+            if self.projection_tex_gens.len() < self.tex_maps.len()
+                && ui.button("➕ Add Entry").clicked()
+            {
+                self.projection_tex_gens.push(Default::default());
+                changed |= true;
+            }
+        });
 
         for (idx, proj_tex_gen) in self.projection_tex_gens.iter_mut().enumerate() {
             ui.weak(format!("Texture {}", idx + 1));
@@ -308,10 +354,17 @@ impl DrawUi for Material {
             ui.add_space(12.0);
         }
 
-        if !self.tev_combiners.is_empty() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Texture Environment Unit Combiners");
-        }
+
+            if self.tev_combiners.len() < (self.tex_maps.len() / 2)
+                && ui.button("➕ Add Entry").clicked()
+            {
+                self.tev_combiners.push(Default::default());
+                changed |= true;
+            }
+        });
 
         for (idx, tev_combiner) in self.tev_combiners.iter_mut().enumerate() {
             ui.weak(format!("Combiner {}", idx + 1));
@@ -322,24 +375,26 @@ impl DrawUi for Material {
             ui.add_space(12.0);
         }
 
-        if self.alpha_compare.is_some() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Alpha Compare");
-        }
+
+            if self.alpha_compare.is_none() && ui.button("➕ Add").clicked() {
+                self.alpha_compare = Some(Default::default());
+                changed |= true;
+            }
+        });
 
         if let Some(alpha_compare) = self.alpha_compare.as_mut() {
+            ui.label("Reference Value");
+            changed |= ui
+                .add(egui::DragValue::new(&mut alpha_compare.alpha_compare_ref_value).speed(0.5))
+                .changed();
+
             egui::ComboBox::new("mat_editor_alpha_compare_op", "Compare Operand")
-                .selected_text(format!("{alpha_compare:?}"))
+                .selected_text(format!("{:?}", alpha_compare.compare))
                 .show_ui(ui, |ui| {
                     use nnbfl::bflyt::list::AlphaCompare;
-
-                    ui.label("Reference Value");
-                    changed |= ui
-                        .add(
-                            egui::DragValue::new(&mut alpha_compare.alpha_compare_ref_value)
-                                .speed(0.5),
-                        )
-                        .changed();
 
                     changed |= ui
                         .selectable_value(&mut alpha_compare.compare, AlphaCompare::Never, "Never")
@@ -395,28 +450,43 @@ impl DrawUi for Material {
                 });
         }
 
-        if self.blend_mode.is_some() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Blend Mode");
-        }
+
+            if self.blend_mode.is_none() && ui.button("➕ Add").clicked() {
+                self.blend_mode = Some(Default::default());
+                changed |= true;
+            }
+        });
 
         if let Some(blend_mode) = self.blend_mode.as_mut() {
             changed |= blend_mode.draw_with(ui, "blend_mode");
         }
 
-        if self.blend_mode_alpha.is_some() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Alpha Blend Mode");
-        }
+
+            if self.blend_mode_alpha.is_none() && ui.button("➕ Add").clicked() {
+                self.blend_mode_alpha = Some(Default::default());
+                changed |= true;
+            }
+        });
 
         if let Some(blend_mode_alpha) = self.blend_mode_alpha.as_mut() {
             changed |= blend_mode_alpha.draw_with(ui, "blend_mode_alpha");
         }
 
-        if self.indirect_matrix.is_some() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Indirect Matrix");
-        }
+
+            if self.indirect_matrix.is_none() && ui.button("➕ Add").clicked() {
+                self.indirect_matrix = Some(Default::default());
+                changed |= true;
+            }
+        });
 
         if let Some(indirect_matrix) = self.indirect_matrix.as_mut() {
             ui.label("Rotation");
@@ -427,20 +497,30 @@ impl DrawUi for Material {
             changed |= indirect_matrix.scale.draw_with(ui, "Scale");
         }
 
-        if self.font_shadow_color.is_some() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Font Shadow Color");
-        }
+
+            if self.font_shadow_color.is_none() && ui.button("➕ Add").clicked() {
+                self.font_shadow_color = Some(Default::default());
+                changed |= true;
+            }
+        });
 
         if let Some(font_shadow_color) = self.font_shadow_color.as_mut() {
             changed |= font_shadow_color.black_color.draw_with(ui, "Black Color");
             changed |= font_shadow_color.white_color.draw_with(ui, "White Color");
         }
 
-        if self.detailed_combiner.is_some() {
-            ui.separator();
+        ui.separator();
+        ui.horizontal(|ui| {
             ui.heading("Detailed Combiner");
-        }
+
+            if self.detailed_combiner.is_none() && ui.button("➕ Add").clicked() {
+                self.detailed_combiner = Some(Default::default());
+                changed |= true;
+            }
+        });
 
         if let Some(detailed_combiner) = self.detailed_combiner.as_mut() {
             changed |= detailed_combiner.color1.draw_with(ui, "Color 1");
@@ -448,6 +528,15 @@ impl DrawUi for Material {
             changed |= detailed_combiner.color3.draw_with(ui, "Color 3");
             changed |= detailed_combiner.color4.draw_with(ui, "Color 4");
             changed |= detailed_combiner.color5.draw_with(ui, "Color 5");
+
+            ui.horizontal(|ui| {
+                ui.weak("Combiners");
+
+                if ui.button("➕ Add Entry").clicked() {
+                    detailed_combiner.entries.push(Default::default());
+                    changed |= true;
+                }
+            });
 
             ui.horizontal_wrapped(|ui| {
                 for (i, entry) in detailed_combiner.entries.iter_mut().enumerate() {

@@ -18,9 +18,7 @@ impl DrawUiWith<&mut PaneNode> for DetailedPaneEditor {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Label:");
-                    changed |= ui
-                        .add(egui::TextEdit::singleline(&mut pane.label).char_limit(PANE_NAME_LEN))
-                        .changed();
+                    ui.add(egui::TextEdit::singleline(&mut pane.label).char_limit(PANE_NAME_LEN));
                 });
             });
 

@@ -996,13 +996,22 @@ impl BitPackable<u32> for MaterialInfo {
 
 pub const MATERIAL_NAME_LEN: usize = 0x1c;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaterialColorEntry {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub color_u8: Option<Color4u8>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub color_f32: Option<Color4f>,
+}
+
+impl Default for MaterialColorEntry {
+    fn default() -> Self {
+        Self {
+            color_u8: Some(Color4u8::default()),
+            color_f32: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
