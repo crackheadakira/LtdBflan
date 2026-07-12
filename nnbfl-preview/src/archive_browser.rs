@@ -390,7 +390,7 @@ fn walk_sarc_for_packages(
     }
 }
 
-/// Re-resolves one specific package identified by `entry.nested_path`.
+/// Resolves one specific package identified by [`ArchiveEntry::nested_path`].
 pub fn resolve_nested_package_bytes(
     top_level_bytes: Vec<u8>,
     nested_path: &[usize],
@@ -415,6 +415,20 @@ pub fn resolve_nested_package_bytes(
     }
 
     Some(data)
+}
+
+/// Resolves one specific package identified by [`ArchiveEntry::nested_path`] and [`ArchiveEntry::file_idx`].
+pub fn resolve_nested_file_bytes_by_idx(
+    top_level_bytes: Vec<u8>,
+    nested_path: &[usize],
+    target_file_idx: usize,
+) -> Option<Vec<u8>> {
+    let parent_sarc_bytes = resolve_nested_package_bytes(top_level_bytes, nested_path)?;
+
+    let final_sarc = Sarc::parse_file(&parent_sarc_bytes).ok()?;
+    let target_file = final_sarc.files.get(target_file_idx)?;
+
+    unwrap_compression(target_file.data.clone(), Path::new(""), 0)
 }
 
 fn calculate_sarc_hash(filename: &str, multiplier: u32) -> u32 {

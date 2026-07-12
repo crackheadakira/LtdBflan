@@ -18,7 +18,9 @@ use nnbfl::{
 
 use crate::{
     anim_state::transform_uv_srt,
-    archive_browser::{ArchiveEntry, resolve_nested_package_bytes},
+    archive_browser::{
+        ArchiveEntry, resolve_nested_file_bytes_by_idx, resolve_nested_package_bytes,
+    },
     decompress_if_needed, extract_all_files_recursive,
     renderer::{
         quad::Quad,
@@ -937,23 +939,28 @@ impl<'a> Builder<'a> {
 
     fn load_bflyt_from_archive_index(&self, layout_name: &str) -> Option<Vec<MagicFiles>> {
         let entries = self.archive_entries?;
-
         let entry = entries
             .iter()
             .find(|e| e.matches_layout_name(layout_name))?;
 
         let bytes = std::fs::read(&entry.path).ok()?;
-        let package_bytes = resolve_nested_package_bytes(bytes, &entry.nested_path)?;
 
+        let target_bflyt_bytes =
+            resolve_nested_file_bytes_by_idx(bytes.clone(), &entry.nested_path, entry.file_idx)?;
+
+        let parent_package_bytes = resolve_nested_package_bytes(bytes, &entry.nested_path)?;
         let mut all_files = Vec::new();
-        extract_all_files_recursive(package_bytes, &mut all_files);
+        extract_all_files_recursive(parent_package_bytes, &mut all_files);
 
-        let has_bflyt = all_files.iter().any(|f| matches!(f, MagicFiles::Bflyt(_)));
-        if !has_bflyt {
-            return None;
+        let mut final_files = vec![MagicFiles::Bflyt(target_bflyt_bytes)];
+
+        for file in all_files {
+            if !matches!(file, MagicFiles::Bflyt(_)) {
+                final_files.push(file);
+            }
         }
 
-        Some(all_files)
+        Some(final_files)
     }
 
     fn resolve_parts(

@@ -465,31 +465,6 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
 
                             ui.separator();
 
-                            egui::ScrollArea::vertical()
-                                .id_salt("anim_selection_grid")
-                                .max_height(120.0)
-                                .show(ui, |ui| {
-                                    if !ctx.ui_state.anim_names.is_empty() {
-                                        ui.horizontal_wrapped(|ui| {
-                                            for (idx, name) in
-                                                ctx.ui_state.anim_names.iter().enumerate()
-                                            {
-                                                let is_active =
-                                                    ctx.ui_state.timeline.anim_player.active
-                                                        == Some(idx);
-                                                if ui.selectable_label(is_active, name).clicked() {
-                                                    ctx.ui_state.pending_play_anim =
-                                                        Some(name.clone());
-                                                }
-                                            }
-                                        });
-                                    } else {
-                                        ui.label("No animations found.");
-                                    }
-                                });
-
-                            ui.add_space(8.0);
-
                             if let Some(idx) = ctx.ui_state.timeline.anim_player.active
                                 && let Some(anim) =
                                     ctx.ui_state.timeline.anim_player.anims.get_mut(idx)
@@ -550,6 +525,36 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                                     }
                                 });
                             }
+
+                            ui.add_space(8.0);
+
+                            egui::ScrollArea::vertical()
+                                .id_salt("anim_selection_grid")
+                                .show(ui, |ui| {
+                                    if !ctx.ui_state.anim_names.is_empty() {
+                                        ui.weak(format!(
+                                            "{} total animations",
+                                            ctx.ui_state.anim_names.len()
+                                        ));
+
+                                        ui.horizontal_wrapped(|ui| {
+                                            for (idx, name) in
+                                                ctx.ui_state.anim_names.iter().enumerate()
+                                            {
+                                                let is_active =
+                                                    ctx.ui_state.timeline.anim_player.active
+                                                        == Some(idx);
+
+                                                if ui.selectable_label(is_active, name).clicked() {
+                                                    ctx.ui_state.pending_play_anim =
+                                                        Some(name.clone());
+                                                }
+                                            }
+                                        });
+                                    } else {
+                                        ui.label("No animations found.");
+                                    }
+                                });
                         });
                     }
                 }
