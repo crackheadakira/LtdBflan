@@ -456,12 +456,12 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                                         egui::RichText::new("Idle").color(egui::Color32::GRAY),
                                     );
                                 }
-
-                                ui.checkbox(
-                                    &mut ctx.ui_state.timeline.anim_player.limit_to_group,
-                                    "Hide non-group panes",
-                                );
                             });
+
+                            ui.checkbox(
+                                &mut ctx.ui_state.timeline.anim_player.limit_to_group,
+                                "Hide non-group panes",
+                            );
 
                             ui.separator();
 
@@ -528,19 +528,25 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
 
                             ui.add_space(8.0);
 
-                            egui::ScrollArea::vertical()
-                                .id_salt("anim_selection_grid")
-                                .show(ui, |ui| {
-                                    if !ctx.ui_state.anim_names.is_empty() {
-                                        ui.weak(format!(
-                                            "{} total animations",
-                                            ctx.ui_state.anim_names.len()
-                                        ));
+                            if !ctx.ui_state.anim_names.is_empty() {
+                                ui.weak(format!(
+                                    "{} total animations",
+                                    ctx.ui_state.anim_names.len()
+                                ));
 
-                                        ui.horizontal_wrapped(|ui| {
-                                            for (idx, name) in
-                                                ctx.ui_state.anim_names.iter().enumerate()
-                                            {
+                                let row_height = ui.text_style_height(&egui::TextStyle::Body)
+                                    + ui.spacing().button_padding.y * 2.0;
+
+                                egui::ScrollArea::vertical()
+                                    .id_salt("anim_selection_grid")
+                                    .auto_shrink(false)
+                                    .show_rows(
+                                        ui,
+                                        row_height,
+                                        ctx.ui_state.anim_names.len(),
+                                        |ui, row_range| {
+                                            for idx in row_range {
+                                                let name = &ctx.ui_state.anim_names[idx];
                                                 let is_active =
                                                     ctx.ui_state.timeline.anim_player.active
                                                         == Some(idx);
@@ -550,11 +556,11 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                                                         Some(name.clone());
                                                 }
                                             }
-                                        });
-                                    } else {
-                                        ui.label("No animations found.");
-                                    }
-                                });
+                                        },
+                                    );
+                            } else {
+                                ui.label("No animations found.");
+                            }
                         });
                     }
                 }

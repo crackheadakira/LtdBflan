@@ -22,6 +22,7 @@ pub enum Action {
     Redo,
     Open,
     SetLayoutDirectory,
+    ToggleArchiveBrowser,
 }
 
 pub const BINDINGS: &[KeyBind] = &[
@@ -99,6 +100,12 @@ pub const BINDINGS: &[KeyBind] = &[
         action: Action::SetLayoutDirectory,
         description: "Set Layout Directory",
     },
+    KeyBind {
+        key: Key::B,
+        modifiers: Modifiers::COMMAND,
+        action: Action::ToggleArchiveBrowser,
+        description: "Open/Close Archive Browser",
+    },
 ];
 
 pub fn handle(ctx: &Context, state: &mut UiState) {
@@ -167,5 +174,8 @@ fn apply(action: Action, state: &mut UiState) {
         Action::Open => state.pending_action = Some(UiAction::LoadFile),
         Action::SaveAs => state.pending_action = Some(UiAction::SaveFile),
         Action::SetLayoutDirectory => state.pending_action = Some(UiAction::SetBlarcDir),
+        Action::ToggleArchiveBrowser => {
+            state.archive_browser.is_visible = !state.archive_browser.is_visible
+        }
     }
 }
