@@ -2932,9 +2932,9 @@ dependencies = [
 
 [[package]]
 name = "tomolib"
-version = "1.6.0"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73d29b1cd39630ddb0931da0b37fedc31db7f8511c5bb05069bbb3bb36ade8fa"
+checksum = "f9ac6aaa07b802223b36130dda7ea2047d1dd7ab22b008d6304d0eed7e702c20"
 dependencies = [
  "aes",
  "base64",

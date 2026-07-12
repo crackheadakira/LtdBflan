@@ -748,20 +748,20 @@ struct ResBflytMaterialTexCoordGen {
 
 /* Material Tev combiner */
 enum BflytTevStage : u8 {
-    Reserve0 = 0x0,
-    Reserve1 = 0x1,
-    Reserve2 = 0x2,
-    Reserve3 = 0x3,
-    Reserve4 = 0x4,
-    Reserve5 = 0x5,
-    Reserve6 = 0x6,
-    Reserve7 = 0x7,
-    Reserve8 = 0x8,
-    Reserve9 = 0x9,
-    Reserve10 = 0xa,
-    IndirectBlend0 = 0xb,
-    IndirectBlend1 = 0xc,
-    IndirectBlend2 = 0xd,
+    Replace = 0x0,
+    Modulate = 0x1,
+    Add = 0x2,
+    AddSigned = 0x3,
+    Interpolate = 0x4,
+    Subtract = 0x5,
+    AddMultiply = 0x6,
+    MultiplyAdd = 0x7,
+    Overlay = 0x8,
+    Lighten = 0x9,
+    Darken = 0xa,
+    Indirect = 0xb,
+    BlendIndirect = 0xc,
+    EachIndirect = 0xd,
 };
 struct ResBflytMaterialTevCombiner {
     BflytTevStage stage;

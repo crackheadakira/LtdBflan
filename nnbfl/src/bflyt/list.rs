@@ -304,7 +304,7 @@ pub enum AlphaCompare {
     Less,
     LessThanEqual,
     Equal,
-    NeverEqual,
+    NotEqual,
     GreaterThanEqual,
     Greater,
     #[default]

@@ -112,6 +112,17 @@ impl From<Color4f> for [f32; 4] {
     }
 }
 
+impl From<Color4f> for [u8; 4] {
+    fn from(color: Color4f) -> Self {
+        [
+            (color.r.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (color.g.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (color.b.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (color.a.clamp(0.0, 1.0) * 255.0).round() as u8,
+        ]
+    }
+}
+
 impl From<[u8; 4]> for Color4u8 {
     fn from(arr: [u8; 4]) -> Self {
         Self {

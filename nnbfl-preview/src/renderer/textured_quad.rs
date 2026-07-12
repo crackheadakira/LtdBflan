@@ -50,8 +50,8 @@ const PLAIN_UVS: [[f32; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct StandardMaterial {
-    pub interpolate_width: [f32; 4],
-    pub interpolate_offset: [f32; 4],
+    pub black_color: u32,
+    pub white_color: u32,
 
     pub combine_mode: u32,
     pub combine_mode2: u32,
@@ -59,13 +59,12 @@ pub struct StandardMaterial {
     pub texture_count: u32,
     pub tex_gen_mode: u32,
     pub visible: u32,
-    pub use_texture_only: u32,
-    pub use_thresholding_alpha_interpolation: u32,
+    pub packed_alpha_flags: u32,
 
     pub debug_stage: u32,
 
     pub is_plain: u32,
-    pub _padding: [f32; 3],
+    pub _padding: [f32; 2],
 
     pub indirect_mtx0: [f32; 4],
     pub indirect_mtx1: [f32; 4],
@@ -78,18 +77,17 @@ pub struct StandardMaterial {
 impl Default for StandardMaterial {
     fn default() -> Self {
         Self {
-            interpolate_width: [1.0, 1.0, 1.0, 1.0],
-            interpolate_offset: [0.0, 0.0, 0.0, 0.0],
+            black_color: 0,
+            white_color: u32::MAX,
             combine_mode: 0,
             combine_mode2: 0,
             texture_count: 1,
             tex_gen_mode: 0,
             visible: 1,
-            use_texture_only: 0,
-            use_thresholding_alpha_interpolation: 0,
+            packed_alpha_flags: 0,
             debug_stage: 0,
             is_plain: 0,
-            _padding: [0.0; 3],
+            _padding: [0.0; 2],
             indirect_mtx0: [0.0; 4],
             indirect_mtx1: [0.0; 4],
             proj_mtx0: [[1.0, 0.0, 0.0, 0.5], [0.0, 1.0, 0.0, 0.5]],
@@ -202,6 +200,8 @@ pub struct TexturedQuad {
     pub sampler_1: WgpuSamplerSettings,
     pub sampler_2: WgpuSamplerSettings,
 
+    pub material_idx: u16,
+
     pub is_detailed: bool,
     pub standard_material: StandardMaterial,
     pub detailed_combiner_material: DetailedCombinerMaterial,
@@ -312,24 +312,28 @@ impl TexturedQuad {
         let tex_gen_mode_packed =
             tex_gen_flags[0] | (tex_gen_flags[1] << 8) | (tex_gen_flags[2] << 16);
 
-        let color_f32 = |entry: &nnbfl::bflyt::list::MaterialColorEntry| -> [f32; 4] {
+        let color_u8 = |entry: &nnbfl::bflyt::list::MaterialColorEntry| -> [u8; 4] {
             if let Some(c) = &entry.color_u8 {
                 (*c).into()
             } else if let Some(c) = &entry.color_f32 {
                 (*c).into()
             } else {
-                [0.0; 4]
+                [0; 4]
             }
         };
 
-        let black_color = color_f32(&mat.interpolation_colors.black_color);
-        let white_color = color_f32(&mat.interpolation_colors.white_color);
-        let interpolate_width = [
-            white_color[0] - black_color[0],
-            white_color[1] - black_color[1],
-            white_color[2] - black_color[2],
-            white_color[3] - black_color[3],
-        ];
+        let black_u8 = color_u8(&mat.interpolation_colors.black_color);
+        let white_u8 = color_u8(&mat.interpolation_colors.white_color);
+
+        let black_packed = ((black_u8[0] as u32) << 0)
+            | (black_u8[1] as u32) << 8
+            | (black_u8[2] as u32) << 16
+            | (black_u8[3] as u32) << 24;
+
+        let white_packed = (white_u8[0] as u32) << 0
+            | (white_u8[1] as u32) << 8
+            | (white_u8[2] as u32) << 16
+            | (white_u8[3] as u32) << 24;
 
         let is_detailed = mat.detailed_combiner.is_some();
         let mut detailed_combiner_material = DetailedCombinerMaterial::default();
@@ -354,11 +358,11 @@ impl TexturedQuad {
         }
 
         let (combine_mode, combine_mode2) = if let Some(tev0) = mat.tev_combiners.first() {
-            let alpha_select_1 = (tev0.alpha_mode != CombinerTevMode::Replace) as u32;
+            let alpha_select_1 = (tev0.alpha_mode == CombinerTevMode::Modulate) as u32;
             let alpha_select_2 = mat
                 .tev_combiners
                 .get(1)
-                .map(|t| (t.alpha_mode != CombinerTevMode::Replace) as u32)
+                .map(|t| (t.alpha_mode == CombinerTevMode::Modulate) as u32)
                 .unwrap_or(0);
 
             let packed_mode1 = (tev0.rgb_mode as u32) | (alpha_select_1 << 24);
@@ -383,15 +387,29 @@ impl TexturedQuad {
         let (indirect_mtx0, indirect_mtx1) =
             build_indirect_matrices(indirect_rotation, indirect_scale);
 
+        let (alpha_compare, ref_value) = if let Some(alpha_compare) = &mat.alpha_compare {
+            (alpha_compare.compare, alpha_compare.alpha_compare_ref_value)
+        } else {
+            (Default::default(), 0.0)
+        };
+
+        let compare_bits = u8::from(alpha_compare) as u32 & 0x7;
+        let ref_value_bits = (ref_value.clamp(0.0, 1.0) * 255.0).round() as u32 & 0xFF;
+
+        let tex_only_bit = mat.use_texture_only as u32 & 1;
+        let thresh_bit = mat.use_thresholding_alpha_interpolation as u32 & 1;
+
+        let packed_alpha_flags =
+            compare_bits | (ref_value_bits << 3) | (tex_only_bit << 11) | (thresh_bit << 12);
+
         let standard_material = StandardMaterial {
-            interpolate_width,
-            interpolate_offset: black_color,
+            black_color: black_packed,
+            white_color: white_packed,
             combine_mode,
             combine_mode2,
             texture_count,
             tex_gen_mode: tex_gen_mode_packed,
-            use_texture_only: mat.use_texture_only as u32,
-            use_thresholding_alpha_interpolation: mat.use_thresholding_alpha_interpolation as u32,
+            packed_alpha_flags,
             visible: is_visible as u32,
             indirect_mtx0,
             indirect_mtx1,
@@ -423,6 +441,7 @@ impl TexturedQuad {
             proj_translations,
             indirect_rotation,
             indirect_scale,
+            material_idx: pic.material_index,
         })
     }
 }
@@ -486,6 +505,7 @@ enum BatchKey {
     Textured {
         texture_name: String,
         sampler: WgpuSamplerSettings,
+        material_idx: u16,
         combine_mode: u32,
         combine_mode2: u32,
         is_detailed: bool,
@@ -726,9 +746,12 @@ impl PaneRenderer {
                     }
                 }
 
+                // better batch key needed, material idx defeats puprpose of batching, but for now
+                // helps avoid bad collisions.
                 BatchKey::Textured {
                     texture_name: tq.texture_name.clone(),
                     sampler: tq.sampler_0,
+                    material_idx: tq.material_idx,
                     combine_mode: tq.standard_material.combine_mode,
                     combine_mode2: tq.standard_material.combine_mode2,
                     is_detailed: tq.is_detailed,

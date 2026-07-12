@@ -18,15 +18,14 @@ struct VertexOutput {
 }
 
 struct StandardMaterial {
-    interpolate_width: vec4<f32>,
-    interpolate_offset: vec4<f32>,
+    black_color: u32,
+    white_color: u32,
     combine_mode: u32,
     combine_mode2: u32,
     texture_count: u32,
     tex_gen_mode: u32,
     visible: u32,
-    use_texture_only: u32,
-    use_thresholding_alpha_interpolation: u32,
+    packed_alpha_flags: u32,
 
     // 0 = 0ff
     // 1 = tex0
@@ -132,6 +131,50 @@ fn plain_preview_color(tint: vec4<f32>, uv: vec2<f32>, quad_size: vec2<f32>) -> 
     return out_color;
 }
 
+const ALPHA_COMPARE_NEVER: u32 = 0u;
+const ALPHA_COMPARE_LESS: u32 = 1u;
+const ALPHA_COMPARE_LESS_THAN_EQUAL: u32 = 2u;
+const ALPHA_COMPARE_EQUAL: u32 = 3u;
+const ALPHA_COMPARE_NOT_EQUAL: u32 = 4u;
+const ALPHA_COMPARE_GREATER_THAN_EQUAL: u32 = 5u;
+const ALPHA_COMPARE_GREATER: u32 = 6u;
+const ALPHA_COMPARE_ALWAYS: u32 = 7u;
+
+fn apply_alpha_compare(alpha: f32, compare_func: u32, reference_value: f32) {
+    var keep = true;
+
+    switch compare_func {
+        case ALPHA_COMPARE_NEVER: {
+            keep = false;
+        }
+        case ALPHA_COMPARE_LESS: {
+            keep = alpha < reference_value;
+        }
+        case ALPHA_COMPARE_LESS_THAN_EQUAL: {
+            keep = alpha <= reference_value;
+        }
+        case ALPHA_COMPARE_EQUAL: {
+            keep = alpha == reference_value;
+        }
+        case ALPHA_COMPARE_NOT_EQUAL: {
+            keep = alpha != reference_value;
+        }
+        case ALPHA_COMPARE_GREATER_THAN_EQUAL: {
+            keep = alpha >= reference_value;
+        }
+        case ALPHA_COMPARE_GREATER: {
+            keep = alpha > reference_value;
+        }
+        default: {
+            keep = true;
+        }
+    }
+
+    if !keep {
+        discard;
+    }
+} 
+
 const TEV_MODE_REPLACE: u32 = 0u;
 const TEV_MODE_MODULATE: u32 = 1u;
 const TEV_MODE_ADD: u32 = 2u;
@@ -202,7 +245,13 @@ fn combine_layer(
         }
     }
 
-    let out_a = select(min(base.a, tex.a), max(base.a, tex.a), select_alpha_max);
+    var out_a: f32;
+
+    if select_alpha_max {
+        out_a = max(base.a, tex.a);
+    } else {
+        out_a = min(base.a, tex.a);
+    }
 
     return vec4<f32>(out_rgb, out_a);
 }
@@ -541,9 +590,19 @@ fn sample_textures(count: u32, uv0: vec2<f32>, uv1: vec2<f32>, uv2: vec2<f32>, p
     return t;
 }
 
+fn unpack_rgba8(packed_color: u32) -> vec4<f32> {
+    let r = f32(packed_color & 0xFFu) / 255.0;
+    let g = f32((packed_color >> 8u) & 0xFFu) / 255.0;
+    let b = f32((packed_color >> 16u) & 0xFFu) / 255.0;
+    let a = f32((packed_color >> 24u) & 0xFFu) / 255.0;
+
+    return vec4<f32>(r, g, b, a);
+}
+
 @fragment
 fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     let mat = u_standard;
+
     if mat.visible == 0u {
         discard;
     }
@@ -552,13 +611,35 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
         return plain_preview_color(in.tint, in.uv0, in.quad_size);
     }
 
-    if mat.use_texture_only == 1u {
-        var color = textureSample(t_texture0, s_sampler0, in.uv0) * in.tint;
+    let black_rgba = unpack_rgba8(mat.black_color);
+    let white_rgba = unpack_rgba8(mat.white_color);
 
-        if mat.use_thresholding_alpha_interpolation == 1u {
-            color.a = select(0.0, 1.0, color.a >= 0.5);
+    let compare_func = mat.packed_alpha_flags & 0x7u;
+    let ref_value = f32((mat.packed_alpha_flags >> 3u) & 0xFFu) / 255.0;
+    let use_texture_only = (mat.packed_alpha_flags >> 11u) & 1u;
+    let use_thresholding_alpha_interpolation = (mat.packed_alpha_flags >> 12u) & 1u;
+
+    if use_texture_only == 1u {
+        let tex_color_raw = textureSample(t_texture0, s_sampler0, in.uv0);
+        var final_alpha = tex_color_raw.a;
+
+        if use_thresholding_alpha_interpolation == 1u {
+            if final_alpha <= black_rgba.a {
+                final_alpha = 0.0;
+            } else if final_alpha >= white_rgba.a {
+                final_alpha = 1.0;
+            } else {
+                let denom = white_rgba.a - black_rgba.a;
+                final_alpha = select((final_alpha - black_rgba.a) / denom, 0.0, denom <= 0.0);
+            }
+        } else {
+            final_alpha = mix(black_rgba.a, white_rgba.a, final_alpha);
         }
 
+        apply_alpha_compare(final_alpha, compare_func, ref_value);
+
+        var color = tex_color_raw * in.tint;
+        color.a = clamp(final_alpha * in.tint.a, 0.0, 1.0);
         return color;
     }
 
@@ -595,6 +676,9 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     if mat.debug_stage == 6u { return vec4<f32>(offset, 0.0, 1.0); }
     if mat.debug_stage == 7u { return vec4<f32>(uv0_indirect + offset, 0.0, 1.0); }
 
+    let rgb_mode1 = mat.combine_mode & 0x00FFFFFFu;
+    let rgb_mode2 = mat.combine_mode2 & 0x00FFFFFFu;
+
     var tex_color: vec4<f32>;
 
     if mat.texture_count == 0u {
@@ -602,29 +686,29 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     } else if mat.texture_count == 1u {
         tex_color = t[0];
     } else if mat.texture_count == 2u {
-        if mat.combine_mode == TEV_MODE_INDIRECT {
+        if rgb_mode1 == TEV_MODE_INDIRECT {
             tex_color = sample_indirect(t[1], uv0_indirect,
                 mat.indirect_mtx0, mat.indirect_mtx1, t_texture0, s_sampler0);
 
             if mat.debug_stage == 8u { return tex_color; }
-        } else if mat.combine_mode == TEV_MODE_BLEND_INDIRECT || mat.combine_mode == TEV_MODE_EACH_INDIRECT {
+        } else if rgb_mode1 == TEV_MODE_BLEND_INDIRECT || rgb_mode1 == TEV_MODE_EACH_INDIRECT {
             tex_color = sample_double_indirect(t[1], t[1], uv0_indirect,
                 mat.indirect_mtx0, mat.indirect_mtx1, t_texture0, s_sampler0, mat.combine_mode2);
         } else {
             tex_color = combine_layer(t[0], t[1], mat.combine_mode);
         }
     } else {
-        if mat.combine_mode == TEV_MODE_INDIRECT {
+        if rgb_mode1 == TEV_MODE_INDIRECT {
             let ai = sample_indirect(t[1], uv0_indirect,
                 mat.indirect_mtx0, mat.indirect_mtx1, t_texture0, s_sampler0);
 
             if mat.debug_stage == 8u { return ai; }
             tex_color = combine_layer(ai, t[2], mat.combine_mode2);
-        } else if mat.combine_mode2 == TEV_MODE_INDIRECT {
+        } else if rgb_mode2 == TEV_MODE_INDIRECT {
             let ai = sample_indirect(t[2], uv1_indirect,
                 mat.indirect_mtx0, mat.indirect_mtx1, t_texture1, s_sampler1);
             tex_color = combine_layer(t[0], ai, mat.combine_mode);
-        } else if mat.combine_mode == TEV_MODE_BLEND_INDIRECT || mat.combine_mode == TEV_MODE_EACH_INDIRECT {
+        } else if rgb_mode1 == TEV_MODE_BLEND_INDIRECT || rgb_mode1 == TEV_MODE_EACH_INDIRECT {
             tex_color = sample_double_indirect(t[1], t[2], uv0_indirect,
                 mat.indirect_mtx0, mat.indirect_mtx1, t_texture0, s_sampler0, mat.combine_mode2);
         } else {
@@ -635,13 +719,26 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if mat.debug_stage == 9u { return vec4<f32>(vec3<f32>(tex_color.a), 1.0); }
 
-    var color = mat.interpolate_offset + mat.interpolate_width * tex_color;
-    color *= in.tint;
-    color.a = clamp(color.a, 0.0, 1.0);
+    var color = black_rgba + (white_rgba - black_rgba) * tex_color;
+    var final_alpha = tex_color.a;
 
-    if mat.use_thresholding_alpha_interpolation == 1u {
-        color.a = select(0.0, 1.0, color.a >= 0.5);
+    if use_thresholding_alpha_interpolation == 1u {
+        let low_thresh = black_rgba.a;
+        let high_thresh = white_rgba.a;
+
+        if low_thresh == high_thresh {
+            final_alpha = step(low_thresh, final_alpha);
+        } else {
+            final_alpha = clamp((final_alpha - low_thresh) / (high_thresh - low_thresh), 0.0, 1.0);
+        }
+    } else {
+        final_alpha = black_rgba.a + (white_rgba.a - black_rgba.a) * final_alpha;
     }
+
+    apply_alpha_compare(final_alpha, compare_func, ref_value);
+
+    color = vec4<f32>(color.rgb, final_alpha) * in.tint;
+    color.a = clamp(color.a, 0.0, 1.0);
 
     return color;
 }

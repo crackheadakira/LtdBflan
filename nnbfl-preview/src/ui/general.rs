@@ -2,7 +2,12 @@ use std::collections::HashSet;
 
 use egui::Ui;
 use nnbfl::{
-    bflyt::{file::BflytSection, list::Layout, pane::Pane},
+    bflyt::{
+        file::BflytSection,
+        list::Layout,
+        pane::{HorizontalPosition, VerticalPosition},
+        pane::{Pane, TextAlignment},
+    },
     ui2d::types::{Vector2f, Vector3f},
 };
 
@@ -140,38 +145,105 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                 && node.visible
             {
                 let display_text = text_box.text.as_deref().unwrap_or("");
+                if display_text.is_empty() {
+                    return;
+                }
 
                 let tl = node.plain_quad.corners[0];
                 let br = node.plain_quad.corners[3];
-
                 let center_x = (tl[0] + br[0]) * 0.5;
                 let center_y = (tl[1] + br[1]) * 0.5;
+
                 let screen_pos =
                     ctx.camera
                         .world_to_screen([center_x, center_y], screen_w, screen_h);
 
-                let font_size = (text_box.font_size.x * ctx.camera.zoom).clamp(16.0, 128.0);
+                let active_zoom = ctx.camera.zoom.min(1.0);
+
+                let pane_width_scaled = text_box.base.size.x * active_zoom;
+                let pane_height_scaled = text_box.base.size.y * active_zoom;
+
+                let base_font_size = (text_box.font_size.x * active_zoom).clamp(16.0, 128.0);
+                let mut font_size = base_font_size;
+
+                if pane_width_scaled > 0.0 && pane_height_scaled > 0.0 {
+                    let approx_char_width = font_size * 0.55;
+                    let approx_total_width =
+                        display_text.chars().count() as f32 * approx_char_width;
+
+                    if approx_total_width > pane_width_scaled {
+                        let shrink_factor = pane_width_scaled / approx_total_width;
+                        font_size = (font_size * shrink_factor).max(12.0);
+                    }
+                }
+
                 let font_id = egui::FontId::proportional(font_size);
 
-                let shadow_offset = (font_size * 0.08).max(1.5);
-                let shadow_pos =
-                    egui::pos2(screen_pos.x + shadow_offset, screen_pos.y + shadow_offset);
+                let galley = ui.fonts_mut(|f| {
+                    f.layout(
+                        display_text.to_string(),
+                        font_id,
+                        egui::Color32::WHITE,
+                        pane_width_scaled,
+                    )
+                });
 
-                painter.text(
-                    shadow_pos,
-                    egui::Align2::CENTER_CENTER,
-                    display_text,
-                    font_id.clone(),
+                let egui_align = match text_box.text_alignment {
+                    TextAlignment::Left => egui::Align2::LEFT_CENTER,
+                    TextAlignment::Right => egui::Align2::RIGHT_CENTER,
+                    TextAlignment::Center => egui::Align2::CENTER_CENTER,
+                    TextAlignment::Synchronous => match (
+                        text_box.base.position.position_x,
+                        text_box.base.position.position_y,
+                    ) {
+                        (HorizontalPosition::Left, VerticalPosition::Top) => egui::Align2::LEFT_TOP,
+                        (HorizontalPosition::Left, VerticalPosition::Center) => {
+                            egui::Align2::LEFT_CENTER
+                        }
+                        (HorizontalPosition::Left, VerticalPosition::Bottom) => {
+                            egui::Align2::LEFT_BOTTOM
+                        }
+
+                        (HorizontalPosition::Center, VerticalPosition::Top) => {
+                            egui::Align2::CENTER_TOP
+                        }
+                        (HorizontalPosition::Center, VerticalPosition::Center) => {
+                            egui::Align2::CENTER_CENTER
+                        }
+                        (HorizontalPosition::Center, VerticalPosition::Bottom) => {
+                            egui::Align2::CENTER_BOTTOM
+                        }
+
+                        (HorizontalPosition::Right, VerticalPosition::Top) => {
+                            egui::Align2::RIGHT_TOP
+                        }
+                        (HorizontalPosition::Right, VerticalPosition::Center) => {
+                            egui::Align2::RIGHT_CENTER
+                        }
+                        (HorizontalPosition::Right, VerticalPosition::Bottom) => {
+                            egui::Align2::RIGHT_BOTTOM
+                        }
+                    },
+                };
+
+                let final_pos = egui_align
+                    .align_size_within_rect(
+                        galley.size(),
+                        egui::Rect::from_center_size(
+                            screen_pos,
+                            egui::vec2(pane_width_scaled, pane_height_scaled),
+                        ),
+                    )
+                    .min;
+
+                let shadow_offset = (font_size * 0.08).max(1.5);
+                painter.galley_with_override_text_color(
+                    egui::pos2(final_pos.x + shadow_offset, final_pos.y + shadow_offset),
+                    galley.clone(),
                     egui::Color32::from_black_alpha(220),
                 );
 
-                painter.text(
-                    screen_pos,
-                    egui::Align2::CENTER_CENTER,
-                    display_text,
-                    font_id,
-                    egui::Color32::WHITE,
-                );
+                painter.galley(final_pos, galley, egui::Color32::WHITE);
             }
         }
     }

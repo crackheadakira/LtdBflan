@@ -391,7 +391,11 @@ impl DrawUi for Material {
         if let Some(alpha_compare) = self.alpha_compare.as_mut() {
             ui.label("Reference Value");
             changed |= ui
-                .add(egui::DragValue::new(&mut alpha_compare.alpha_compare_ref_value).speed(0.5))
+                .add(
+                    egui::DragValue::new(&mut alpha_compare.alpha_compare_ref_value)
+                        .speed(0.5)
+                        .range(0.0..=1.0),
+                )
                 .changed();
 
             egui::ComboBox::new("mat_editor_alpha_compare_op", "Compare Operand")
@@ -422,8 +426,8 @@ impl DrawUi for Material {
                     changed |= ui
                         .selectable_value(
                             &mut alpha_compare.compare,
-                            AlphaCompare::NeverEqual,
-                            "Never Equal",
+                            AlphaCompare::NotEqual,
+                            "Not Equal",
                         )
                         .clicked();
 

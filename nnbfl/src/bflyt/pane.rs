@@ -164,8 +164,8 @@ impl ReadWriteable for PicturePane {
 #[repr(u8)]
 pub enum VerticalPosition {
     #[default]
-    Top,
     Center,
+    Top,
     Bottom,
 }
 
@@ -175,8 +175,8 @@ pub enum VerticalPosition {
 #[repr(u8)]
 pub enum HorizontalPosition {
     #[default]
-    Left,
     Center,
+    Left,
     Right,
 }
 
@@ -295,7 +295,10 @@ pub struct TextBoxPane {
     pub text_origin: u8,
     pub text_alignment: TextAlignment,
     pub text_flags: TextPaneFlags,
+
+    /// Angle to tilt the font, in radians, ranging from `-60.0` degrees to `60.0` degrees  .
     pub italic_tilt: f32,
+
     pub font_top_color: Color4u8,
     pub font_bottom_color: Color4u8,
 

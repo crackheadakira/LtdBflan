@@ -4,9 +4,9 @@ use bitflags::bitflags;
 use nnbfl::{
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection, ControlSourceElement, GroupElement, PaneElement},
-        flags::{HorizontalPosition, VerticalPosition},
         list::{CaptureTextureList, FontList, Material, MaterialList, TextureList},
         pane::{BasePaneUsageFlags, Pane, PartsPane, PartsPaneBasicInfo, PicturePane},
+        pane::{HorizontalPosition, VerticalPosition},
     },
     core::FileReadWriteable,
     sarc::file::MagicFiles,

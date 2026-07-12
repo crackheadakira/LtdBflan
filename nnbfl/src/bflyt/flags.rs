@@ -1,29 +1,10 @@
 use num_enum::{FromPrimitive, IntoPrimitive};
 use serde::{Deserialize, Serialize};
 
-use crate::core::BitPackable;
-
-#[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive, Default, PartialEq,
-)]
-#[repr(u8)]
-pub enum HorizontalPosition {
-    #[default]
-    Center,
-    Left,
-    Right,
-}
-
-#[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, IntoPrimitive, FromPrimitive, Default, PartialEq,
-)]
-#[repr(u8)]
-pub enum VerticalPosition {
-    #[default]
-    Center,
-    Top,
-    Bottom,
-}
+use crate::{
+    bflyt::pane::{HorizontalPosition, VerticalPosition},
+    core::BitPackable,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct BflytPosition {

@@ -592,36 +592,86 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                     }
                 }
 
-                AnimInfoType::MaterialColorAnim => {
+                AnimInfoType::AlphaCompareAnim => {
                     let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
                         continue;
                     };
+
                     let Some(tq) = &mut node.textured_quad else {
                         continue;
                     };
 
                     for t in targets {
-                        let v = eval_curve(&t.curve, frame) / 255.0;
+                        let v_float = eval_curve(&t.curve, frame);
+                        let v_byte = (v_float.clamp(0.0, 1.0) * 255.0).round() as u32;
+
+                        let mask = !(0xFFu32 << 3);
+
+                        tq.standard_material.packed_alpha_flags =
+                            (tq.standard_material.packed_alpha_flags & mask) | (v_byte << 3);
+                    }
+                }
+
+                AnimInfoType::MaterialColorAnim => {
+                    let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
+                        continue;
+                    };
+
+                    let Some(tq) = &mut node.textured_quad else {
+                        continue;
+                    };
+
+                    for t in targets {
+                        let v_float = eval_curve(&t.curve, frame) / 255.0;
+                        let v_byte = (v_float.clamp(0.0, 1.0) * 255.0).round() as u32;
+
                         if let TargetIndex::MaterialColor(c) = &t.target {
                             use nnbfl::bflan::targets::MaterialColorTarget::*;
                             match c {
-                                BufferRed => tq.standard_material.interpolate_offset[0] = v,
-                                BufferGreen => tq.standard_material.interpolate_offset[1] = v,
-                                BufferBlue => tq.standard_material.interpolate_offset[2] = v,
-                                BufferAlpha => tq.standard_material.interpolate_offset[3] = v,
+                                BufferRed => {
+                                    tq.standard_material.black_color =
+                                        (tq.standard_material.black_color & !0xFFu32)
+                                            | (v_byte << 0);
+                                }
+                                BufferGreen => {
+                                    tq.standard_material.black_color =
+                                        (tq.standard_material.black_color & !(0xFFu32 << 8))
+                                            | (v_byte << 8);
+                                }
+                                BufferBlue => {
+                                    tq.standard_material.black_color =
+                                        (tq.standard_material.black_color & !(0xFFu32 << 16))
+                                            | (v_byte << 16);
+                                }
+                                BufferAlpha => {
+                                    tq.standard_material.black_color =
+                                        (tq.standard_material.black_color & !(0xFFu32 << 24))
+                                            | (v_byte << 24);
+                                }
+
                                 Constant0Red | Color0Red | Color1Red | Color2Red | Color3Red
-                                | Color4Red => tq.standard_material.interpolate_width[0] = v,
+                                | Color4Red => {
+                                    tq.standard_material.white_color =
+                                        (tq.standard_material.white_color & !0xFFu32)
+                                            | (v_byte << 0);
+                                }
                                 Constant0Green | Color0Green | Color1Green | Color2Green
                                 | Color3Green | Color4Green => {
-                                    tq.standard_material.interpolate_width[1] = v
+                                    tq.standard_material.white_color =
+                                        (tq.standard_material.white_color & !(0xFFu32 << 8))
+                                            | (v_byte << 8);
                                 }
                                 Constant0Blue | Color0Blue | Color1Blue | Color2Blue
                                 | Color3Blue | Color4Blue => {
-                                    tq.standard_material.interpolate_width[2] = v
+                                    tq.standard_material.white_color =
+                                        (tq.standard_material.white_color & !(0xFFu32 << 16))
+                                            | (v_byte << 16);
                                 }
                                 Constant0Alpha | Color0Alpha | Color1Alpha | Color2Alpha
                                 | Color3Alpha | Color4Alpha => {
-                                    tq.standard_material.interpolate_width[3] = v
+                                    tq.standard_material.white_color =
+                                        (tq.standard_material.white_color & !(0xFFu32 << 24))
+                                            | (v_byte << 24);
                                 }
                             }
                         }
