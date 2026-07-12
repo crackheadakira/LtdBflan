@@ -11,6 +11,7 @@ pub struct ArchiveBrowser {
     pub layout_dir: Option<PathBuf>,
 
     pub archive_scan: Option<ArchiveScan>,
+    pub search_query: String,
 }
 
 impl DrawUi<Option<UiAction>> for ArchiveBrowser {
@@ -58,7 +59,7 @@ impl DrawUi<Option<UiAction>> for ArchiveBrowser {
                         ui.horizontal(|ui| {
                             if scan.done {
                                 ui.label(format!(
-                                    "Found {} BFLYT-containing archive(s) out of {} scanned.",
+                                    "Found {} BFLYTs out of {} archive(s) scanned.",
                                     scan.entries.len(),
                                     scan.scanned
                                 ));
@@ -92,17 +93,46 @@ impl DrawUi<Option<UiAction>> for ArchiveBrowser {
 
                         ui.separator();
 
+                        let query = self.search_query.to_lowercase();
+                        let filtered_entries: Vec<_> = scan
+                            .entries
+                            .iter()
+                            .filter(|e| {
+                                query.is_empty() || e.display_name.to_lowercase().contains(&query)
+                            })
+                            .collect();
+
+                        ui.horizontal(|ui| {
+                            ui.label("Search:");
+                            let res = ui.text_edit_singleline(&mut self.search_query);
+
+                            if !self.search_query.is_empty() {
+                                if ui.button("❌").clicked() {
+                                    self.search_query.clear();
+                                    res.request_focus();
+                                }
+
+                                ui.weak(format!("{} results", filtered_entries.len()));
+                            }
+                        });
+
+                        ui.separator();
+
                         egui::ScrollArea::vertical().auto_shrink(false).show_rows(
                             ui,
                             24.0,
-                            scan.entries.len(),
+                            filtered_entries.len(),
                             |ui, row_range| {
-                                if scan.entries.is_empty() && scan.done {
-                                    ui.weak("No BFLYT-containing archives found.");
+                                if filtered_entries.is_empty() && scan.done {
+                                    if query.is_empty() {
+                                        ui.weak("No BFLYT-containing archives found.");
+                                    } else {
+                                        ui.weak("No archives match your search.");
+                                    }
                                 }
 
                                 for i in row_range {
-                                    let entry = &scan.entries[i];
+                                    let entry = filtered_entries[i];
 
                                     ui.horizontal(|ui| {
                                         ui.label(&entry.display_name);
