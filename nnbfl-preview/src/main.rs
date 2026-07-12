@@ -735,8 +735,15 @@ impl App {
             .timeline
             .anim_player
             .anims
-            .iter()
-            .map(|a| a.name.clone())
+            .iter_mut()
+            .enumerate()
+            .map(|(idx, a)| {
+                if a.name.is_empty() {
+                    a.name = format!("Animation {}", idx + 1)
+                };
+
+                a.name.clone()
+            })
             .collect();
 
         self.camera.zoom = 1.0;
@@ -1299,16 +1306,24 @@ impl ApplicationHandler for App {
                             .anim_player
                             .tick(dt, self.ui_state.timeline.frame_rate)
                         {
+                            let anim_idx = self
+                                .ui_state
+                                .timeline
+                                .anim_player
+                                .anims
+                                .iter()
+                                .position(|a| a.name == next);
+
                             self.ui_state.timeline.anim_player.play(
-                                &next.clone(),
+                                anim_idx,
                                 self.bflyt_view.as_ref(),
                                 &mut self.ui_state.hidden_panes,
                             );
                         }
 
-                        if let Some(name) = self.ui_state.pending_play_anim.take() {
+                        if let Some(anim_idx) = self.ui_state.pending_play_anim.take() {
                             self.ui_state.timeline.anim_player.play(
-                                &name,
+                                Some(anim_idx),
                                 self.bflyt_view.as_ref(),
                                 &mut self.ui_state.hidden_panes,
                             );

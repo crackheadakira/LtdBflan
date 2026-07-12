@@ -110,24 +110,24 @@ impl DrawUi for Material {
             .changed();
 
         ui.horizontal(|ui| {
-            ui.heading("Material Colors");
-            if ui.button("➕ Add Entry").clicked() {
-                self.colors.push(Default::default());
-                changed |= true;
+            ui.heading("Interpolation Colors");
+        });
+
+        ui.horizontal(|ui| {
+            if let Some(ref mut color) = self.interpolation_colors.black_color.color_f32 {
+                changed |= color.draw_with(ui, "Black Color")
+            } else if let Some(ref mut color) = self.interpolation_colors.black_color.color_u8 {
+                changed |= color.draw_with(ui, "Black Color")
             }
         });
 
-        for (idx, color) in self.colors.iter_mut().enumerate() {
-            ui.horizontal(|ui| {
-                let color_label = &format!("Color {}:", idx + 1);
-
-                if let Some(ref mut color) = color.color_f32 {
-                    changed |= color.draw_with(ui, color_label)
-                } else if let Some(ref mut color) = color.color_u8 {
-                    changed |= color.draw_with(ui, color_label)
-                }
-            });
-        }
+        ui.horizontal(|ui| {
+            if let Some(ref mut color) = self.interpolation_colors.white_color.color_f32 {
+                changed |= color.draw_with(ui, "White Color")
+            } else if let Some(ref mut color) = self.interpolation_colors.white_color.color_u8 {
+                changed |= color.draw_with(ui, "White Color")
+            }
+        });
 
         ui.separator();
         ui.horizontal(|ui| {
@@ -372,8 +372,8 @@ impl DrawUi for Material {
         for (idx, tev_combiner) in self.tev_combiners.iter_mut().enumerate() {
             ui.weak(format!("Combiner {}", idx + 1));
 
-            tev_combiner.alpha_mode.draw_with(ui, ("Alpha Mode", idx));
-            tev_combiner.rgb_mode.draw_with(ui, ("RGB Mode", idx));
+            changed |= tev_combiner.alpha_mode.draw_with(ui, ("Alpha Mode", idx));
+            changed |= tev_combiner.rgb_mode.draw_with(ui, ("RGB Mode", idx));
 
             ui.add_space(12.0);
         }

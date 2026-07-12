@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use bytemuck::{Pod, Zeroable};
 use nnbfl::bflyt::flags::{TexFilter, TexWrapMode};
-use nnbfl::bflyt::list::{Material, MaterialTextureMap, MaterialTextureSrt, TexGenSrc};
+use nnbfl::bflyt::list::{
+    CombinerTevMode, Material, MaterialTextureMap, MaterialTextureSrt, TexGenSrc,
+};
 use nnbfl::bflyt::pane::PicturePane;
 use nnbfl::ui2d::types::Vector2f;
 use wgpu::util::DeviceExt;
@@ -50,10 +52,11 @@ const PLAIN_UVS: [[f32; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]
 pub struct StandardMaterial {
     pub interpolate_width: [f32; 4],
     pub interpolate_offset: [f32; 4],
+
     pub combine_mode: u32,
     pub combine_mode2: u32,
+
     pub texture_count: u32,
-    pub alpha_select: u32,
     pub tex_gen_mode: u32,
     pub visible: u32,
     pub use_texture_only: u32,
@@ -62,7 +65,7 @@ pub struct StandardMaterial {
     pub debug_stage: u32,
 
     pub is_plain: u32,
-    pub _padding: [f32; 2],
+    pub _padding: [f32; 3],
 
     pub indirect_mtx0: [f32; 4],
     pub indirect_mtx1: [f32; 4],
@@ -80,14 +83,13 @@ impl Default for StandardMaterial {
             combine_mode: 0,
             combine_mode2: 0,
             texture_count: 1,
-            alpha_select: 0,
             tex_gen_mode: 0,
             visible: 1,
             use_texture_only: 0,
             use_thresholding_alpha_interpolation: 0,
             debug_stage: 0,
             is_plain: 0,
-            _padding: [0.0; 2],
+            _padding: [0.0; 3],
             indirect_mtx0: [0.0; 4],
             indirect_mtx1: [0.0; 4],
             proj_mtx0: [[1.0, 0.0, 0.0, 0.5], [0.0, 1.0, 0.0, 0.5]],
@@ -208,16 +210,16 @@ pub struct TexturedQuad {
     pub proj_translations: [[f32; 2]; 3],
 
     pub indirect_rotation: f32,
-    pub indirect_scale: [f32; 2],
+    pub indirect_scale: Vector2f,
 }
 
-pub fn build_indirect_matrices(rotation_deg: f32, scale: [f32; 2]) -> ([f32; 4], [f32; 4]) {
+pub fn build_indirect_matrices(rotation_deg: f32, scale: Vector2f) -> ([f32; 4], [f32; 4]) {
     let rad = rotation_deg.to_radians();
 
-    let a0x = rad.cos() * scale[0] * 2.0;
-    let a1x = -rad.sin() * scale[1] * 2.0;
-    let a0y = rad.sin() * scale[0] * 2.0;
-    let a1y = rad.cos() * scale[1] * 2.0;
+    let a0x = rad.cos() * scale.x * 2.0;
+    let a1x = -rad.sin() * scale.y * 2.0;
+    let a0y = rad.sin() * scale.x * 2.0;
+    let a1y = rad.cos() * scale.y * 2.0;
 
     let tx = a0x * -0.5 + a1x * -0.5;
     let ty = a0y * -0.5 + a1y * -0.5;
@@ -320,16 +322,8 @@ impl TexturedQuad {
             }
         };
 
-        let black_color = mat
-            .colors
-            .first()
-            .map(color_f32)
-            .unwrap_or([0.0, 0.0, 0.0, 0.0]);
-        let white_color = mat
-            .colors
-            .get(1)
-            .map(color_f32)
-            .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+        let black_color = color_f32(&mat.interpolation_colors.black_color);
+        let white_color = color_f32(&mat.interpolation_colors.white_color);
         let interpolate_width = [
             white_color[0] - black_color[0],
             white_color[1] - black_color[1],
@@ -360,21 +354,30 @@ impl TexturedQuad {
         }
 
         let (combine_mode, combine_mode2) = if let Some(tev0) = mat.tev_combiners.first() {
-            (
-                tev0.rgb_mode as u32,
-                mat.tev_combiners
-                    .get(1)
-                    .map(|t| t.rgb_mode as u32)
-                    .unwrap_or(0),
-            )
+            let alpha_select_1 = (tev0.alpha_mode != CombinerTevMode::Replace) as u32;
+            let alpha_select_2 = mat
+                .tev_combiners
+                .get(1)
+                .map(|t| (t.alpha_mode != CombinerTevMode::Replace) as u32)
+                .unwrap_or(0);
+
+            let packed_mode1 = (tev0.rgb_mode as u32) | (alpha_select_1 << 24);
+            let packed_mode2 = mat
+                .tev_combiners
+                .get(1)
+                .map(|t| t.rgb_mode as u32)
+                .unwrap_or(0)
+                | (alpha_select_2 << 24);
+
+            (packed_mode1, packed_mode2)
         } else {
             (0, 0)
         };
 
         let (indirect_rotation, indirect_scale) = if let Some(im) = &mat.indirect_matrix {
-            (im.rotation, [im.scale.x, im.scale.y])
+            (im.rotation, im.scale)
         } else {
-            (0.0, [0.0, 0.0])
+            (0.0, Vector2f::new(0.0, 0.0))
         };
 
         let (indirect_mtx0, indirect_mtx1) =
@@ -386,7 +389,6 @@ impl TexturedQuad {
             combine_mode,
             combine_mode2,
             texture_count,
-            alpha_select: 0,
             tex_gen_mode: tex_gen_mode_packed,
             use_texture_only: mat.use_texture_only as u32,
             use_thresholding_alpha_interpolation: mat.use_thresholding_alpha_interpolation as u32,

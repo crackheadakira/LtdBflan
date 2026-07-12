@@ -24,6 +24,7 @@ use crate::{
 pub const SUPPORTED_SARC_EXTENSIONS: &[&str] = &[
     "blarc",
     "sarc",
+    "arc",
     "Nin_NX_NVN",
     "blarc.zs",
     "sarc.zs",
@@ -38,7 +39,7 @@ pub struct UiState {
     pub pending_action: Option<UiAction>,
     pub visiblity_flags: PaneVisibilityFlags,
     pub anim_names: Vec<String>,
-    pub pending_play_anim: Option<String>,
+    pub pending_play_anim: Option<usize>,
     pub sidebar_tab: SidebarTab,
     pub right_sidebar_tab: SidebarRightTab,
     pub active_debug_stage: u32,
@@ -149,7 +150,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     ctx.camera
                         .world_to_screen([center_x, center_y], screen_w, screen_h);
 
-                let font_size = (32.0 * ctx.camera.zoom).clamp(8.0, 128.0);
+                let font_size = (text_box.font_size.x * ctx.camera.zoom).clamp(16.0, 128.0);
                 let font_id = egui::FontId::proportional(font_size);
 
                 let shadow_offset = (font_size * 0.08).max(1.5);
@@ -234,11 +235,12 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                         (1, "1. Layer 0 Raw Texture"),
                         (2, "2. Layer 1 Raw Texture"),
                         (3, "3. Layer 2 Raw Texture"),
-                        (4, "4. Post-Texture Combiner Blend"),
-                        (5, "5. Indirect Raw Vector Offset"),
-                        (6, "6. Indirect Displaced UV Coordinates"),
-                        (7, "7. Indirect Isolated Sample Output"),
-                        (8, "8. Composite Layer Alpha (Grayscale)"),
+                        (4, "4. Layer 0 UV"),
+                        (5, "5. Layer 1 UV"),
+                        (6, "6. Indirect Raw Vector Offset"),
+                        (7, "7. Indirect Displaced UV Coordinates"),
+                        (8, "8. Indirect Isolated Sample Output"),
+                        (9, "9. Composite Layer Alpha (Grayscale)"),
                     ];
 
                     for (stage_idx, label) in stages {
@@ -546,14 +548,14 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                                         ctx.ui_state.anim_names.len(),
                                         |ui, row_range| {
                                             for idx in row_range {
-                                                let name = &ctx.ui_state.anim_names[idx];
+                                                let name = ctx.ui_state.anim_names[idx].clone();
+
                                                 let is_active =
                                                     ctx.ui_state.timeline.anim_player.active
                                                         == Some(idx);
 
                                                 if ui.selectable_label(is_active, name).clicked() {
-                                                    ctx.ui_state.pending_play_anim =
-                                                        Some(name.clone());
+                                                    ctx.ui_state.pending_play_anim = Some(idx);
                                                 }
                                             }
                                         },

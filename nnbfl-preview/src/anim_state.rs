@@ -227,7 +227,7 @@ impl AnimPlayer {
         Self {
             anims: Vec::new(),
             active: None,
-            limit_to_group: true,
+            limit_to_group: false,
         }
     }
 
@@ -237,11 +237,11 @@ impl AnimPlayer {
 
     pub fn play(
         &mut self,
-        name: &str,
+        anim_idx: Option<usize>,
         view: Option<&BflytView>,
         hidden_panes: &mut HashSet<usize>,
     ) {
-        if let Some(idx) = self.anims.iter().position(|a| a.name == name) {
+        if let Some(idx) = anim_idx {
             if let Some(prev) = self.active
                 && prev < self.anims.len()
             {
@@ -553,10 +553,10 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                                 tq.indirect_rotation = v
                             }
                             TargetIndex::IndirectSrt(IndirectSrtTarget::ScaleU) => {
-                                tq.indirect_scale[0] = v
+                                tq.indirect_scale.x = v
                             }
                             TargetIndex::IndirectSrt(IndirectSrtTarget::ScaleV) => {
-                                tq.indirect_scale[1] = v
+                                tq.indirect_scale.y = v
                             }
                             _ => {}
                         }

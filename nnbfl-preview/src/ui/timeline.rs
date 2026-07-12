@@ -220,9 +220,11 @@ impl DrawUi<()> for TimelineState {
 
                     ui.separator();
 
-                    ui.label("Groups:");
-                    for group in anim_groups {
-                        ui.label(group);
+                    if !anim_groups.is_empty() {
+                        ui.label("Groups:");
+                        for group in anim_groups {
+                            ui.label(group);
+                        }
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

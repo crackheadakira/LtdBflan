@@ -291,8 +291,7 @@ impl ReadWriteable for MaterialTevCombiner {
     fn write(&self, w: &mut Writer) {
         w.write_u8(self.rgb_mode.into());
         w.write_u8(self.alpha_mode.into());
-        w.write_u8(0);
-        w.write_u8(0);
+        w.write_u16(0);
     }
 }
 
@@ -590,6 +589,8 @@ pub enum TevScale {
     Copy,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Serialize,
     Deserialize,
     FromPrimitive,
@@ -1015,10 +1016,16 @@ impl Default for MaterialColorEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MaterialColorInterpolation {
+    pub black_color: MaterialColorEntry,
+    pub white_color: MaterialColorEntry,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Material {
     pub material_name: String,
 
-    pub colors: Vec<MaterialColorEntry>,
+    pub interpolation_colors: MaterialColorInterpolation,
 
     pub tex_maps: Vec<MaterialTextureMap>,
     pub tex_extensions: Vec<MaterialTextureExtension>,
@@ -1062,9 +1069,10 @@ impl ReadWriteable for Material {
             color_offset_bytes.push(cursor.read_u8()?);
         }
 
-        let mut colors = Vec::with_capacity(color_offset_bytes.len());
-        for (i, &offset) in color_offset_bytes.iter().enumerate() {
-            let is_float = ((color_types_byte >> i) & 1) != 0;
+        let mut read_color = |index: usize| -> Result<MaterialColorEntry, FormatError> {
+            let offset = color_offset_bytes[index];
+            let is_float = ((color_types_byte >> index) & 1) != 0;
+
             let saved = cursor.pos;
             cursor.seek(color_data_base + offset as usize)?;
 
@@ -1080,9 +1088,14 @@ impl ReadWriteable for Material {
                 }
             };
 
-            colors.push(entry);
             cursor.seek(saved)?;
-        }
+            Ok(entry)
+        };
+
+        let interpolation_colors = MaterialColorInterpolation {
+            black_color: read_color(0)?,
+            white_color: read_color(1)?,
+        };
 
         let color_section_size = {
             let mut max_end = 2 + color_count as usize;
@@ -1195,7 +1208,7 @@ impl ReadWriteable for Material {
             use_texture_only: material_info.use_texture_only,
             use_thresholding_alpha_interpolation: material_info
                 .use_thresholding_alpha_interpolation,
-            colors,
+            interpolation_colors,
             tex_maps,
             tex_extensions,
             tex_srts,
@@ -1239,24 +1252,29 @@ impl ReadWriteable for Material {
 
         writer.write_u32(material_info.encode());
 
+        let entries = [
+            &self.interpolation_colors.black_color,
+            &self.interpolation_colors.white_color,
+        ];
+
         let mut color_types_byte: u8 = 0;
-        for (i, entry) in self.colors.iter().enumerate() {
+        for (i, entry) in entries.iter().enumerate() {
             if entry.color_f32.is_some() {
                 color_types_byte |= 1 << i;
             }
         }
 
         writer.write_u8(color_types_byte);
-        writer.write_u8(self.colors.len() as u8);
+        writer.write_u8(entries.len() as u8);
 
-        let n = self.colors.len();
+        let n = entries.len();
         let mut cumulative_offset = (2 + n) as u8;
-        for entry in &self.colors {
+        for entry in &entries {
             writer.write_u8(cumulative_offset);
             cumulative_offset += if entry.color_u8.is_some() { 4 } else { 16 };
         }
 
-        for entry in &self.colors {
+        for entry in &entries {
             if let Some(c) = &entry.color_u8 {
                 c.write(writer);
             } else if let Some(c) = &entry.color_f32 {
