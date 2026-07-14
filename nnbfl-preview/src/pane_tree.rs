@@ -28,7 +28,7 @@ use crate::{
     renderer::{
         quad::Quad,
         textured_quad::{MaterialPaneData, PaneQuadData, TexturedQuad},
-        window_quad::{calculate_window_layout, derive_from_window},
+        window_quad::{calculate_scaled_frame_uvs, calculate_window_layout, derive_from_window},
     },
     traits::Displaying,
     ui::general::SUPPORTED_SARC_EXTENSIONS,
@@ -249,6 +249,7 @@ impl PaneNode {
         parent_size: Vector2f,
         parent_scale: Vector2f,
         parent_rotation: Vector3f,
+        bntxs: &[Bntx],
     ) {
         let child_scale;
 
@@ -307,12 +308,49 @@ impl PaneNode {
                         }
 
                         for geom in layout.frames {
+                            let Some(kind) = geom.frame_kind else {
+                                continue;
+                            };
+
+                            let Some(config_idx) = kind.to_binary_index(win.frames.len()) else {
+                                continue;
+                            };
+
+                            let Some(frame_data) = win.frames.get(config_idx) else {
+                                continue;
+                            };
+
                             if let Some(tq) = self.window_quads.get_mut(quad_idx) {
                                 tq.x = geom.x;
                                 tq.y = geom.y;
                                 tq.width = geom.width;
                                 tq.height = geom.height;
                                 tq.corners = geom.corners;
+
+                                let (tex_w, tex_h) = {
+                                    bntxs
+                                        .iter()
+                                        .flat_map(|b| &b.textures)
+                                        .find(|t| t.name == *tq.texture_name)
+                                        .map(|t| (t.info.width as f32, t.info.height as f32))
+                                        .unwrap_or((1.0, 1.0))
+                                };
+
+                                let texture_uvs = calculate_scaled_frame_uvs(
+                                    geom.width,
+                                    geom.height,
+                                    tex_w,
+                                    tex_h,
+                                    kind,
+                                    frame_data.texture_flip_mode,
+                                    tq.standard_material.texture_count as usize,
+                                );
+
+                                let base_uvs = Self::compute_uvs(&texture_uvs);
+                                let uvs = Self::apply_srt_to_uvs(base_uvs, &tq.tex_srts);
+
+                                tq.base_uvs = base_uvs;
+                                tq.uvs = uvs;
                             }
 
                             quad_idx += 1;
@@ -340,11 +378,21 @@ impl PaneNode {
             .unwrap_or((parent_rotation, parent_size));
 
         for child in &mut self.children {
-            child.recompute(self.world_center, child_size, child_scale, child_rotation);
+            child.recompute(
+                self.world_center,
+                child_size,
+                child_scale,
+                child_rotation,
+                bntxs,
+            );
         }
     }
 
-    pub fn recompute_dirty_material(&mut self, material_list: &MaterialList) -> bool {
+    pub fn recompute_dirty_material(
+        &mut self,
+        material_list: &MaterialList,
+        bntxs: &[Bntx],
+    ) -> bool {
         let mut requires_reupload = false;
 
         if self.dirty.contains(DirtyFlags::MATERIAL)
@@ -388,6 +436,7 @@ impl PaneNode {
                 self.world_corners.to_array(),
                 self.visible,
                 self.pane_idx,
+                bntxs,
             );
 
             requires_reupload = true;
@@ -513,21 +562,24 @@ impl PaneTree {
                 self.layout_size,
                 Vector2f { x: 1.0, y: 1.0 },
                 Vector3f::default(),
+                &self.discovered_bntxs,
             );
         }
     }
 
     pub fn recompute_dirty_materials(&mut self) -> bool {
         let material_list = std::mem::take(&mut self.material_list);
+        let bntxs = std::mem::take(&mut self.discovered_bntxs);
         let mut require_reupload = false;
 
         if let Some(ref list) = material_list {
             self.for_each_mut(|node| {
-                require_reupload |= node.recompute_dirty_material(list);
+                require_reupload |= node.recompute_dirty_material(list, &bntxs);
             });
         }
 
         self.material_list = material_list;
+        self.discovered_bntxs = bntxs;
 
         require_reupload
     }
@@ -1273,7 +1325,14 @@ impl<'a> Builder<'a> {
             rotation,
         );
 
-        derive_from_window(win, material_list, corners.to_array(), is_visible, pane_idx)
+        derive_from_window(
+            win,
+            material_list,
+            corners.to_array(),
+            is_visible,
+            pane_idx,
+            self.discovered_bntxs,
+        )
     }
 }
 

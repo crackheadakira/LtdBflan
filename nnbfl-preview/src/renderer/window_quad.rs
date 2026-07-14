@@ -2,6 +2,7 @@ use nnbfl::bflyt::flags::WindowKind;
 use nnbfl::bflyt::list::MaterialList;
 use nnbfl::bflyt::pane::{TextureFlip, TextureUv, WindowPane};
 use nnbfl::ui2d::types::{Color4u8, Vector2f};
+use tomolib::formats::bntx::Bntx;
 
 use crate::renderer::textured_quad::{MaterialPaneData, TexturedQuad};
 
@@ -381,6 +382,7 @@ pub fn derive_from_window(
     corners: [[f32; 2]; 4],
     is_visible: bool,
     pane_idx: usize,
+    bntxs: &[Bntx],
 ) -> Vec<TexturedQuad> {
     let mut out = Vec::new();
 
@@ -470,7 +472,26 @@ pub fn derive_from_window(
             }
         }
 
-        let frame_uvs = flipped_plain_uvs(mat.tex_maps.len(), frame_data.texture_flip_mode);
+        let (tex_w, tex_h) = if let Some(tex_name) = mat.tex_maps.first().map(|m| &m.texture_name) {
+            bntxs
+                .iter()
+                .flat_map(|b| &b.textures)
+                .find(|t| t.name == *tex_name)
+                .map(|t| (t.info.width as f32, t.info.height as f32))
+                .unwrap_or((1.0, 1.0))
+        } else {
+            (1.0, 1.0)
+        };
+
+        let frame_uvs = calculate_scaled_frame_uvs(
+            geom.width,
+            geom.height,
+            tex_w,
+            tex_h,
+            kind,
+            frame_data.texture_flip_mode,
+            mat.tex_maps.len(),
+        );
 
         let (tl, tr, bl, br) = if win.flag.use_vertex_color_for_all_window {
             (
@@ -511,6 +532,61 @@ pub fn derive_from_window(
     }
 
     out
+}
+
+pub fn calculate_scaled_frame_uvs(
+    geom_width: f32,
+    geom_height: f32,
+    tex_w: f32,
+    tex_h: f32,
+    kind: FrameKind,
+    flip_mode: TextureFlip,
+    texture_maps_count: usize,
+) -> Vec<TextureUv> {
+    let mut frame_uvs = flipped_plain_uvs(texture_maps_count, flip_mode);
+
+    let geom_aspect = if geom_height > 0.0 {
+        geom_width / geom_height
+    } else {
+        1.0
+    };
+    let tex_aspect = if tex_h > 0.0 { tex_w / tex_h } else { 1.0 };
+
+    let (u_scale, v_scale) = if geom_aspect > tex_aspect {
+        (geom_aspect / tex_aspect, 1.0)
+    } else {
+        (1.0, tex_aspect / geom_aspect)
+    };
+
+    for uv_set in &mut frame_uvs {
+        let (anchor_u, anchor_v) = match kind {
+            FrameKind::TopLeft => (0.0, 0.0),
+            FrameKind::Top => (0.5, 0.0),
+            FrameKind::TopRight => (1.0, 0.0),
+            FrameKind::Left => (0.0, 0.5),
+            FrameKind::Right => (1.0, 0.5),
+            FrameKind::BottomLeft => (0.0, 1.0),
+            FrameKind::Bottom => (0.5, 1.0),
+            FrameKind::BottomRight => (1.0, 1.0),
+        };
+
+        let scale_coord =
+            |val: f32, scale: f32, anchor: f32| -> f32 { anchor + (val - anchor) * scale };
+
+        uv_set.top_left.x = scale_coord(uv_set.top_left.x, u_scale, anchor_u);
+        uv_set.top_left.y = scale_coord(uv_set.top_left.y, v_scale, anchor_v);
+
+        uv_set.top_right.x = scale_coord(uv_set.top_right.x, u_scale, anchor_u);
+        uv_set.top_right.y = scale_coord(uv_set.top_right.y, v_scale, anchor_v);
+
+        uv_set.bottom_left.x = scale_coord(uv_set.bottom_left.x, u_scale, anchor_u);
+        uv_set.bottom_left.y = scale_coord(uv_set.bottom_left.y, v_scale, anchor_v);
+
+        uv_set.bottom_right.x = scale_coord(uv_set.bottom_right.x, u_scale, anchor_u);
+        uv_set.bottom_right.y = scale_coord(uv_set.bottom_right.y, v_scale, anchor_v);
+    }
+
+    frame_uvs
 }
 
 fn interpolate_corner(corners: [[f32; 2]; 4], u: f32, v: f32) -> [f32; 2] {
