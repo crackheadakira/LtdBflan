@@ -16,12 +16,25 @@ pub fn apply_texture_flip(texture_flip: TextureFlip, uvs: [[f32; 2]; 4]) -> [[f3
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FrameKind {
+    Left,
+    TopLeft,
+    BottomLeft,
+    Right,
+    TopRight,
+    BottomRight,
+    Top,
+    Bottom,
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct FrameRect {
     pub x: f32,
     pub y: f32,
     pub width: f32,
     pub height: f32,
+    pub frame_kind: Option<FrameKind>,
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -95,6 +108,7 @@ pub fn calculate_content_rect(
         y,
         width: w,
         height: h,
+        frame_kind: None,
     }
 }
 
@@ -125,49 +139,57 @@ pub fn calculate_frame_rects_around(
             y: y0,
             width: w0,
             height: h0,
-        }, // LT
+            frame_kind: Some(FrameKind::TopLeft),
+        },
         FrameRect {
             x: x2,
             y: y0,
             width: w2,
             height: h0,
-        }, // RT
+            frame_kind: Some(FrameKind::TopRight),
+        },
         FrameRect {
             x: x0,
             y: y2,
             width: w0,
             height: h2,
-        }, // LB
+            frame_kind: Some(FrameKind::BottomLeft),
+        },
         FrameRect {
             x: x2,
             y: y2,
             width: w2,
             height: h2,
-        }, // RB
+            frame_kind: Some(FrameKind::BottomRight),
+        },
         FrameRect {
             x: x0,
             y: y1,
             width: w0,
             height: h1,
-        }, // L
+            frame_kind: Some(FrameKind::Left),
+        },
         FrameRect {
             x: x2,
             y: y1,
             width: w2,
             height: h1,
-        }, // R
+            frame_kind: Some(FrameKind::Right),
+        },
         FrameRect {
             x: x1,
             y: y0,
             width: w1,
             height: h0,
-        }, // T
+            frame_kind: Some(FrameKind::Top),
+        },
         FrameRect {
             x: x1,
             y: y2,
             width: w1,
             height: h2,
-        }, // B
+            frame_kind: Some(FrameKind::Bottom),
+        },
     ]
 }
 
@@ -319,11 +341,34 @@ pub fn derive_from_window(
     }
 
     for (i, geom) in layout.frames.into_iter().enumerate() {
-        if let Some(frame_data) = win.frames.get(i)
-            && let Some(mat) = material_list
+        if let Some(frame_data) = win.frames.get(i) {
+            let base_material_idx = if win.flag.use_left_corner_material {
+                if let Some(lt_frame_data) = win.frames.first() {
+                    lt_frame_data.material_index
+                } else {
+                    frame_data.material_index
+                }
+            } else {
+                frame_data.material_index
+            };
+
+            let Some(mut mat) = material_list
                 .materials
-                .get(frame_data.material_index as usize)
-        {
+                .get(base_material_idx as usize)
+                .cloned()
+            else {
+                continue;
+            };
+
+            if win.flag.use_left_corner_material {
+                if let Some(original_mat) = material_list
+                    .materials
+                    .get(frame_data.material_index as usize)
+                {
+                    mat.tex_maps = original_mat.tex_maps.clone();
+                }
+            }
+
             let frame_uvs = flipped_plain_uvs(mat.tex_maps.len(), frame_data.texture_flip_mode);
 
             let (tl, tr, bl, br) = if win.flag.use_vertex_color_for_all_window {
@@ -353,7 +398,7 @@ pub fn derive_from_window(
                     material_idx: frame_data.material_index,
                     texture_uvs: &frame_uvs,
                 },
-                mat,
+                &mat,
                 Vector2f::new(geom.x, geom.y),
                 Vector2f::new(geom.width, geom.height),
                 geom.corners,

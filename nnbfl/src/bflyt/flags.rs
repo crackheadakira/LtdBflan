@@ -259,7 +259,7 @@ pub enum WindowKind {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct WindowFlags {
-    pub use_layout_material: bool,
+    pub use_left_corner_material: bool,
     pub use_vertex_color_for_all_window: bool,
     pub window_kind: WindowKind,
     pub not_draw_content: bool,
@@ -269,7 +269,7 @@ impl BitPackable<u8> for WindowFlags {
     fn decode(raw: u8) -> Self {
         let kind_bits = (raw >> 2) & 0x03;
         Self {
-            use_layout_material: (raw & 0x01) != 0,
+            use_left_corner_material: (raw & 0x01) != 0,
             use_vertex_color_for_all_window: ((raw >> 1) & 0x01) != 0,
             window_kind: kind_bits.into(),
             not_draw_content: ((raw >> 4) & 0x01) != 0,
@@ -278,7 +278,7 @@ impl BitPackable<u8> for WindowFlags {
 
     fn encode(&self) -> u8 {
         let mut raw = 0u8;
-        if self.use_layout_material {
+        if self.use_left_corner_material {
             raw |= 1 << 0;
         }
         if self.use_vertex_color_for_all_window {

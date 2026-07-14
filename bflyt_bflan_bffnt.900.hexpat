@@ -1004,25 +1004,25 @@ struct ResBflytMaterialBrickRepeatShaderInfo {
 
 /* Material */
 bitfield ResBflytMatMemCount {
-     tex_map_count                  : 2;
-     tex_srt_count                  : 2;
-     tex_coord_gen_count            : 2;
-     tev_combiner_count             : 3;
-     has_alpha_compare              : 1;
-     color_blend_mode               : 1;
-     reserve0                       : 1;
-     color_and_alpha_blend_mode     : 1;
-     reserve1                       : 1;
-     indirect_matrix_count          : 1;
-     projection_tex_gen_count       : 2;
-     font_shadow_color              : 1;
-     reserve2                       : 1;
-     use_detailed_combiner          : 1;
-     user_combiner_count            : 1;
-     has_texture_extensions         : 1;
-     vector_texture_info_count      : 2;
-     brick_repeat_shader_info_count : 2;
-     reserve3                       : 6;
+     tex_map_count                          : 2;
+     tex_srt_count                          : 2;
+     tex_coord_gen_count                    : 2;
+     tev_combiner_count                     : 3;
+     has_alpha_compare                      : 1;
+     has_color_blend_mode                   : 1;
+     use_texture_only                       : 1;
+     has_separate_blend_mode                : 1;
+     reserve1                               : 1;
+     indirect_matrix_count                  : 1;
+     projection_tex_gen_count               : 2;
+     has_font_shadow_parameter              : 1;
+     use_thresholding_alpha_interpolation   : 1;
+     use_detailed_combiner                  : 1;
+     user_combiner_count                    : 1;
+     has_texture_extensions                 : 1;
+     vector_texture_info_count              : 2;
+     brick_repeat_shader_info_count         : 2;
+     reserve3                               : 6;
 };
 
 struct ResBflytMaterialData {
@@ -1044,11 +1044,11 @@ struct ResBflytMaterialData {
         ResBflytMaterialAlphaCompare alpha_compare;
     }
     
-    if (mat_mem.color_blend_mode != 0) {
+    if (mat_mem.has_color_blend_mode != 0) {
         ResBflytMaterialBlendMode        blend_mode;
     }
     
-    if (mat_mem.color_and_alpha_blend_mode != 0) {
+    if (mat_mem.has_separate_blend_mode != 0) {
         ResBflytMaterialBlendMode        blend_mode_alpha;
     }
 
@@ -1065,7 +1065,7 @@ struct ResBflytMaterialData {
         ResBflytMaterialProjectionTexGen projection_tex_gen_array[mat_mem.projection_tex_gen_count];
     }
     
-    if (mat_mem.font_shadow_color > 0) {
+    if (mat_mem.has_font_shadow_parameter > 0) {
         ResBflytMaterialFontShadowColor  font_shadow_color_array[mat_mem.font_shadow_color];
     }
     
@@ -1389,7 +1389,7 @@ enum WindowKind : u8 {
 };
 
 bitfield ResBflytWindowPaneFlags {
-    use_layoutt_material : 1;
+    use_left_corner_material : 1;
     use_vertex_color_for_all_window : 1;
     WindowKind window_kind : 2;
     not_draw_content : 1;
