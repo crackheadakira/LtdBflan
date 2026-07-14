@@ -28,6 +28,31 @@ pub enum FrameKind {
     Bottom,
 }
 
+impl FrameKind {
+    pub fn to_binary_index(self, total_frames: usize) -> Option<usize> {
+        match total_frames {
+            4 => match self {
+                FrameKind::TopLeft => Some(0),
+                FrameKind::TopRight => Some(1),
+                FrameKind::BottomLeft => Some(2),
+                FrameKind::BottomRight => Some(3),
+                _ => None,
+            },
+            8 => match self {
+                FrameKind::TopLeft => Some(0),
+                FrameKind::TopRight => Some(1),
+                FrameKind::BottomLeft => Some(2),
+                FrameKind::BottomRight => Some(3),
+                FrameKind::Left => Some(4),
+                FrameKind::Right => Some(5),
+                FrameKind::Top => Some(6),
+                FrameKind::Bottom => Some(7),
+            },
+            _ => None,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct FrameRect {
     pub x: f32,
@@ -86,13 +111,12 @@ pub fn resolve_frame_size(win: &WindowPane, pane_size: Vector2f) -> (FrameSizeF,
 }
 
 pub fn calculate_content_rect(
-    base: Vector2f,
     size: Vector2f,
     frame_size: FrameSizeF,
     inflation: Option<(f32, f32, f32, f32)>,
 ) -> FrameRect {
-    let mut x = base.x + frame_size.left;
-    let mut y = base.y + frame_size.top;
+    let mut x = frame_size.left;
+    let mut y = frame_size.top;
     let mut w = size.x - frame_size.left - frame_size.right;
     let mut h = size.y - frame_size.top - frame_size.bottom;
 
@@ -112,18 +136,69 @@ pub fn calculate_content_rect(
     }
 }
 
-pub fn calculate_frame_rects_around(
-    base: Vector2f,
-    size: Vector2f,
-    fs: FrameSizeF,
-) -> [FrameRect; 8] {
-    let x0 = base.x;
-    let x1 = base.x + fs.left;
-    let x2 = base.x + size.x - fs.right;
+pub fn calculate_frame_rects_four(size: Vector2f, fs: FrameSizeF) -> [FrameRect; 4] {
+    let x0 = 0.0;
+    let y0 = 0.0;
 
-    let y0 = base.y;
-    let y1 = base.y + fs.top;
-    let y2 = base.y + size.y - fs.bottom;
+    let span_w = size.x - fs.left - fs.right;
+    let span_h = size.y - fs.top - fs.bottom;
+
+    let tl_w = fs.left + span_w;
+    let tl_h = fs.top;
+
+    let tr_w = fs.right;
+    let tr_h = fs.top + span_h;
+    let tr_x = size.x - tr_w;
+
+    let br_w = fs.right + span_w;
+    let br_h = fs.bottom;
+    let br_x = size.x - br_w;
+    let br_y = size.y - br_h;
+
+    let bl_w = fs.left;
+    let bl_h = fs.bottom + span_h;
+    let bl_y = size.y - bl_h;
+
+    [
+        FrameRect {
+            x: x0,
+            y: y0,
+            width: tl_w,
+            height: tl_h,
+            frame_kind: Some(FrameKind::TopLeft),
+        },
+        FrameRect {
+            x: tr_x,
+            y: y0,
+            width: tr_w,
+            height: tr_h,
+            frame_kind: Some(FrameKind::TopRight),
+        },
+        FrameRect {
+            x: x0,
+            y: bl_y,
+            width: bl_w,
+            height: bl_h,
+            frame_kind: Some(FrameKind::BottomLeft),
+        },
+        FrameRect {
+            x: br_x,
+            y: br_y,
+            width: br_w,
+            height: br_h,
+            frame_kind: Some(FrameKind::BottomRight),
+        },
+    ]
+}
+
+pub fn calculate_frame_rects_around(size: Vector2f, fs: FrameSizeF) -> [FrameRect; 8] {
+    let x0 = 0.0;
+    let x1 = fs.left;
+    let x2 = size.x - fs.right;
+
+    let y0 = 0.0;
+    let y1 = fs.top;
+    let y2 = size.y - fs.bottom;
 
     let w0 = fs.left;
     let w1 = size.x - fs.left - fs.right;
@@ -214,6 +289,7 @@ pub struct WindowPieceGeometry {
     pub width: f32,
     pub height: f32,
     pub corners: [[f32; 2]; 4],
+    pub frame_kind: Option<FrameKind>,
 }
 
 #[derive(Clone, Debug)]
@@ -257,6 +333,7 @@ pub fn calculate_window_layout(win: &WindowPane, corners: [[f32; 2]; 4]) -> Wind
             width,
             height,
             corners: piece_corners,
+            frame_kind: rect.frame_kind,
         }
     };
 
@@ -268,20 +345,32 @@ pub fn calculate_window_layout(win: &WindowPane, corners: [[f32; 2]; 4]) -> Wind
             win.inflation_bottom as f32,
         ));
 
-        let local_rect =
-            calculate_content_rect(Vector2f::new(0.0, 0.0), effective_size, fs, inflation);
+        let local_rect = calculate_content_rect(effective_size, fs, inflation);
 
         content = Some(map_local_to_world(local_rect));
     }
 
-    if win.frames.len() == 4 {
-        let all_local_frames =
-            calculate_frame_rects_around(Vector2f::new(0.0, 0.0), effective_size, fs);
+    match win.frames.len() {
+        4 => {
+            let all_local_frames = calculate_frame_rects_four(effective_size, fs);
 
-        for i in 0..4 {
-            frames.push(map_local_to_world(all_local_frames[i]));
+            for i in 0..4 {
+                frames.push(map_local_to_world(all_local_frames[i]));
+            }
         }
+
+        8 => {
+            let all_local_frames = calculate_frame_rects_around(effective_size, fs);
+
+            for rect in all_local_frames {
+                frames.push(map_local_to_world(rect));
+            }
+        }
+
+        _ => {}
     }
+
+    if win.frames.len() == 4 {}
 
     WindowLayoutGeometry { content, frames }
 }
@@ -340,73 +429,84 @@ pub fn derive_from_window(
         }
     }
 
-    for (i, geom) in layout.frames.into_iter().enumerate() {
-        if let Some(frame_data) = win.frames.get(i) {
-            let base_material_idx = if win.flag.use_left_corner_material {
-                if let Some(lt_frame_data) = win.frames.first() {
-                    lt_frame_data.material_index
-                } else {
-                    frame_data.material_index
-                }
-            } else {
-                frame_data.material_index
-            };
+    for geom in layout.frames {
+        let Some(kind) = geom.frame_kind else {
+            continue;
+        };
 
-            let Some(mut mat) = material_list
+        let Some(config_idx) = kind.to_binary_index(win.frames.len()) else {
+            continue;
+        };
+
+        let Some(frame_data) = win.frames.get(config_idx) else {
+            continue;
+        };
+
+        let Some(lt_frame_data) = win.frames.first() else {
+            continue;
+        };
+
+        let base_material_idx = if win.flag.use_left_corner_material {
+            lt_frame_data.material_index
+        } else {
+            frame_data.material_index
+        };
+
+        let Some(mut mat) = material_list
+            .materials
+            .get(base_material_idx as usize)
+            .cloned()
+        else {
+            continue;
+        };
+
+        if win.flag.use_left_corner_material {
+            if let Some(original_mat) = material_list
                 .materials
-                .get(base_material_idx as usize)
-                .cloned()
-            else {
-                continue;
-            };
-
-            if win.flag.use_left_corner_material {
-                if let Some(original_mat) = material_list
-                    .materials
-                    .get(frame_data.material_index as usize)
-                {
-                    mat.tex_maps = original_mat.tex_maps.clone();
-                }
+                .get(frame_data.material_index as usize)
+            {
+                mat.tex_maps = original_mat.tex_maps.clone();
+                mat.interpolation_colors = original_mat.interpolation_colors.clone();
             }
+        }
 
-            let frame_uvs = flipped_plain_uvs(mat.tex_maps.len(), frame_data.texture_flip_mode);
+        let frame_uvs = flipped_plain_uvs(mat.tex_maps.len(), frame_data.texture_flip_mode);
 
-            let (tl, tr, bl, br) = if win.flag.use_vertex_color_for_all_window {
-                (
-                    &win.content.top_left_vertex_color,
-                    &win.content.top_right_vertex_color,
-                    &win.content.bottom_left_vertex_color,
-                    &win.content.bottom_right_vertex_color,
-                )
-            } else {
-                static EMPTY: Color4u8 = Color4u8 {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                };
-                (&EMPTY, &EMPTY, &EMPTY, &EMPTY)
+        let (tl, tr, bl, br) = if win.flag.use_vertex_color_for_all_window {
+            (
+                &win.content.top_left_vertex_color,
+                &win.content.top_right_vertex_color,
+                &win.content.bottom_left_vertex_color,
+                &win.content.bottom_right_vertex_color,
+            )
+        } else {
+            static EMPTY: Color4u8 = Color4u8 {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
             };
+            (&EMPTY, &EMPTY, &EMPTY, &EMPTY)
+        };
 
-            if let Some(tq) = TexturedQuad::derive_from_material(
-                MaterialPaneData {
-                    base_section: &win.base,
-                    top_left_vertex_color: tl,
-                    top_right_vertex_color: tr,
-                    bottom_left_vertex_color: bl,
-                    bottom_right_vertex_color: br,
-                    material_idx: frame_data.material_index,
-                    texture_uvs: &frame_uvs,
-                },
-                &mat,
-                Vector2f::new(geom.x, geom.y),
-                Vector2f::new(geom.width, geom.height),
-                geom.corners,
-                is_visible,
-                pane_idx,
-            ) {
-                out.push(tq);
-            }
+        if let Some(tq) = TexturedQuad::derive_from_material(
+            MaterialPaneData {
+                base_section: &win.base,
+                top_left_vertex_color: tl,
+                top_right_vertex_color: tr,
+                bottom_left_vertex_color: bl,
+                bottom_right_vertex_color: br,
+                material_idx: frame_data.material_index,
+                texture_uvs: &frame_uvs,
+            },
+            &mat,
+            Vector2f::new(geom.x, geom.y),
+            Vector2f::new(geom.width, geom.height),
+            geom.corners,
+            is_visible,
+            pane_idx,
+        ) {
+            out.push(tq);
         }
     }
 
