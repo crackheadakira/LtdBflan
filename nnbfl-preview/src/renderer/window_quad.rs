@@ -468,7 +468,6 @@ pub fn derive_from_window(
                 .get(frame_data.material_index as usize)
             {
                 mat.tex_maps = original_mat.tex_maps.clone();
-                mat.interpolation_colors = original_mat.interpolation_colors.clone();
             }
         }
 
