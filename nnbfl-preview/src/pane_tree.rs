@@ -17,6 +17,7 @@ use nnbfl::{
         userdata::UserDataArray,
     },
 };
+use tomolib::formats::bntx::Bntx;
 
 use crate::{
     anim_state::transform_uv_srt,
@@ -466,7 +467,7 @@ pub struct PaneTree {
     pub group: GroupElement,
 
     pub file_name: String,
-    pub discovered_bntx_buffers: Vec<Vec<u8>>,
+    pub discovered_bntxs: Vec<Bntx>,
 
     pub parent_map: HashMap<usize, Option<usize>>,
     pub label_map: HashMap<String, usize>,
@@ -761,6 +762,7 @@ impl PaneTree {
         file_name: String,
         has_bntx: bool,
         archive_entries: Option<&[ArchiveEntry]>,
+        mut discovered_bntxs: Vec<Bntx>,
     ) -> Self {
         let layout_size = Vector2f {
             x: file.layout.width,
@@ -769,7 +771,6 @@ impl PaneTree {
 
         let material_list = file.material_list.clone();
         let mut blarc_cache: HashMap<String, Option<Bflyt>> = HashMap::new();
-        let mut discovered_bntx_buffers: Vec<Vec<u8>> = Vec::new();
 
         let mut builder = Builder {
             material_list: material_list.as_ref(),
@@ -777,7 +778,7 @@ impl PaneTree {
             archive_entries,
             blarc_dir,
             blarc_cache: &mut blarc_cache,
-            discovered: &mut discovered_bntx_buffers,
+            discovered_bntxs: &mut discovered_bntxs,
             has_bntx,
             parts_depth: 0,
             parts_source: None,
@@ -840,7 +841,7 @@ impl PaneTree {
             layout_size,
             material_list,
             file_name,
-            discovered_bntx_buffers,
+            discovered_bntxs,
             parent_map,
             label_map,
             max_pane_idx,
@@ -860,7 +861,7 @@ struct Builder<'a> {
     blarc_dir: Option<&'a Path>,
     archive_entries: Option<&'a [ArchiveEntry]>,
     blarc_cache: &'a mut HashMap<String, Option<Bflyt>>,
-    discovered: &'a mut Vec<Vec<u8>>,
+    discovered_bntxs: &'a mut Vec<Bntx>,
     has_bntx: bool,
     parts_depth: usize,
     parts_source: Option<String>,
@@ -1081,7 +1082,13 @@ impl<'a> Builder<'a> {
                 if let Some(sub_bflyt) = bflyt_res {
                     for asset in assets {
                         if let MagicFiles::Bntx(bntx_data) = asset {
-                            self.discovered.push(bntx_data);
+                            match Bntx::parse(&bntx_data) {
+                                Ok(bntx) => self.discovered_bntxs.push(bntx),
+                                Err(e) => {
+                                    log::error!("TextureCache: failed to parse BNTX: {e}");
+                                    continue;
+                                }
+                            }
                         }
                     }
 

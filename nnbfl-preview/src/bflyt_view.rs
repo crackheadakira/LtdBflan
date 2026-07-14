@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use nnbfl::{bflyt::file::Bflyt, core::VersionFormat, ui2d::types::Vector2f};
+use tomolib::formats::bntx::Bntx;
 
 use crate::{
     archive_browser::ArchiveEntry,
@@ -41,6 +42,7 @@ pub fn build_view(
     file_name: String,
     has_bntx: bool,
     archive_entries: Option<&[ArchiveEntry]>,
+    discovered_bntxs: Vec<Bntx>,
 ) -> BflytView {
     let is_centered = file.layout.is_centered;
     let parts_size = Vector2f {
@@ -55,6 +57,7 @@ pub fn build_view(
         file_name.clone(),
         has_bntx,
         archive_entries,
+        discovered_bntxs,
     );
 
     BflytView {

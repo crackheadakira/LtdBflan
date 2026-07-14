@@ -26,6 +26,7 @@ use pollster::FutureExt;
 use renderer::quad::GridRenderer;
 use renderer::texture::TextureCache;
 use renderer::textured_quad::PaneRenderer;
+use tomolib::formats::bntx::Bntx;
 use wgpu::CurrentSurfaceTexture;
 use winit::{
     application::ApplicationHandler,
@@ -701,8 +702,28 @@ impl App {
 
         let has_textures = all_files.iter().any(|f| matches!(f, MagicFiles::Bntx(_)));
 
+        let mut discovered_bntxs = Vec::new();
+        for magic_file in all_files {
+            match magic_file {
+                MagicFiles::Bntx(bytes) => match Bntx::parse(&bytes) {
+                    Ok(bntx) => discovered_bntxs.push(bntx),
+                    Err(e) => {
+                        log::error!("TextureCache: failed to parse BNTX: {e}");
+                        continue;
+                    }
+                },
+
+                MagicFiles::Bflan(bytes) => {
+                    if let Ok(bflan) = Bflan::parse_file(&bytes) {
+                        self.ui_state.timeline.anim_player.load(bflan);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         let layout_name = bflyt.layout.name.clone();
-        let mut view = build_view(
+        let view = build_view(
             bflyt,
             self.ui_state.archive_browser.layout_dir.as_deref(),
             layout_name.clone(),
@@ -712,23 +733,10 @@ impl App {
                 .archive_scan
                 .as_ref()
                 .map(|s| s.entries.as_slice()),
+            discovered_bntxs,
         );
 
         self.ui_state.timeline.anim_player = AnimPlayer::new();
-
-        for magic_file in all_files {
-            match magic_file {
-                MagicFiles::Bntx(bytes) => {
-                    view.tree.discovered_bntx_buffers.push(bytes);
-                }
-                MagicFiles::Bflan(bytes) => {
-                    if let Ok(bflan) = Bflan::parse_file(&bytes) {
-                        self.ui_state.timeline.anim_player.load(bflan);
-                    }
-                }
-                _ => {}
-            }
-        }
 
         self.ui_state.anim_names = self
             .ui_state
@@ -755,9 +763,9 @@ impl App {
 
             let render_quads = view.tree.collect_render_quads();
 
-            for bntx_bytes in &view.tree.discovered_bntx_buffers {
+            for bntx in &view.tree.discovered_bntxs {
                 gpu.texture_cache
-                    .load_from_bntx_bytes(&gpu.device, &gpu.queue, bntx_bytes);
+                    .load_from_bntx(&gpu.device, &gpu.queue, bntx);
             }
 
             gpu.pane_renderer.upload_quads(

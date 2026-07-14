@@ -24,20 +24,7 @@ impl TextureCache {
         }
     }
 
-    pub fn load_from_bntx_bytes(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        bntx_bytes: &[u8],
-    ) {
-        let bntx = match Bntx::parse(bntx_bytes) {
-            Ok(b) => b,
-            Err(e) => {
-                log::error!("TextureCache: failed to parse BNTX: {e}");
-                return;
-            }
-        };
-
+    pub fn load_from_bntx(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, bntx: &Bntx) {
         let all_exist = !bntx.textures.is_empty()
             && bntx
                 .textures
