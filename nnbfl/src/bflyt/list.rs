@@ -273,6 +273,8 @@ impl ReadWriteable for MaterialTexCoordGen {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialTevCombiner {
     pub rgb_mode: CombinerTevMode,
+
+    /// When this is [`CombinerTevMode::Modulate`], `select_alpha_max` for `CombineColor()` is set to true.
     pub alpha_mode: CombinerTevMode,
 }
 

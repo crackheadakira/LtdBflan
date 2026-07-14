@@ -5,8 +5,8 @@ use nnbfl::bflyt::flags::{TexFilter, TexWrapMode};
 use nnbfl::bflyt::list::{
     CombinerTevMode, Material, MaterialTextureMap, MaterialTextureSrt, TexGenSrc,
 };
-use nnbfl::bflyt::pane::PicturePane;
-use nnbfl::ui2d::types::Vector2f;
+use nnbfl::bflyt::pane::{Pane, TextureUv};
+use nnbfl::ui2d::types::{Color4u8, Vector2f};
 use wgpu::util::DeviceExt;
 
 use super::quad::Quad;
@@ -227,9 +227,22 @@ pub fn build_indirect_matrices(rotation_deg: f32, scale: Vector2f) -> ([f32; 4],
     ([a0x, a1x, 0.0, tx], [a0y, a1y, 0.0, ty])
 }
 
+pub struct MaterialPaneData<'a> {
+    pub base_section: &'a Pane,
+
+    pub top_left_vertex_color: &'a Color4u8,
+    pub top_right_vertex_color: &'a Color4u8,
+    pub bottom_left_vertex_color: &'a Color4u8,
+    pub bottom_right_vertex_color: &'a Color4u8,
+
+    pub material_idx: u16,
+
+    pub texture_uvs: &'a [TextureUv],
+}
+
 impl TexturedQuad {
     pub fn derive_from_material(
-        pic: &PicturePane,
+        pane_data: MaterialPaneData,
         mat: &Material,
         position: Vector2f,
         size: Vector2f,
@@ -244,10 +257,11 @@ impl TexturedQuad {
             return None;
         }
 
-        let tl: [f32; 4] = pic.top_left_vertex_color.into();
+        let tl: [f32; 4] = (*pane_data.top_left_vertex_color).into();
         let tint = if tl[3] > 0.0 { tl } else { [1.0; 4] };
 
-        let (base_uvs, uvs) = PaneNode::compute_uvs(pic, mat);
+        let base_uvs = PaneNode::compute_uvs(pane_data.texture_uvs);
+        let uvs = PaneNode::apply_srt_to_uvs(base_uvs, &mat.tex_srts);
 
         let sampler_0 = WgpuSamplerSettings::from_tex_map(mat.tex_maps.first());
         let sampler_1 = WgpuSamplerSettings::from_tex_map(mat.tex_maps.get(1));
@@ -283,8 +297,8 @@ impl TexturedQuad {
             }
         }
 
-        let mut proj_scales = [[1.0f32; 2]; 3];
-        let mut proj_translations = [[0.0f32; 2]; 3];
+        let mut proj_scales = [[1.0; 2]; 3];
+        let mut proj_translations = [[0.0; 2]; 3];
         let mut target_layer = 0;
         for tex_gen in mat.projection_tex_gens.iter().take(texture_count as usize) {
             while target_layer < 3 && (tex_gen_flags[target_layer] & 0x3) != 1 {
@@ -325,12 +339,12 @@ impl TexturedQuad {
         let black_u8 = color_u8(&mat.interpolation_colors.black_color);
         let white_u8 = color_u8(&mat.interpolation_colors.white_color);
 
-        let black_packed = ((black_u8[0] as u32) << 0)
+        let black_packed = black_u8[0] as u32
             | (black_u8[1] as u32) << 8
             | (black_u8[2] as u32) << 16
             | (black_u8[3] as u32) << 24;
 
-        let white_packed = (white_u8[0] as u32) << 0
+        let white_packed = white_u8[0] as u32
             | (white_u8[1] as u32) << 8
             | (white_u8[2] as u32) << 16
             | (white_u8[3] as u32) << 24;
@@ -441,7 +455,7 @@ impl TexturedQuad {
             proj_translations,
             indirect_rotation,
             indirect_scale,
-            material_idx: pic.material_index,
+            material_idx: pane_data.material_idx,
         })
     }
 }
@@ -525,7 +539,7 @@ struct Batch {
     num_indices: u32,
 
     key: BatchKey,
-    pane_indices: Vec<usize>,
+    piece_keys: Vec<(usize, u16)>,
 }
 
 pub struct PaneRenderer {
@@ -774,6 +788,11 @@ impl PaneRenderer {
         for data in ordered {
             let key = Self::batch_key_for(data);
             let pane_idx = data.pane_idx();
+            let material_idx = match data {
+                PaneQuadData::Plain(_) => u16::MAX,
+                PaneQuadData::Textured(tq) => tq.material_idx,
+            };
+            let piece_key = (pane_idx, material_idx);
 
             let flags = PaneVisibilityFlags::default();
             let base_tint = match data {
@@ -797,7 +816,7 @@ impl PaneRenderer {
                     base + 3,
                     base + 2,
                 ]);
-                last.pane_indices.push(pane_idx);
+                last.piece_keys.push(piece_key);
                 match_found = true;
             }
 
@@ -812,7 +831,7 @@ impl PaneRenderer {
                     detailed_buffer: None,
                     num_indices: 0,
                     key,
-                    pane_indices: vec![pane_idx],
+                    piece_keys: vec![piece_key],
                 });
             }
         }
@@ -921,12 +940,18 @@ impl PaneRenderer {
                         continue;
                     };
 
-                    let Some(&first_pane_idx) = batch.pane_indices.first() else {
+                    let Some(&(first_pane_idx, first_material_idx)) = batch.piece_keys.first()
+                    else {
                         continue;
                     };
-                    let Some(PaneQuadData::Textured(rep_quad)) =
-                        ordered.iter().find(|d| d.pane_idx() == first_pane_idx)
-                    else {
+
+                    let Some(PaneQuadData::Textured(rep_quad)) = ordered.iter().find(|d| {
+                        if let PaneQuadData::Textured(tq) = d {
+                            tq.pane_idx == first_pane_idx && tq.material_idx == first_material_idx
+                        } else {
+                            false
+                        }
+                    }) else {
                         continue;
                     };
 
@@ -1046,12 +1071,19 @@ impl PaneRenderer {
         for batch in &mut self.batches {
             let mut dirty = false;
 
-            for (batch_quad_idx, &pane_idx) in batch.pane_indices.iter().enumerate() {
+            for (batch_quad_idx, &(pane_idx, material_idx)) in batch.piece_keys.iter().enumerate() {
                 let base = batch_quad_idx * 4;
                 if base + 3 >= batch.vertices.len() {
                     break;
                 }
-                let Some(data) = ordered.iter().find(|d| d.pane_idx() == pane_idx) else {
+
+                let Some(data) = ordered.iter().find(|d| {
+                    d.pane_idx() == pane_idx
+                        && match d {
+                            PaneQuadData::Textured(tq) => tq.material_idx == material_idx,
+                            PaneQuadData::Plain(_) => true,
+                        }
+                }) else {
                     continue;
                 };
 
@@ -1110,12 +1142,14 @@ impl PaneRenderer {
                 continue;
             };
 
-            let Some(&pane_idx) = batch.pane_indices.first() else {
+            let Some(&(pane_idx, material_idx)) = batch.piece_keys.first() else {
                 continue;
             };
-            let Some(PaneQuadData::Textured(tq)) =
-                ordered.iter().find(|d| d.pane_idx() == pane_idx)
-            else {
+
+            let Some(PaneQuadData::Textured(tq)) = ordered.iter().find(|d| {
+                d.pane_idx() == pane_idx
+                    && matches!(d, PaneQuadData::Textured(t) if t.material_idx == material_idx)
+            }) else {
                 continue;
             };
 
@@ -1210,10 +1244,10 @@ impl PaneRenderer {
         layout_w: f32,
         layout_h: f32,
     ) {
-        let mut textured_lookup: HashMap<usize, &mut TexturedQuad> = ordered
+        let mut textured_lookup: HashMap<(usize, u16), &mut TexturedQuad> = ordered
             .iter_mut()
             .filter_map(|d| match d {
-                PaneQuadData::Textured(tq) => Some((tq.pane_idx, &mut **tq)),
+                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.material_idx), &mut **tq)),
                 _ => None,
             })
             .collect();
@@ -1223,11 +1257,11 @@ impl PaneRenderer {
                 continue;
             }
 
-            let Some(&first_pane) = batch.pane_indices.first() else {
+            let Some(&first_key) = batch.piece_keys.first() else {
                 continue;
             };
 
-            let Some(tq) = textured_lookup.get_mut(&first_pane) else {
+            let Some(tq) = textured_lookup.get_mut(&first_key) else {
                 continue;
             };
 
@@ -1366,23 +1400,31 @@ impl PaneRenderer {
         hidden_panes: &HashSet<usize>,
         flags: PaneVisibilityFlags,
     ) {
-        let quad_lookup: HashMap<usize, &PaneQuadData> =
-            ordered.iter().map(|d| (d.pane_idx(), d)).collect();
+        let quad_lookup: HashMap<(usize, u16), &PaneQuadData> = ordered
+            .iter()
+            .map(|d| {
+                let material_idx = match d {
+                    PaneQuadData::Plain(_) => u16::MAX,
+                    PaneQuadData::Textured(tq) => tq.material_idx,
+                };
+                ((d.pane_idx(), material_idx), d)
+            })
+            .collect();
 
         for batch in &mut self.batches {
             let mut dirty = false;
 
-            for (batch_quad_idx, &pane_idx) in batch.pane_indices.iter().enumerate() {
+            for (batch_quad_idx, &piece_key) in batch.piece_keys.iter().enumerate() {
                 let base = batch_quad_idx * 4;
                 if base + 3 >= batch.vertices.len() {
                     break;
                 }
 
-                let Some(data) = quad_lookup.get(&pane_idx) else {
+                let Some(data) = quad_lookup.get(&piece_key) else {
                     continue;
                 };
 
-                let hidden = hidden_panes.contains(&pane_idx);
+                let hidden = hidden_panes.contains(&piece_key.0);
                 let tint = match data {
                     PaneQuadData::Plain(q) => flags.plain_color(q, hidden),
                     PaneQuadData::Textured(tq) => flags.textured_tint(tq, hidden),
@@ -1407,10 +1449,10 @@ impl PaneRenderer {
         ordered: &[PaneQuadData],
         hidden_panes: &HashSet<usize>,
     ) {
-        let textured_lookup: HashMap<usize, &TexturedQuad> = ordered
+        let textured_lookup: HashMap<(usize, u16), &TexturedQuad> = ordered
             .iter()
             .filter_map(|d| match d {
-                PaneQuadData::Textured(tq) => Some((tq.pane_idx, &**tq)),
+                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.material_idx), &**tq)),
                 _ => None,
             })
             .collect();
@@ -1420,11 +1462,11 @@ impl PaneRenderer {
                 continue;
             }
 
-            let Some(&first_pane_idx) = batch.pane_indices.first() else {
+            let Some(&first_key) = batch.piece_keys.first() else {
                 continue;
             };
 
-            let Some(tq) = textured_lookup.get(&first_pane_idx) else {
+            let Some(tq) = textured_lookup.get(&first_key) else {
                 continue;
             };
 
@@ -1433,7 +1475,7 @@ impl PaneRenderer {
             };
 
             let mut mat = tq.standard_material;
-            if hidden_panes.contains(&first_pane_idx) {
+            if hidden_panes.contains(&first_key.0) {
                 mat.visible = 0;
             }
 

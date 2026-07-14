@@ -1329,7 +1329,9 @@ impl ApplicationHandler for App {
                             );
                         }
 
-                        if let Some(view) = &mut self.bflyt_view {
+                        if let Some(view) = &mut self.bflyt_view
+                            && self.ui_state.timeline.anim_player.is_playing()
+                        {
                             view.reset_to_base();
                             self.ui_state.timeline.anim_player.apply(view);
                         }

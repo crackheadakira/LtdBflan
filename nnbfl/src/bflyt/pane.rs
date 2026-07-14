@@ -485,7 +485,6 @@ pub struct WindowContent {
     pub bottom_left_vertex_color: Color4u8,
     pub bottom_right_vertex_color: Color4u8,
     pub material_index: u16,
-    pub uv_coordinate_count: u8,
     pub picture_uvs: Vec<TextureUv>,
 }
 
@@ -510,7 +509,6 @@ impl ReadWriteable for WindowContent {
             bottom_left_vertex_color,
             bottom_right_vertex_color,
             material_index,
-            uv_coordinate_count,
             picture_uvs,
         })
     }
@@ -532,17 +530,31 @@ impl ReadWriteable for WindowContent {
     }
 }
 
+#[derive(
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
+)]
+#[repr(u8)]
+pub enum TextureFlip {
+    #[default]
+    None,
+    FlipU,
+    FlipV,
+    Rotate90,
+    Rotate180,
+    Rotate270,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WindowFrame {
     pub material_index: u16,
-    pub texture_flip_mode: u8,
+    pub texture_flip_mode: TextureFlip,
 }
 
 impl ReadWriteable for WindowFrame {
     fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
         let out = Self {
             material_index: cursor.read_u16()?,
-            texture_flip_mode: cursor.read_u8()?,
+            texture_flip_mode: cursor.read_u8()?.into(),
         };
 
         let _reserve0 = cursor.read_u8()?;
@@ -553,7 +565,7 @@ impl ReadWriteable for WindowFrame {
     fn write(&self, writer: &mut Writer) {
         writer.mark("WindowFrame");
         writer.write_u16(self.material_index);
-        writer.write_u8(self.texture_flip_mode);
+        writer.write_u8(self.texture_flip_mode.into());
         writer.write_u8(0);
     }
 }
@@ -561,15 +573,17 @@ impl ReadWriteable for WindowFrame {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WindowPane {
     pub base: Pane,
+
     pub inflation_left: i16,
     pub inflation_right: i16,
     pub inflation_top: i16,
     pub inflation_bottom: i16,
+
     pub frame_size_left: i16,
     pub frame_size_right: i16,
     pub frame_size_top: i16,
     pub frame_size_bottom: i16,
-    pub frame_count: u8,
+
     pub flag: WindowFlags,
     pub content: WindowContent,
     pub frames: Vec<WindowFrame>,
@@ -623,7 +637,6 @@ impl ReadWriteable for WindowPane {
             frame_size_right,
             frame_size_top,
             frame_size_bottom,
-            frame_count,
             flag,
             content,
             frames,

@@ -4,9 +4,11 @@ use bitflags::bitflags;
 use nnbfl::{
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection, ControlSourceElement, GroupElement, PaneElement},
-        list::{CaptureTextureList, FontList, Material, MaterialList, TextureList},
-        pane::{BasePaneUsageFlags, Pane, PartsPane, PartsPaneBasicInfo, PicturePane},
-        pane::{HorizontalPosition, VerticalPosition},
+        list::{CaptureTextureList, FontList, MaterialList, MaterialTextureSrt, TextureList},
+        pane::{
+            BasePaneUsageFlags, HorizontalPosition, Pane, PartsPane, PartsPaneBasicInfo,
+            PicturePane, TextureUv, VerticalPosition, WindowPane,
+        },
     },
     core::FileReadWriteable,
     sarc::file::MagicFiles,
@@ -24,7 +26,8 @@ use crate::{
     decompress_if_needed, extract_all_files_recursive,
     renderer::{
         quad::Quad,
-        textured_quad::{PaneQuadData, TexturedQuad},
+        textured_quad::{MaterialPaneData, PaneQuadData, TexturedQuad},
+        window_quad::{calculate_window_layout, derive_from_window},
     },
     traits::Displaying,
     ui::general::SUPPORTED_SARC_EXTENSIONS,
@@ -171,6 +174,7 @@ pub struct PaneNode {
     pub plain_quad: Quad,
     pub textured_quad: Option<TexturedQuad>,
     pub base_textured_quad: Option<TexturedQuad>,
+    pub window_quads: Vec<TexturedQuad>,
 
     pub dirty: DirtyFlags,
     pub children: Vec<PaneNode>,
@@ -281,6 +285,40 @@ impl PaneNode {
                     tq.corners = corners.to_array();
                 }
 
+                if !self.window_quads.is_empty() {
+                    if let BflytSection::WindowPane(win) = &self.section {
+                        let layout = calculate_window_layout(win, corners.to_array());
+
+                        let mut quad_idx = 0;
+
+                        if layout.content.is_some() {
+                            if let Some(geom) = layout.content {
+                                if let Some(tq) = self.window_quads.get_mut(quad_idx) {
+                                    tq.x = geom.x;
+                                    tq.y = geom.y;
+                                    tq.width = geom.width;
+                                    tq.height = geom.height;
+                                    tq.corners = geom.corners;
+                                }
+
+                                quad_idx += 1;
+                            }
+                        }
+
+                        for geom in layout.frames {
+                            if let Some(tq) = self.window_quads.get_mut(quad_idx) {
+                                tq.x = geom.x;
+                                tq.y = geom.y;
+                                tq.width = geom.width;
+                                tq.height = geom.height;
+                                tq.corners = geom.corners;
+                            }
+
+                            quad_idx += 1;
+                        }
+                    }
+                }
+
                 self.dirty.remove(DirtyFlags::TRANSFORM);
                 child_scale = base.scale * parent_scale;
             } else {
@@ -313,7 +351,15 @@ impl PaneNode {
             && let BflytSection::PicturePane(pic) = &self.section
             && let Some(mat) = material_list.materials.get(pic.material_index as usize)
             && let Some(tq) = TexturedQuad::derive_from_material(
-                pic,
+                MaterialPaneData {
+                    base_section: &pic.base,
+                    top_left_vertex_color: &pic.top_left_vertex_color,
+                    top_right_vertex_color: &pic.top_right_vertex_color,
+                    bottom_left_vertex_color: &pic.bottom_left_vertex_color,
+                    bottom_right_vertex_color: &pic.bottom_right_vertex_color,
+                    material_idx: pic.material_index,
+                    texture_uvs: &pic.texture_uvs,
+                },
                 mat,
                 Vector2f::new(quad.x, quad.y),
                 Vector2f::new(quad.width, quad.height),
@@ -331,13 +377,28 @@ impl PaneNode {
             requires_reupload = true;
         };
 
+        if self.dirty.contains(DirtyFlags::MATERIAL)
+            && let BflytSection::WindowPane(win) = &self.section
+            && !self.window_quads.is_empty()
+        {
+            self.window_quads = derive_from_window(
+                win,
+                material_list,
+                self.world_corners.to_array(),
+                self.visible,
+                self.pane_idx,
+            );
+
+            requires_reupload = true;
+        }
+
         self.dirty.remove(DirtyFlags::MATERIAL);
         requires_reupload
     }
 
-    pub fn compute_uvs(pic: &PicturePane, material: &Material) -> (UvMatrix4x3x2, UvMatrix4x3x2) {
+    pub fn compute_uvs(texture_uvs: &[TextureUv]) -> UvMatrix4x3x2 {
         let get_uv_set = |layer: usize| -> [[f32; 2]; 4] {
-            if let Some(uv_set) = pic.texture_uvs.get(layer) {
+            if let Some(uv_set) = texture_uvs.get(layer) {
                 [
                     [uv_set.top_left.x, uv_set.top_left.y],
                     [uv_set.top_right.x, uv_set.top_right.y],
@@ -355,17 +416,24 @@ impl PaneNode {
         let base_uvs: [[[f32; 2]; 3]; 4] =
             std::array::from_fn(|i| [uvs0_base[i], uvs1_base[i], uvs2_base[i]]);
 
+        base_uvs
+    }
+
+    pub fn apply_srt_to_uvs(
+        base_uvs: UvMatrix4x3x2,
+        tex_srts: &[MaterialTextureSrt],
+    ) -> UvMatrix4x3x2 {
         let mut uvs = base_uvs;
 
         for layer in 0..3 {
-            if let Some(srt) = material.tex_srts.get(layer) {
+            if let Some(srt) = tex_srts.get(layer) {
                 for v_idx in 0..4 {
                     uvs[v_idx][layer] = transform_uv_srt(srt, base_uvs[v_idx][layer]);
                 }
             }
         }
 
-        (base_uvs, uvs)
+        uvs
     }
 }
 
@@ -467,6 +535,10 @@ impl PaneTree {
         fn collect_recursive(node: &PaneNode, out: &mut Vec<PaneQuadData>) {
             if let Some(tq) = &node.textured_quad {
                 out.push(PaneQuadData::Textured(Box::new(tq.clone())));
+            } else if !node.window_quads.is_empty() {
+                for tq in &node.window_quads {
+                    out.push(PaneQuadData::Textured(Box::new(tq.clone())));
+                }
             } else {
                 if !node.plain_quad.is_parts_root {
                     out.push(PaneQuadData::Plain(node.plain_quad.clone()));
@@ -801,7 +873,7 @@ impl<'a> Builder<'a> {
     pub fn build_nodes(
         &mut self,
         nodes: &[BflytNode],
-        parent_pos: Vector2f,
+        parent_center: Vector2f,
         parent_size: Vector2f,
         parent_scale: Vector2f,
         parent_visible: bool,
@@ -814,7 +886,7 @@ impl<'a> Builder<'a> {
                 BflytNode::Pane(pane_el) => {
                     if let Some(mut pane_node) = self.build_node(
                         &pane_el.data,
-                        parent_pos,
+                        parent_center,
                         parent_size,
                         parent_scale,
                         parent_visible,
@@ -836,7 +908,7 @@ impl<'a> Builder<'a> {
                         if !pane_el.children.is_empty() {
                             pane_node.children = self.build_nodes(
                                 &pane_el.children,
-                                pane_node.world_pos,
+                                pane_node.world_center,
                                 pane_node.world_size,
                                 current_scale,
                                 current_visible,
@@ -860,7 +932,7 @@ impl<'a> Builder<'a> {
     fn build_node(
         &mut self,
         section: &BflytSection,
-        parent_pos: Vector2f,
+        parent_center: Vector2f,
         parent_size: Vector2f,
         parent_scale: Vector2f,
         parent_visible: bool,
@@ -869,7 +941,8 @@ impl<'a> Builder<'a> {
         let base = section.get_base_pane()?;
 
         let is_visible = parent_visible && base.pane_flags.is_visible;
-        let (pos, size, anchor, center) = resolve_rect(base, parent_pos, parent_size, parent_scale);
+        let (pos, size, anchor, center) =
+            resolve_rect(base, parent_center, parent_size, parent_scale);
 
         let corners = Corners::compute(
             center,
@@ -891,6 +964,12 @@ impl<'a> Builder<'a> {
             None
         };
 
+        let window_quads = if let BflytSection::WindowPane(win) = section {
+            self.build_window_quads(win, size, center, base.rotation, is_visible, pane_idx)
+        } else {
+            Vec::new()
+        };
+
         let color = if is_visible {
             section.section_color()
         } else {
@@ -904,7 +983,10 @@ impl<'a> Builder<'a> {
             width: size.x,
             height: size.y,
             color,
-            has_textured: matches!(section, BflytSection::PicturePane(_)),
+            has_textured: matches!(
+                section,
+                BflytSection::PicturePane(_) | BflytSection::WindowPane(_)
+            ),
             is_parts_root,
             pane_idx,
         };
@@ -924,6 +1006,7 @@ impl<'a> Builder<'a> {
             world_corners: corners,
             textured_quad: textured_quad.clone(),
             base_textured_quad: textured_quad,
+            window_quads,
             plain_quad,
             dirty: DirtyFlags::empty(),
             children: Vec::new(),
@@ -1140,7 +1223,15 @@ impl<'a> Builder<'a> {
         );
 
         TexturedQuad::derive_from_material(
-            pic,
+            MaterialPaneData {
+                base_section: &pic.base,
+                top_left_vertex_color: &pic.top_left_vertex_color,
+                top_right_vertex_color: &pic.top_right_vertex_color,
+                bottom_left_vertex_color: &pic.bottom_left_vertex_color,
+                bottom_right_vertex_color: &pic.bottom_right_vertex_color,
+                material_idx: pic.material_index,
+                texture_uvs: &pic.texture_uvs,
+            },
             mat,
             position,
             size,
@@ -1149,24 +1240,52 @@ impl<'a> Builder<'a> {
             pane_idx,
         )
     }
+
+    fn build_window_quads(
+        &self,
+        win: &WindowPane,
+        size: Vector2f,
+        center: Vector2f,
+        rotation: Vector3f,
+        is_visible: bool,
+        pane_idx: usize,
+    ) -> Vec<TexturedQuad> {
+        if !self.has_bntx {
+            return Vec::new();
+        }
+
+        let Some(material_list) = self.sub_material_list.as_ref().or(self.material_list) else {
+            return Vec::new();
+        };
+
+        let corners = Corners::compute(
+            center,
+            size,
+            &win.base.position.position_x,
+            &win.base.position.position_y,
+            rotation,
+        );
+
+        derive_from_window(win, material_list, corners.to_array(), is_visible, pane_idx)
+    }
 }
 
 fn resolve_rect(
     pane: &Pane,
-    parent_pos: Vector2f,
+    parent_center: Vector2f,
     parent_size: Vector2f,
     parent_scale: Vector2f,
 ) -> (Vector2f, Vector2f, Vector2f, Vector2f) {
     let anchor_x = match pane.position.parent_relative_position_x {
-        HorizontalPosition::Center => parent_pos.x,
-        HorizontalPosition::Left => parent_pos.x - parent_size.x * 0.5,
-        HorizontalPosition::Right => parent_pos.x + parent_size.x * 0.5,
+        HorizontalPosition::Center => parent_center.x,
+        HorizontalPosition::Left => parent_center.x - parent_size.x * 0.5,
+        HorizontalPosition::Right => parent_center.x + parent_size.x * 0.5,
     };
 
     let anchor_y = match pane.position.parent_relative_position_y {
-        VerticalPosition::Center => parent_pos.y,
-        VerticalPosition::Top => parent_pos.y - parent_size.y * 0.5,
-        VerticalPosition::Bottom => parent_pos.y + parent_size.y * 0.5,
+        VerticalPosition::Center => parent_center.y,
+        VerticalPosition::Top => parent_center.y - parent_size.y * 0.5,
+        VerticalPosition::Bottom => parent_center.y + parent_size.y * 0.5,
     };
 
     let cx = anchor_x + pane.translation.x * parent_scale.x;

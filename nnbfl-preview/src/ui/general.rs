@@ -740,66 +740,45 @@ fn draw_pane_properties(ui: &mut Ui, pane: &mut crate::pane_tree::PaneNode) -> b
                     .spacing([12.0, 4.0])
                     .show(ui, |ui| {
                         ui.label("Translate X");
-                        if ui
+                        changed |= ui
                             .add(egui::DragValue::new(&mut base.translation.x).speed(0.5))
-                            .changed()
-                        {
-                            changed = true;
-                        }
+                            .changed();
                         ui.end_row();
 
                         ui.label("Translate Y");
-                        if ui
+                        changed |= ui
                             .add(egui::DragValue::new(&mut base.translation.y).speed(0.5))
-                            .changed()
-                        {
-                            changed = true;
-                        }
+                            .changed();
                         ui.end_row();
 
                         ui.label("Translate Z");
-                        if ui
+                        changed |= ui
                             .add(egui::DragValue::new(&mut base.translation.z).speed(0.5))
-                            .changed()
-                        {
-                            changed = true;
-                        }
+                            .changed();
                         ui.end_row();
 
                         ui.label("Rotate X");
-                        if ui
+                        changed |= ui
                             .add(egui::DragValue::new(&mut base.rotation.x).speed(0.1))
-                            .changed()
-                        {
-                            changed = true;
-                        }
+                            .changed();
                         ui.end_row();
 
                         ui.label("Rotate Y");
-                        if ui
+                        changed |= ui
                             .add(egui::DragValue::new(&mut base.rotation.y).speed(0.1))
-                            .changed()
-                        {
-                            changed = true;
-                        }
+                            .changed();
                         ui.end_row();
 
                         ui.label("Rotate Z");
-                        if ui
+                        changed |= ui
                             .add(egui::DragValue::new(&mut base.rotation.z).speed(0.1))
-                            .changed()
-                        {
-                            changed = true;
-                        }
+                            .changed();
                         ui.end_row();
 
                         ui.label("Scale X");
-                        if ui
+                        changed |= ui
                             .add(egui::DragValue::new(&mut base.scale.x).speed(0.01))
-                            .changed()
-                        {
-                            changed = true;
-                        }
+                            .changed();
                         ui.end_row();
 
                         ui.label("Scale Y");
@@ -812,21 +791,15 @@ fn draw_pane_properties(ui: &mut Ui, pane: &mut crate::pane_tree::PaneNode) -> b
                         ui.end_row();
 
                         ui.label("Size X");
-                        if ui
+                        changed |= ui
                             .add(egui::DragValue::new(&mut base.size.x).speed(0.5))
-                            .changed()
-                        {
-                            changed = true;
-                        }
+                            .changed();
                         ui.end_row();
 
                         ui.label("Size Y");
-                        if ui
+                        changed |= ui
                             .add(egui::DragValue::new(&mut base.size.y).speed(0.5))
-                            .changed()
-                        {
-                            changed = true;
-                        }
+                            .changed();
                         ui.end_row();
                     });
             }
@@ -861,6 +834,7 @@ fn draw_pane_properties(ui: &mut Ui, pane: &mut crate::pane_tree::PaneNode) -> b
                 }
             }
         });
+
     changed
 }
 
