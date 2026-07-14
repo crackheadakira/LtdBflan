@@ -702,6 +702,8 @@ impl App {
 
         let has_textures = all_files.iter().any(|f| matches!(f, MagicFiles::Bntx(_)));
 
+        self.ui_state.timeline.anim_player = AnimPlayer::new();
+
         let mut discovered_bntxs = Vec::new();
         for magic_file in all_files {
             match magic_file {
@@ -735,8 +737,6 @@ impl App {
                 .map(|s| s.entries.as_slice()),
             discovered_bntxs,
         );
-
-        self.ui_state.timeline.anim_player = AnimPlayer::new();
 
         self.ui_state.anim_names = self
             .ui_state
