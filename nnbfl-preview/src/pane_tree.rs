@@ -292,80 +292,80 @@ impl PaneNode {
                     tq.corners = corners.to_array();
                 }
 
-                if !self.window_quads.is_empty() {
-                    if let BflytSection::WindowPane(win) = &self.section {
-                        let layout = calculate_window_layout(win, corners.to_array());
+                if !self.window_quads.is_empty()
+                    && let BflytSection::WindowPane(win) = &self.section
+                {
+                    let layout = calculate_window_layout(win, corners.to_array());
 
-                        let mut quad_idx = 0;
+                    let mut quad_idx = 0;
 
-                        if layout.content.is_some() {
-                            if let Some(geom) = layout.content {
-                                if let Some(tq) = self.window_quads.get_mut(quad_idx) {
-                                    tq.x = geom.x;
-                                    tq.y = geom.y;
-                                    tq.width = geom.width;
-                                    tq.height = geom.height;
-                                    tq.corners = geom.corners;
-                                }
-
-                                quad_idx += 1;
-                            }
+                    if layout.content.is_some()
+                        && let Some(geom) = layout.content
+                    {
+                        if let Some(tq) = self.window_quads.get_mut(quad_idx) {
+                            tq.x = geom.x;
+                            tq.y = geom.y;
+                            tq.width = geom.width;
+                            tq.height = geom.height;
+                            tq.corners = geom.corners;
                         }
 
-                        for geom in layout.frames {
-                            let Some(kind) = geom.frame_kind else {
-                                continue;
+                        quad_idx += 1;
+                    }
+
+                    for geom in layout.frames {
+                        let Some(kind) = geom.frame_kind else {
+                            continue;
+                        };
+
+                        let Some((config_idx, flip_override)) =
+                            kind.to_binary_index(win.frames.len())
+                        else {
+                            continue;
+                        };
+
+                        let Some(frame_data) = win.frames.get(config_idx) else {
+                            continue;
+                        };
+
+                        if let Some(tq) = self.window_quads.get_mut(quad_idx) {
+                            tq.x = geom.x;
+                            tq.y = geom.y;
+                            tq.width = geom.width;
+                            tq.height = geom.height;
+                            tq.corners = geom.corners;
+
+                            let (tex_w, tex_h) = {
+                                bntxs
+                                    .iter()
+                                    .flat_map(|b| &b.textures)
+                                    .find(|t| t.name == *tq.texture_name)
+                                    .map(|t| (t.info.width as f32, t.info.height as f32))
+                                    .unwrap_or((1.0, 1.0))
                             };
 
-                            let Some((config_idx, flip_override)) =
-                                kind.to_binary_index(win.frames.len())
-                            else {
-                                continue;
-                            };
+                            let effective_flip =
+                                flip_override.unwrap_or(frame_data.texture_flip_mode);
 
-                            let Some(frame_data) = win.frames.get(config_idx) else {
-                                continue;
-                            };
+                            let texture_uvs = calculate_scaled_frame_uvs(
+                                geom.width,
+                                geom.height,
+                                tex_w,
+                                tex_h,
+                                kind,
+                                win.flag.window_kind,
+                                effective_flip,
+                                tq.standard_material.texture_count as usize,
+                            );
 
-                            if let Some(tq) = self.window_quads.get_mut(quad_idx) {
-                                tq.x = geom.x;
-                                tq.y = geom.y;
-                                tq.width = geom.width;
-                                tq.height = geom.height;
-                                tq.corners = geom.corners;
+                            let base_uvs = Self::compute_uvs(&texture_uvs);
+                            let uvs = Self::apply_srt_to_uvs(base_uvs, &tq.tex_srts);
 
-                                let (tex_w, tex_h) = {
-                                    bntxs
-                                        .iter()
-                                        .flat_map(|b| &b.textures)
-                                        .find(|t| t.name == *tq.texture_name)
-                                        .map(|t| (t.info.width as f32, t.info.height as f32))
-                                        .unwrap_or((1.0, 1.0))
-                                };
-
-                                let effective_flip =
-                                    flip_override.unwrap_or(frame_data.texture_flip_mode);
-
-                                let texture_uvs = calculate_scaled_frame_uvs(
-                                    geom.width,
-                                    geom.height,
-                                    tex_w,
-                                    tex_h,
-                                    kind,
-                                    win.flag.window_kind,
-                                    effective_flip,
-                                    tq.standard_material.texture_count as usize,
-                                );
-
-                                let base_uvs = Self::compute_uvs(&texture_uvs);
-                                let uvs = Self::apply_srt_to_uvs(base_uvs, &tq.tex_srts);
-
-                                tq.base_uvs = base_uvs;
-                                tq.uvs = uvs;
-                            }
-
-                            quad_idx += 1;
+                            tq.base_uvs = base_uvs;
+                            tq.uvs = uvs;
                         }
+
+                        quad_idx += 1;
                     }
                 }
 

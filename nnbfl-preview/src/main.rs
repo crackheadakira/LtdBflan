@@ -787,7 +787,7 @@ impl App {
                     size.height as f32,
                 );
 
-                window.set_title(&format!("nnbfl-preview - {}", &view.file_name));
+                window.set_title(&format!("nnbfl-preview - {}", view.file_name));
             }
         }
 

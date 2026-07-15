@@ -1040,7 +1040,7 @@ impl PaneRenderer {
                         entries: &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
-                                resource: wgpu::BindingResource::TextureView(&view0),
+                                resource: wgpu::BindingResource::TextureView(view0),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
@@ -1048,7 +1048,7 @@ impl PaneRenderer {
                             },
                             wgpu::BindGroupEntry {
                                 binding: 2,
-                                resource: wgpu::BindingResource::TextureView(&view1),
+                                resource: wgpu::BindingResource::TextureView(view1),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 3,
@@ -1056,7 +1056,7 @@ impl PaneRenderer {
                             },
                             wgpu::BindGroupEntry {
                                 binding: 4,
-                                resource: wgpu::BindingResource::TextureView(&view2),
+                                resource: wgpu::BindingResource::TextureView(view2),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 5,

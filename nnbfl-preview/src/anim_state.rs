@@ -16,6 +16,7 @@ use nnbfl::{
 
 use crate::bflyt_view::BflytView;
 use crate::pane_tree::DirtyFlags;
+use crate::renderer::textured_quad::TexturedQuad;
 use crate::traits::Displaying;
 use crate::ui::timeline::{PendingKeyEdit, PendingSlopeEdit, TimelineTrack};
 
@@ -391,7 +392,15 @@ pub fn transform_uv_srt(srt: &MaterialTextureSrt, uv: [f32; 2]) -> [f32; 2] {
     ]
 }
 
-fn apply_tex_srts(tq: &mut crate::renderer::textured_quad::TexturedQuad) {
+pub fn all_quads_mut(
+    node: &mut crate::pane_tree::PaneNode,
+) -> impl Iterator<Item = &mut TexturedQuad> {
+    node.textured_quad
+        .iter_mut()
+        .chain(node.window_quads.iter_mut())
+}
+
+fn apply_tex_srts(tq: &mut TexturedQuad) {
     for (i, srt) in tq.tex_srts.iter().enumerate() {
         for v_idx in 0..4 {
             let base_uv = tq.base_uvs[v_idx][i];
@@ -508,90 +517,87 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                     let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
                         continue;
                     };
-                    let Some(tq) = &mut node.textured_quad else {
-                        continue;
-                    };
 
-                    for t in targets {
-                        let v = eval_curve(&t.curve, frame);
-                        let layer = t.layer as usize;
+                    for tq in all_quads_mut(node) {
+                        for t in targets {
+                            let v = eval_curve(&t.curve, frame);
+                            let layer = t.layer as usize;
 
-                        if layer >= tq.tex_srts.len() {
-                            continue;
+                            if layer >= tq.tex_srts.len() {
+                                continue;
+                            }
+
+                            match &t.target {
+                                TargetIndex::TextureSrt(TextureSrtTarget::TranslateU) => {
+                                    tq.tex_srts[layer].translate_u = v
+                                }
+                                TargetIndex::TextureSrt(TextureSrtTarget::TranslateV) => {
+                                    tq.tex_srts[layer].translate_v = v
+                                }
+                                TargetIndex::TextureSrt(TextureSrtTarget::Rotate) => {
+                                    tq.tex_srts[layer].rotate = v
+                                }
+                                TargetIndex::TextureSrt(TextureSrtTarget::ScaleU) => {
+                                    tq.tex_srts[layer].scale_u = v
+                                }
+                                TargetIndex::TextureSrt(TextureSrtTarget::ScaleV) => {
+                                    tq.tex_srts[layer].scale_v = v
+                                }
+                                _ => {}
+                            }
                         }
-
-                        match &t.target {
-                            TargetIndex::TextureSrt(TextureSrtTarget::TranslateU) => {
-                                tq.tex_srts[layer].translate_u = v
-                            }
-                            TargetIndex::TextureSrt(TextureSrtTarget::TranslateV) => {
-                                tq.tex_srts[layer].translate_v = v
-                            }
-                            TargetIndex::TextureSrt(TextureSrtTarget::Rotate) => {
-                                tq.tex_srts[layer].rotate = v
-                            }
-                            TargetIndex::TextureSrt(TextureSrtTarget::ScaleU) => {
-                                tq.tex_srts[layer].scale_u = v
-                            }
-                            TargetIndex::TextureSrt(TextureSrtTarget::ScaleV) => {
-                                tq.tex_srts[layer].scale_v = v
-                            }
-                            _ => {}
-                        }
+                        apply_tex_srts(tq);
                     }
-                    apply_tex_srts(tq);
                 }
 
                 AnimInfoType::IndirectSrtAnim => {
                     let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
                         continue;
                     };
-                    let Some(tq) = &mut node.textured_quad else {
-                        continue;
-                    };
 
-                    for t in targets {
-                        let v = eval_curve(&t.curve, frame);
-                        match &t.target {
-                            TargetIndex::IndirectSrt(IndirectSrtTarget::Rotate) => {
-                                tq.indirect_rotation = v
+                    for tq in all_quads_mut(node) {
+                        for t in targets {
+                            let v = eval_curve(&t.curve, frame);
+                            match &t.target {
+                                TargetIndex::IndirectSrt(IndirectSrtTarget::Rotate) => {
+                                    tq.indirect_rotation = v
+                                }
+                                TargetIndex::IndirectSrt(IndirectSrtTarget::ScaleU) => {
+                                    tq.indirect_scale.x = v
+                                }
+                                TargetIndex::IndirectSrt(IndirectSrtTarget::ScaleV) => {
+                                    tq.indirect_scale.y = v
+                                }
+                                _ => {}
                             }
-                            TargetIndex::IndirectSrt(IndirectSrtTarget::ScaleU) => {
-                                tq.indirect_scale.x = v
-                            }
-                            TargetIndex::IndirectSrt(IndirectSrtTarget::ScaleV) => {
-                                tq.indirect_scale.y = v
-                            }
-                            _ => {}
                         }
-                    }
 
-                    let (m0, m1) = crate::renderer::textured_quad::build_indirect_matrices(
-                        tq.indirect_rotation,
-                        tq.indirect_scale,
-                    );
-                    tq.standard_material.indirect_mtx0 = m0;
-                    tq.standard_material.indirect_mtx1 = m1;
+                        let (m0, m1) = crate::renderer::textured_quad::build_indirect_matrices(
+                            tq.indirect_rotation,
+                            tq.indirect_scale,
+                        );
+                        tq.standard_material.indirect_mtx0 = m0;
+                        tq.standard_material.indirect_mtx1 = m1;
+                    }
                 }
 
                 AnimInfoType::TexturePatternAnim => {
                     let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
                         continue;
                     };
-                    let Some(tq) = &mut node.textured_quad else {
-                        continue;
-                    };
 
-                    for t in targets {
-                        let file_idx = eval_curve_step_u16(&t.curve, frame) as usize;
-                        let Some(tex_name) = pai.textures.get(file_idx).cloned() else {
-                            continue;
-                        };
-                        match t.layer {
-                            0 => tq.texture_name = tex_name,
-                            1 => tq.texture_name1 = Some(tex_name),
-                            2 => tq.texture_name2 = Some(tex_name),
-                            _ => {}
+                    for tq in all_quads_mut(node) {
+                        for t in targets {
+                            let file_idx = eval_curve_step_u16(&t.curve, frame) as usize;
+                            let Some(tex_name) = pai.textures.get(file_idx).cloned() else {
+                                continue;
+                            };
+                            match t.layer {
+                                0 => tq.texture_name = tex_name,
+                                1 => tq.texture_name1 = Some(tex_name),
+                                2 => tq.texture_name2 = Some(tex_name),
+                                _ => {}
+                            }
                         }
                     }
                 }
@@ -601,18 +607,16 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                         continue;
                     };
 
-                    let Some(tq) = &mut node.textured_quad else {
-                        continue;
-                    };
+                    for tq in all_quads_mut(node) {
+                        for t in targets {
+                            let v_float = eval_curve(&t.curve, frame);
+                            let v_byte = (v_float.clamp(0.0, 1.0) * 255.0).round() as u32;
 
-                    for t in targets {
-                        let v_float = eval_curve(&t.curve, frame);
-                        let v_byte = (v_float.clamp(0.0, 1.0) * 255.0).round() as u32;
+                            let mask = !(0xFFu32 << 3);
 
-                        let mask = !(0xFFu32 << 3);
-
-                        tq.standard_material.packed_alpha_flags =
-                            (tq.standard_material.packed_alpha_flags & mask) | (v_byte << 3);
+                            tq.standard_material.packed_alpha_flags =
+                                (tq.standard_material.packed_alpha_flags & mask) | (v_byte << 3);
+                        }
                     }
                 }
 
@@ -621,61 +625,57 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                         continue;
                     };
 
-                    let Some(tq) = &mut node.textured_quad else {
-                        continue;
-                    };
+                    for tq in all_quads_mut(node) {
+                        for t in targets {
+                            let v_float = eval_curve(&t.curve, frame) / 255.0;
+                            let v_byte = (v_float.clamp(0.0, 1.0) * 255.0).round() as u32;
 
-                    for t in targets {
-                        let v_float = eval_curve(&t.curve, frame) / 255.0;
-                        let v_byte = (v_float.clamp(0.0, 1.0) * 255.0).round() as u32;
+                            if let TargetIndex::MaterialColor(c) = &t.target {
+                                use nnbfl::bflan::targets::MaterialColorTarget::*;
+                                match c {
+                                    BufferRed => {
+                                        tq.standard_material.black_color =
+                                            (tq.standard_material.black_color & !0xFFu32) | v_byte;
+                                    }
+                                    BufferGreen => {
+                                        tq.standard_material.black_color =
+                                            (tq.standard_material.black_color & !(0xFFu32 << 8))
+                                                | (v_byte << 8);
+                                    }
+                                    BufferBlue => {
+                                        tq.standard_material.black_color =
+                                            (tq.standard_material.black_color & !(0xFFu32 << 16))
+                                                | (v_byte << 16);
+                                    }
+                                    BufferAlpha => {
+                                        tq.standard_material.black_color =
+                                            (tq.standard_material.black_color & !(0xFFu32 << 24))
+                                                | (v_byte << 24);
+                                    }
 
-                        if let TargetIndex::MaterialColor(c) = &t.target {
-                            use nnbfl::bflan::targets::MaterialColorTarget::*;
-                            match c {
-                                BufferRed => {
-                                    tq.standard_material.black_color =
-                                        (tq.standard_material.black_color & !0xFFu32)
-                                            | (v_byte << 0);
-                                }
-                                BufferGreen => {
-                                    tq.standard_material.black_color =
-                                        (tq.standard_material.black_color & !(0xFFu32 << 8))
-                                            | (v_byte << 8);
-                                }
-                                BufferBlue => {
-                                    tq.standard_material.black_color =
-                                        (tq.standard_material.black_color & !(0xFFu32 << 16))
-                                            | (v_byte << 16);
-                                }
-                                BufferAlpha => {
-                                    tq.standard_material.black_color =
-                                        (tq.standard_material.black_color & !(0xFFu32 << 24))
-                                            | (v_byte << 24);
-                                }
-
-                                Constant0Red | Color0Red | Color1Red | Color2Red | Color3Red
-                                | Color4Red => {
-                                    tq.standard_material.white_color =
-                                        (tq.standard_material.white_color & !0xFFu32)
-                                            | (v_byte << 0);
-                                }
-                                Constant0Green | Color0Green | Color1Green | Color2Green
-                                | Color3Green | Color4Green => {
-                                    tq.standard_material.white_color =
-                                        (tq.standard_material.white_color & !(0xFFu32 << 8))
-                                            | (v_byte << 8);
-                                }
-                                Constant0Blue | Color0Blue | Color1Blue | Color2Blue
-                                | Color3Blue | Color4Blue => {
-                                    tq.standard_material.white_color =
-                                        (tq.standard_material.white_color & !(0xFFu32 << 16))
-                                            | (v_byte << 16);
-                                }
-                                Constant0Alpha | Color0Alpha | Color1Alpha | Color2Alpha
-                                | Color3Alpha | Color4Alpha => {
-                                    tq.standard_material.white_color =
-                                        (tq.standard_material.white_color & !(0xFFu32 << 24))
-                                            | (v_byte << 24);
+                                    Constant0Red | Color0Red | Color1Red | Color2Red
+                                    | Color3Red | Color4Red => {
+                                        tq.standard_material.white_color =
+                                            (tq.standard_material.white_color & !0xFFu32) | v_byte;
+                                    }
+                                    Constant0Green | Color0Green | Color1Green | Color2Green
+                                    | Color3Green | Color4Green => {
+                                        tq.standard_material.white_color =
+                                            (tq.standard_material.white_color & !(0xFFu32 << 8))
+                                                | (v_byte << 8);
+                                    }
+                                    Constant0Blue | Color0Blue | Color1Blue | Color2Blue
+                                    | Color3Blue | Color4Blue => {
+                                        tq.standard_material.white_color =
+                                            (tq.standard_material.white_color & !(0xFFu32 << 16))
+                                                | (v_byte << 16);
+                                    }
+                                    Constant0Alpha | Color0Alpha | Color1Alpha | Color2Alpha
+                                    | Color3Alpha | Color4Alpha => {
+                                        tq.standard_material.white_color =
+                                            (tq.standard_material.white_color & !(0xFFu32 << 24))
+                                                | (v_byte << 24);
+                                    }
                                 }
                             }
                         }
@@ -692,70 +692,70 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                                 apply_to.extend(view.tree.descendants(pane_idx));
 
                                 for idx in apply_to {
-                                    if let Some(node) = view.tree.find_by_idx_mut(idx)
-                                        && let Some(tq) = &mut node.textured_quad
-                                    {
-                                        tq.tint[3] = v;
-                                        for c in tq.corner_tints.iter_mut() {
-                                            c[3] = v;
+                                    if let Some(node) = view.tree.find_by_idx_mut(idx) {
+                                        for tq in all_quads_mut(node) {
+                                            tq.tint[3] = v;
+                                            for c in tq.corner_tints.iter_mut() {
+                                                c[3] = v;
+                                            }
                                         }
                                     }
                                 }
                             }
                             _ => {
-                                if let Some(node) = view.tree.find_by_idx_mut(pane_idx)
-                                    && let Some(tq) = &mut node.textured_quad
-                                {
-                                    match &t.target {
-                                        TargetIndex::VertexColor(VertexColorTarget::LeftTopRed) => {
-                                            tq.corner_tints[0][0] = v
+                                if let Some(node) = view.tree.find_by_idx_mut(pane_idx) {
+                                    for tq in all_quads_mut(node) {
+                                        match &t.target {
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::LeftTopRed,
+                                            ) => tq.corner_tints[0][0] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::LeftTopGreen,
+                                            ) => tq.corner_tints[0][1] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::LeftTopBlue,
+                                            ) => tq.corner_tints[0][2] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::LeftTopAlpha,
+                                            ) => tq.corner_tints[0][3] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::RightTopRed,
+                                            ) => tq.corner_tints[1][0] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::RightTopGreen,
+                                            ) => tq.corner_tints[1][1] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::RightTopBlue,
+                                            ) => tq.corner_tints[1][2] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::RightTopAlpha,
+                                            ) => tq.corner_tints[1][3] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::LeftBottomRed,
+                                            ) => tq.corner_tints[2][0] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::LeftBottomGreen,
+                                            ) => tq.corner_tints[2][1] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::LeftBottomBlue,
+                                            ) => tq.corner_tints[2][2] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::LeftBottomAlpha,
+                                            ) => tq.corner_tints[2][3] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::RightBottomRed,
+                                            ) => tq.corner_tints[3][0] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::RightBottomGreen,
+                                            ) => tq.corner_tints[3][1] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::RightBottomBlue,
+                                            ) => tq.corner_tints[3][2] = v,
+                                            TargetIndex::VertexColor(
+                                                VertexColorTarget::RightBottomAlpha,
+                                            ) => tq.corner_tints[3][3] = v,
+                                            _ => {}
                                         }
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::LeftTopGreen,
-                                        ) => tq.corner_tints[0][1] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::LeftTopBlue,
-                                        ) => tq.corner_tints[0][2] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::LeftTopAlpha,
-                                        ) => tq.corner_tints[0][3] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::RightTopRed,
-                                        ) => tq.corner_tints[1][0] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::RightTopGreen,
-                                        ) => tq.corner_tints[1][1] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::RightTopBlue,
-                                        ) => tq.corner_tints[1][2] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::RightTopAlpha,
-                                        ) => tq.corner_tints[1][3] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::LeftBottomRed,
-                                        ) => tq.corner_tints[2][0] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::LeftBottomGreen,
-                                        ) => tq.corner_tints[2][1] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::LeftBottomBlue,
-                                        ) => tq.corner_tints[2][2] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::LeftBottomAlpha,
-                                        ) => tq.corner_tints[2][3] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::RightBottomRed,
-                                        ) => tq.corner_tints[3][0] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::RightBottomGreen,
-                                        ) => tq.corner_tints[3][1] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::RightBottomBlue,
-                                        ) => tq.corner_tints[3][2] = v,
-                                        TargetIndex::VertexColor(
-                                            VertexColorTarget::RightBottomAlpha,
-                                        ) => tq.corner_tints[3][3] = v,
-                                        _ => {}
                                     }
                                 }
                             }

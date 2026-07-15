@@ -32,9 +32,7 @@ pub enum FrameKind {
 impl FrameKind {
     pub fn to_binary_index(self, total_frames: usize) -> Option<(usize, Option<TextureFlip>)> {
         match total_frames {
-            1 => match self {
-                _ => Some((0, None)),
-            },
+            1 => Some((0, None)),
             2 => match self {
                 FrameKind::Left => Some((0, None)),
                 FrameKind::Right => Some((1, None)),
@@ -448,13 +446,10 @@ pub fn calculate_window_layout(win: &WindowPane, corners: [[f32; 2]; 4]) -> Wind
                     for rect in all_local_frames {
                         let mut world_frame = map_local_to_world(rect);
 
-                        if let Some(kind) = rect.frame_kind {
-                            match kind {
-                                FrameKind::Right => {
-                                    world_frame.flip_horizontal();
-                                }
-                                _ => {}
-                            }
+                        if let Some(kind) = rect.frame_kind
+                            && kind == FrameKind::Right
+                        {
+                            world_frame.flip_horizontal();
                         }
 
                         frames.push(world_frame);
@@ -487,51 +482,50 @@ pub fn derive_from_window(
 
     let layout = calculate_window_layout(win, corners);
 
-    if let Some(geom) = layout.content {
-        if let Some(mat) = material_list
+    if let Some(geom) = layout.content
+        && let Some(mat) = material_list
             .materials
             .get(win.content.material_index as usize)
-        {
-            let mut content_uvs = if win.content.picture_uvs.is_empty() {
-                flipped_plain_uvs(mat.tex_maps.len(), TextureFlip::None)
-            } else {
-                win.content.picture_uvs.clone()
-            };
+    {
+        let mut content_uvs = if win.content.picture_uvs.is_empty() {
+            flipped_plain_uvs(mat.tex_maps.len(), TextureFlip::None)
+        } else {
+            win.content.picture_uvs.clone()
+        };
 
-            if content_uvs.is_empty() {
-                content_uvs.push(TextureUv {
-                    top_left: Vector2f::new(0.0, 0.0),
-                    top_right: Vector2f::new(1.0, 0.0),
-                    bottom_left: Vector2f::new(0.0, 1.0),
-                    bottom_right: Vector2f::new(1.0, 1.0),
-                });
-            }
+        if content_uvs.is_empty() {
+            content_uvs.push(TextureUv {
+                top_left: Vector2f::new(0.0, 0.0),
+                top_right: Vector2f::new(1.0, 0.0),
+                bottom_left: Vector2f::new(0.0, 1.0),
+                bottom_right: Vector2f::new(1.0, 1.0),
+            });
+        }
 
-            let content_colors = (
-                &win.content.top_left_vertex_color,
-                &win.content.top_right_vertex_color,
-                &win.content.bottom_left_vertex_color,
-                &win.content.bottom_right_vertex_color,
-            );
+        let content_colors = (
+            &win.content.top_left_vertex_color,
+            &win.content.top_right_vertex_color,
+            &win.content.bottom_left_vertex_color,
+            &win.content.bottom_right_vertex_color,
+        );
 
-            let corner_tints = interpolate_slice_corners(geom.corners, corners, content_colors);
+        let corner_tints = interpolate_slice_corners(geom.corners, corners, content_colors);
 
-            if let Some(tq) = TexturedQuad::derive_from_material(
-                MaterialPaneData {
-                    base_section: &win.base,
-                    corner_tints,
-                    material_idx: win.content.material_index,
-                    texture_uvs: &content_uvs,
-                },
-                mat,
-                Vector2f::new(geom.x, geom.y),
-                Vector2f::new(geom.width, geom.height),
-                geom.corners,
-                is_visible,
-                pane_idx,
-            ) {
-                out.push(tq);
-            }
+        if let Some(tq) = TexturedQuad::derive_from_material(
+            MaterialPaneData {
+                base_section: &win.base,
+                corner_tints,
+                material_idx: win.content.material_index,
+                texture_uvs: &content_uvs,
+            },
+            mat,
+            Vector2f::new(geom.x, geom.y),
+            Vector2f::new(geom.width, geom.height),
+            geom.corners,
+            is_visible,
+            pane_idx,
+        ) {
+            out.push(tq);
         }
     }
 
@@ -566,13 +560,12 @@ pub fn derive_from_window(
             continue;
         };
 
-        if win.flag.use_left_corner_material {
-            if let Some(original_mat) = material_list
+        if win.flag.use_left_corner_material
+            && let Some(original_mat) = material_list
                 .materials
                 .get(frame_data.material_index as usize)
-            {
-                mat.tex_maps = original_mat.tex_maps.clone();
-            }
+        {
+            mat.tex_maps = original_mat.tex_maps.clone();
         }
 
         let (tex_w, tex_h) = if let Some(tex_name) = mat.tex_maps.first().map(|m| &m.texture_name) {
@@ -723,20 +716,7 @@ pub fn calculate_scaled_frame_uvs(
     let u_scale = (geom_width / scale_factor) / tex_w;
     let v_scale = (geom_height / scale_factor) / tex_h;
 
-    if window_kind == WindowKind::Around || window_kind == WindowKind::HorizontalNoContent {
-        let effective_u_scale =
-            if window_kind == WindowKind::HorizontalNoContent && kind == FrameKind::Right {
-                1.0
-            } else {
-                u_scale
-            };
-
-        let effective_v_scale = if window_kind == WindowKind::HorizontalNoContent {
-            1.0
-        } else {
-            v_scale
-        };
-
+    if window_kind == WindowKind::Around {
         for uv_set in &mut frame_uvs {
             let (anchor_u, anchor_v) = match kind {
                 FrameKind::TopLeft => (0.0, 0.0),
@@ -749,24 +729,58 @@ pub fn calculate_scaled_frame_uvs(
                 FrameKind::BottomRight => (1.0, 1.0),
             };
 
-            let scale_coord =
-                |val: f32, scale: f32, anchor: f32| -> f32 { anchor + (val - anchor) * scale };
+            apply_anchored_scale(uv_set, u_scale, v_scale, anchor_u, anchor_v);
+        }
+    } else if window_kind == WindowKind::Horizontal
+        || window_kind == WindowKind::HorizontalNoContent
+    {
+        let is_stretchy_piece =
+            window_kind == WindowKind::HorizontalNoContent && kind == FrameKind::Left;
 
-            uv_set.top_left.x = scale_coord(uv_set.top_left.x, effective_u_scale, anchor_u);
-            uv_set.top_left.y = scale_coord(uv_set.top_left.y, effective_v_scale, anchor_v);
+        let effective_u_scale = if is_stretchy_piece { u_scale } else { 1.0 };
+        let effective_v_scale = 1.0;
 
-            uv_set.top_right.x = scale_coord(uv_set.top_right.x, effective_u_scale, anchor_u);
-            uv_set.top_right.y = scale_coord(uv_set.top_right.y, effective_v_scale, anchor_v);
+        let (anchor_u, anchor_v) = match kind {
+            FrameKind::Left => (0.0, 0.5),
+            FrameKind::Right => (1.0, 0.5),
+            _ => (0.5, 0.5),
+        };
 
-            uv_set.bottom_left.x = scale_coord(uv_set.bottom_left.x, effective_u_scale, anchor_u);
-            uv_set.bottom_left.y = scale_coord(uv_set.bottom_left.y, effective_v_scale, anchor_v);
-
-            uv_set.bottom_right.x = scale_coord(uv_set.bottom_right.x, effective_u_scale, anchor_u);
-            uv_set.bottom_right.y = scale_coord(uv_set.bottom_right.y, effective_v_scale, anchor_v);
+        for uv_set in &mut frame_uvs {
+            apply_anchored_scale(
+                uv_set,
+                effective_u_scale,
+                effective_v_scale,
+                anchor_u,
+                anchor_v,
+            );
         }
     }
 
     frame_uvs
+}
+
+fn apply_anchored_scale(
+    uv_set: &mut TextureUv,
+    u_scale: f32,
+    v_scale: f32,
+    anchor_u: f32,
+    anchor_v: f32,
+) {
+    let scale_coord =
+        |val: f32, scale: f32, anchor: f32| -> f32 { anchor + (val - anchor) * scale };
+
+    uv_set.top_left.x = scale_coord(uv_set.top_left.x, u_scale, anchor_u);
+    uv_set.top_left.y = scale_coord(uv_set.top_left.y, v_scale, anchor_v);
+
+    uv_set.top_right.x = scale_coord(uv_set.top_right.x, u_scale, anchor_u);
+    uv_set.top_right.y = scale_coord(uv_set.top_right.y, v_scale, anchor_v);
+
+    uv_set.bottom_left.x = scale_coord(uv_set.bottom_left.x, u_scale, anchor_u);
+    uv_set.bottom_left.y = scale_coord(uv_set.bottom_left.y, v_scale, anchor_v);
+
+    uv_set.bottom_right.x = scale_coord(uv_set.bottom_right.x, u_scale, anchor_u);
+    uv_set.bottom_right.y = scale_coord(uv_set.bottom_right.y, v_scale, anchor_v);
 }
 
 fn interpolate_corner(corners: [[f32; 2]; 4], u: f32, v: f32) -> [f32; 2] {

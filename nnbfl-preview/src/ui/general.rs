@@ -13,6 +13,7 @@ use nnbfl::{
 
 use crate::{
     RenderContext,
+    anim_state::all_quads_mut,
     bflyt_view::BflytView,
     pane_tree::DirtyFlags,
     traits::Displaying,
@@ -657,6 +658,26 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
     if let Some(ref mut view) = ctx.bflyt_view {
         if let Some(material_list) = view.tree.material_list.as_mut() {
             let changed = ctx.ui_state.material_editor.draw_with(ui, material_list);
+
+            // TODO: clean this up perchance?
+
+            if changed {
+                view.tree.for_each_mut(|node| {
+                    let mut is_dirty = false;
+
+                    for tq in all_quads_mut(node) {
+                        if tq.material_idx as usize
+                            == ctx.ui_state.material_editor.selected_material
+                        {
+                            is_dirty = true;
+                        }
+                    }
+
+                    if is_dirty {
+                        node.dirty.insert(DirtyFlags::MATERIAL);
+                    }
+                });
+            }
 
             if changed {
                 view.tree.for_each_mut(|node| {
