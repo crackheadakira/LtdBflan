@@ -246,9 +246,11 @@ impl GpuState {
                 .selected_pane
                 .and_then(|idx| bflyt_view.tree.find_by_idx(idx))
             {
-                Some(node) => self
-                    .selection_renderer
-                    .update(&self.device, &node.world_corners),
+                Some(node) => self.selection_renderer.update(
+                    &self.device,
+                    &node.world_corners,
+                    &node.handle_capabilities,
+                ),
                 None => self.selection_renderer.clear(),
             }
 

@@ -4,6 +4,7 @@ use bitflags::bitflags;
 use nnbfl::{
     bflyt::{
         file::{Bflyt, BflytNode, BflytSection, ControlSourceElement, GroupElement, PaneElement},
+        flags::WindowKind,
         list::{CaptureTextureList, FontList, MaterialList, MaterialTextureSrt, TextureList},
         pane::{
             BasePaneUsageFlags, HorizontalPosition, Pane, PartsPane, PartsPaneBasicInfo,
@@ -27,6 +28,7 @@ use crate::{
     decompress_if_needed, extract_all_files_recursive,
     renderer::{
         quad::Quad,
+        selection::HandleCapability,
         textured_quad::{
             MaterialPaneData, PaneQuadData, TexturedQuad, vertex_corners_color_to_corner_tints,
         },
@@ -182,6 +184,7 @@ pub struct PaneNode {
     pub dirty: DirtyFlags,
     pub children: Vec<PaneNode>,
     pub user_data: Option<UserDataArray>,
+    pub handle_capabilities: Vec<HandleCapability>,
 }
 
 impl PaneNode {
@@ -1054,6 +1057,24 @@ impl<'a> Builder<'a> {
             pane_idx,
         };
 
+        let handle_capabilities = match section {
+            BflytSection::WindowPane(win) => match win.flag.window_kind {
+                WindowKind::HorizontalNoContent | WindowKind::Horizontal => {
+                    vec![HandleCapability::ScaleHorizontal, HandleCapability::Rotate]
+                }
+                _ => vec![
+                    HandleCapability::Rotate,
+                    HandleCapability::ScaleHorizontal,
+                    HandleCapability::ScaleVertical,
+                ],
+            },
+            _ => vec![
+                HandleCapability::Rotate,
+                HandleCapability::ScaleHorizontal,
+                HandleCapability::ScaleVertical,
+            ],
+        };
+
         let mut node = PaneNode {
             section: section.clone(),
             kind,
@@ -1074,6 +1095,7 @@ impl<'a> Builder<'a> {
             dirty: DirtyFlags::empty(),
             children: Vec::new(),
             user_data: None,
+            handle_capabilities,
         };
 
         if let BflytSection::PartsPane(parts) = section {

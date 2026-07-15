@@ -47,6 +47,13 @@ pub enum Handle {
     Right,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HandleCapability {
+    Rotate,
+    ScaleVertical,
+    ScaleHorizontal,
+}
+
 pub struct SelectionRenderer {
     pipeline: RenderPipelineContainer,
     vertex_buffer: wgpu::Buffer,
@@ -106,7 +113,12 @@ impl SelectionRenderer {
         );
     }
 
-    pub fn update(&mut self, device: &wgpu::Device, corners: &Corners) {
+    pub fn update(
+        &mut self,
+        device: &wgpu::Device,
+        corners: &Corners,
+        capabilities: &[HandleCapability],
+    ) {
         let tl = [corners.top_left.x, corners.top_left.y];
         let tr = [corners.top_right.x, corners.top_right.y];
         let bl = [corners.bottom_left.x, corners.bottom_left.y];
@@ -117,13 +129,9 @@ impl SelectionRenderer {
         let ml = midpoint(tl, bl);
         let mr = midpoint(tr, br);
 
-        let dx = mt[0] - mb[0];
-        let dy = mt[1] - mb[1];
-        let len = (dx * dx + dy * dy).sqrt().max(f32::EPSILON);
-        let nx = dx / len;
-        let ny = dy / len;
-
-        let rotation_handle_pos = [mt[0] + nx * 25.0, mt[1] + ny * 25.0];
+        let has_rotate = capabilities.contains(&HandleCapability::Rotate);
+        let has_scale_v = capabilities.contains(&HandleCapability::ScaleVertical);
+        let has_scale_h = capabilities.contains(&HandleCapability::ScaleHorizontal);
 
         let mut vertices: Vec<SelectionVertex> = Vec::new();
         let mut indices: Vec<u32> = Vec::new();
@@ -139,73 +147,112 @@ impl SelectionRenderer {
             );
         }
 
-        push_edge(
-            &mut vertices,
-            &mut indices,
-            mt,
-            rotation_handle_pos,
-            1.5,
-            OUTLINE_COLOR,
-        );
+        let dx = mt[0] - mb[0];
+        let dy = mt[1] - mb[1];
+        let len = (dx * dx + dy * dy).sqrt().max(f32::EPSILON);
+        let nx = dx / len;
+        let ny = dy / len;
+        let rotation_handle_pos = [mt[0] + nx * 25.0, mt[1] + ny * 25.0];
 
-        for &pos in &[tl, tr, bl, br] {
-            push_square(&mut vertices, &mut indices, pos, HANDLE_HALF, HANDLE_COLOR);
+        if has_rotate {
+            push_edge(
+                &mut vertices,
+                &mut indices,
+                mt,
+                rotation_handle_pos,
+                1.5,
+                OUTLINE_COLOR,
+            );
+        }
+
+        self.handle_positions.clear();
+
+        if has_scale_v && has_scale_h {
+            for &(pos, handle) in &[
+                (tl, Handle::TopLeft),
+                (tr, Handle::TopRight),
+                (bl, Handle::BottomLeft),
+                (br, Handle::BottomRight),
+            ] {
+                push_square(&mut vertices, &mut indices, pos, HANDLE_HALF, HANDLE_COLOR);
+                push_square_border(
+                    &mut vertices,
+                    &mut indices,
+                    pos,
+                    HANDLE_HALF,
+                    1.5,
+                    HANDLE_BORDER,
+                );
+
+                self.handle_positions.push((pos, handle));
+            }
+        }
+
+        if has_scale_v {
+            for &(pos, handle) in &[(mt, Handle::Top), (mb, Handle::Bottom)] {
+                push_square(
+                    &mut vertices,
+                    &mut indices,
+                    pos,
+                    HANDLE_HALF * 0.75,
+                    HANDLE_COLOR,
+                );
+
+                push_square_border(
+                    &mut vertices,
+                    &mut indices,
+                    pos,
+                    HANDLE_HALF * 0.75,
+                    1.5,
+                    HANDLE_BORDER,
+                );
+
+                self.handle_positions.push((pos, handle));
+            }
+        }
+
+        if has_scale_h {
+            for &(pos, handle) in &[(ml, Handle::Left), (mr, Handle::Right)] {
+                push_square(
+                    &mut vertices,
+                    &mut indices,
+                    pos,
+                    HANDLE_HALF * 0.75,
+                    HANDLE_COLOR,
+                );
+                push_square_border(
+                    &mut vertices,
+                    &mut indices,
+                    pos,
+                    HANDLE_HALF * 0.75,
+                    1.5,
+                    HANDLE_BORDER,
+                );
+
+                self.handle_positions.push((pos, handle));
+            }
+        }
+
+        if has_rotate {
+            push_square(
+                &mut vertices,
+                &mut indices,
+                rotation_handle_pos,
+                HANDLE_HALF,
+                HANDLE_COLOR,
+            );
             push_square_border(
                 &mut vertices,
                 &mut indices,
-                pos,
+                rotation_handle_pos,
                 HANDLE_HALF,
                 1.5,
                 HANDLE_BORDER,
             );
+
+            self.handle_positions
+                .push((rotation_handle_pos, Handle::Rotation));
         }
-
-        for &pos in &[mt, mb, ml, mr] {
-            push_square(
-                &mut vertices,
-                &mut indices,
-                pos,
-                HANDLE_HALF * 0.75,
-                HANDLE_COLOR,
-            );
-
-            push_square_border(
-                &mut vertices,
-                &mut indices,
-                pos,
-                HANDLE_HALF * 0.75,
-                1.5,
-                HANDLE_BORDER,
-            );
-        }
-
-        push_square(
-            &mut vertices,
-            &mut indices,
-            rotation_handle_pos,
-            HANDLE_HALF,
-            HANDLE_COLOR,
-        );
-        push_square_border(
-            &mut vertices,
-            &mut indices,
-            rotation_handle_pos,
-            HANDLE_HALF,
-            1.5,
-            HANDLE_BORDER,
-        );
-
-        self.handle_positions = vec![
-            (tl, Handle::TopLeft),
-            (tr, Handle::TopRight),
-            (bl, Handle::BottomLeft),
-            (br, Handle::BottomRight),
-            (mt, Handle::Top),
-            (mb, Handle::Bottom),
-            (ml, Handle::Left),
-            (mr, Handle::Right),
-            (rotation_handle_pos, Handle::Rotation),
-        ];
 
         self.vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("selection_vb"),

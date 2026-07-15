@@ -414,6 +414,10 @@ fn cascade_visibility(view: &mut BflytView, pane_idx: usize, visible: bool) {
             tq.standard_material.visible = visible as u32;
         }
 
+        for tq in &mut node.window_quads {
+            tq.standard_material.visible = visible as u32;
+        }
+
         node.dirty.insert(DirtyFlags::VERTICES);
     });
 }
@@ -511,9 +515,11 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                     for t in targets {
                         let v = eval_curve(&t.curve, frame);
                         let layer = t.layer as usize;
+
                         if layer >= tq.tex_srts.len() {
                             continue;
                         }
+
                         match &t.target {
                             TargetIndex::TextureSrt(TextureSrtTarget::TranslateU) => {
                                 tq.tex_srts[layer].translate_u = v

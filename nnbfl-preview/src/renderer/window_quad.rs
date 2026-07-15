@@ -33,9 +33,7 @@ impl FrameKind {
     pub fn to_binary_index(self, total_frames: usize) -> Option<(usize, Option<TextureFlip>)> {
         match total_frames {
             1 => match self {
-                FrameKind::Left => Some((0, None)),
-                FrameKind::Right => Some((0, None)),
-                _ => None,
+                _ => Some((0, None)),
             },
             2 => match self {
                 FrameKind::Left => Some((0, None)),
@@ -382,10 +380,7 @@ pub fn calculate_window_layout(win: &WindowPane, corners: [[f32; 2]; 4]) -> Wind
         }
     };
 
-    let draws_content =
-        !win.flag.not_draw_content && win.flag.window_kind != WindowKind::HorizontalNoContent;
-
-    if draws_content {
+    if !win.flag.not_draw_content && win.flag.window_kind != WindowKind::HorizontalNoContent {
         let inflation = Some((
             win.inflation_left as f32,
             win.inflation_right as f32,
@@ -540,7 +535,7 @@ pub fn derive_from_window(
         }
     }
 
-    for geom in layout.frames {
+    for (frame_idx, geom) in layout.frames.into_iter().enumerate() {
         let Some(kind) = geom.frame_kind else {
             continue;
         };
@@ -623,11 +618,14 @@ pub fn derive_from_window(
 
         let corner_tints = interpolate_slice_corners(geom.corners, corners, frame_colors);
 
+        // TODO: make this not be some broken hack & actually fix batching system.
+        let offset_material_idx = base_material_idx as u32 + (frame_idx as u32 * 5000);
+
         if let Some(tq) = TexturedQuad::derive_from_material(
             MaterialPaneData {
                 base_section: &win.base,
                 corner_tints,
-                material_idx: frame_data.material_index,
+                material_idx: offset_material_idx as u16,
                 texture_uvs: &frame_uvs,
             },
             &mat,
@@ -726,7 +724,12 @@ pub fn calculate_scaled_frame_uvs(
     let v_scale = (geom_height / scale_factor) / tex_h;
 
     if window_kind == WindowKind::Around || window_kind == WindowKind::HorizontalNoContent {
-        let effective_u_scale = u_scale;
+        let effective_u_scale =
+            if window_kind == WindowKind::HorizontalNoContent && kind == FrameKind::Right {
+                1.0
+            } else {
+                u_scale
+            };
 
         let effective_v_scale = if window_kind == WindowKind::HorizontalNoContent {
             1.0

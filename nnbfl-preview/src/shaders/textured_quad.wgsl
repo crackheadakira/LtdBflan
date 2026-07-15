@@ -601,15 +601,15 @@ fn unpack_rgba8(packed_color: u32) -> vec4<f32> {
 fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     let mat = u_standard;
 
+    if mat.visible == 0u {
+        discard;
+    }
+
     let t = sample_textures(mat.texture_count, in.uv0, in.uv1, in.uv2, in.pos_mesh, mat);
 
     if mat.debug_stage == 1u { return t[0]; }
     if mat.debug_stage == 2u { return t[1]; }
     if mat.debug_stage == 3u { return t[2]; }
-
-    if mat.visible == 0u {
-        discard;
-    }
 
     if mat.is_plain == 1u {
         return plain_preview_color(in.tint, in.uv0, in.quad_size);
