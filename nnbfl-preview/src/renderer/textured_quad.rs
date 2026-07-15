@@ -81,7 +81,7 @@ impl Default for StandardMaterial {
             white_color: u32::MAX,
             combine_mode: 0,
             combine_mode2: 0,
-            texture_count: 1,
+            texture_count: 0,
             tex_gen_mode: 0,
             visible: 1,
             packed_alpha_flags: 0,
@@ -215,28 +215,49 @@ pub struct TexturedQuad {
 
 pub fn build_indirect_matrices(rotation_deg: f32, scale: Vector2f) -> ([f32; 4], [f32; 4]) {
     let rad = rotation_deg.to_radians();
+    let cos_r = rad.cos();
+    let sin_r = rad.sin();
 
-    let a0x = rad.cos() * scale.x * 2.0;
-    let a1x = -rad.sin() * scale.y * 2.0;
-    let a0y = rad.sin() * scale.x * 2.0;
-    let a1y = rad.cos() * scale.y * 2.0;
+    // TODO: fix still
 
-    let tx = a0x * -0.5 + a1x * -0.5;
-    let ty = a0y * -0.5 + a1y * -0.5;
+    let a0x = -cos_r * scale.x;
+    let a1x = sin_r * scale.y;
+    let a0y = sin_r * scale.x;
+    let a1y = cos_r * scale.y;
+
+    let tx = (a0x * -0.5) + (a1x * -0.5);
+    let ty = (a0y * -0.5) + (a1y * -0.5);
 
     ([a0x, a1x, 0.0, tx], [a0y, a1y, 0.0, ty])
 }
 
+pub fn vertex_corners_color_to_corner_tints(
+    top_left_vertex_color: &Color4u8,
+    top_right_vertex_color: &Color4u8,
+    bottom_left_vertex_color: &Color4u8,
+    bottom_right_vertex_color: &Color4u8,
+) -> [[f32; 4]; 4] {
+    let to_f32_rgba = |color: &Color4u8| -> [f32; 4] {
+        let rgba: [f32; 4] = (*color).into();
+        if rgba[3] > 0.0 {
+            rgba
+        } else {
+            [1.0, 1.0, 1.0, 1.0]
+        }
+    };
+
+    [
+        to_f32_rgba(top_left_vertex_color),
+        to_f32_rgba(top_right_vertex_color),
+        to_f32_rgba(bottom_left_vertex_color),
+        to_f32_rgba(bottom_right_vertex_color),
+    ]
+}
+
 pub struct MaterialPaneData<'a> {
     pub base_section: &'a Pane,
-
-    pub top_left_vertex_color: &'a Color4u8,
-    pub top_right_vertex_color: &'a Color4u8,
-    pub bottom_left_vertex_color: &'a Color4u8,
-    pub bottom_right_vertex_color: &'a Color4u8,
-
+    pub corner_tints: [[f32; 4]; 4],
     pub material_idx: u16,
-
     pub texture_uvs: &'a [TextureUv],
 }
 
@@ -250,15 +271,17 @@ impl TexturedQuad {
         is_visible: bool,
         pane_idx: usize,
     ) -> Option<Self> {
-        let tex_map = mat.tex_maps.first()?;
-        let tex_name = tex_map.texture_name.trim_end();
+        let tex_map = mat.tex_maps.first();
+        let tex_name = tex_map.map(|m| m.texture_name.trim_end()).unwrap_or("");
 
-        if tex_name.is_empty() {
+        if tex_name.is_empty()
+            && mat.blend_mode.is_none()
+            && mat.alpha_compare.is_none()
+            && mat.tev_combiners.is_empty()
+            && mat.detailed_combiner.is_none()
+        {
             return None;
         }
-
-        let tl: [f32; 4] = (*pane_data.top_left_vertex_color).into();
-        let tint = if tl[3] > 0.0 { tl } else { [1.0; 4] };
 
         let base_uvs = PaneNode::compute_uvs(pane_data.texture_uvs);
         let uvs = PaneNode::apply_srt_to_uvs(base_uvs, &mat.tex_srts);
@@ -438,8 +461,8 @@ impl TexturedQuad {
             corners,
             uvs,
             base_uvs,
-            tint,
-            corner_tints: [tint; 4],
+            tint: [1.0; 4],
+            corner_tints: pane_data.corner_tints,
             texture_name: tex_name.to_string(),
             texture_name1,
             texture_name2,
@@ -933,13 +956,6 @@ impl PaneRenderer {
                     batch.detailed_buffer = Some(detailed_buf);
                 }
                 BatchKey::Textured { texture_name, .. } => {
-                    let Some(gpu_tex0) = texture_cache.get(texture_name) else {
-                        log::warn!(
-                            "PaneRenderer: texture '{texture_name}' not found, skipping batch"
-                        );
-                        continue;
-                    };
-
                     let Some(&(first_pane_idx, first_material_idx)) = batch.piece_keys.first()
                     else {
                         continue;
@@ -954,6 +970,15 @@ impl PaneRenderer {
                     }) else {
                         continue;
                     };
+
+                    let gpu_tex0 = texture_cache.get(texture_name);
+                    if gpu_tex0.is_none() && !texture_name.is_empty() {
+                        log::warn!(
+                            "PaneRenderer: texture '{texture_name}' not found, falling back to placeholder."
+                        );
+                    }
+
+                    let view0 = gpu_tex0.map(|t| &t.view).unwrap_or(&self.placeholder_view);
 
                     let mut final_mat = rep_quad.standard_material;
                     final_mat.proj_mtx0 = Self::calculate_projection_matrix(
@@ -991,17 +1016,19 @@ impl PaneRenderer {
                             usage: wgpu::BufferUsages::UNIFORM,
                         });
 
-                    let gpu_tex1 = rep_quad
+                    let view1 = rep_quad
                         .texture_name1
                         .as_ref()
                         .and_then(|n| texture_cache.get(n))
-                        .unwrap_or(gpu_tex0);
+                        .map(|t| &t.view)
+                        .unwrap_or(view0);
 
-                    let gpu_tex2 = rep_quad
+                    let view2 = rep_quad
                         .texture_name2
                         .as_ref()
                         .and_then(|n| texture_cache.get(n))
-                        .unwrap_or(gpu_tex0);
+                        .map(|t| &t.view)
+                        .unwrap_or(view0);
 
                     let sampler0 = make_sampler(rep_quad.sampler_0);
                     let sampler1 = make_sampler(rep_quad.sampler_1);
@@ -1013,7 +1040,7 @@ impl PaneRenderer {
                         entries: &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
-                                resource: wgpu::BindingResource::TextureView(&gpu_tex0.view),
+                                resource: wgpu::BindingResource::TextureView(&view0),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
@@ -1021,7 +1048,7 @@ impl PaneRenderer {
                             },
                             wgpu::BindGroupEntry {
                                 binding: 2,
-                                resource: wgpu::BindingResource::TextureView(&gpu_tex1.view),
+                                resource: wgpu::BindingResource::TextureView(&view1),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 3,
@@ -1029,7 +1056,7 @@ impl PaneRenderer {
                             },
                             wgpu::BindGroupEntry {
                                 binding: 4,
-                                resource: wgpu::BindingResource::TextureView(&gpu_tex2.view),
+                                resource: wgpu::BindingResource::TextureView(&view2),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 5,

@@ -554,15 +554,13 @@ fn dc_run(
 fn sample_textures(count: u32, uv0: vec2<f32>, uv1: vec2<f32>, uv2: vec2<f32>, pos_mesh: vec2<f32>, mat: StandardMaterial) -> array<vec4<f32>, 3> {
     var t = array<vec4<f32>, 3>(vec4<f32>(1.0), vec4<f32>(1.0), vec4<f32>(1.0));
 
-    let byte0 = mat.tex_gen_mode & 0xFFu;
-    let byte1 = (mat.tex_gen_mode >> 8u) & 0xFFu;
-    let byte2 = (mat.tex_gen_mode >> 16u) & 0xFFu;
+    let bytes = (vec3<u32>(mat.tex_gen_mode) >> vec3<u32>(0u, 8u, 16u)) & vec3<u32>(0xFFu);
 
     let pos4 = vec4<f32>(pos_mesh, 0.0, 1.0);
 
     if count > 0u {
         var uv = uv0;
-        if (byte0 & 0x3u) != 0u {
+        if (bytes.x & 0x3u) != 0u {
             uv = vec2<f32>(dot(pos4, mat.proj_mtx0[0]), dot(pos4, mat.proj_mtx0[1]));
         }
 
@@ -571,7 +569,7 @@ fn sample_textures(count: u32, uv0: vec2<f32>, uv1: vec2<f32>, uv2: vec2<f32>, p
 
     if count > 1u {
         var uv = uv1;
-        if (byte1 & 0x3u) != 0u {
+        if (bytes.y & 0x3u) != 0u {
             uv = vec2<f32>(dot(pos4, mat.proj_mtx1[0]), dot(pos4, mat.proj_mtx1[1]));
         }
 
@@ -580,7 +578,7 @@ fn sample_textures(count: u32, uv0: vec2<f32>, uv1: vec2<f32>, uv2: vec2<f32>, p
 
     if count > 2u {
         var uv = uv2;
-        if (byte2 & 0x3u) != 0u {
+        if (bytes.z & 0x3u) != 0u {
             uv = vec2<f32>(dot(pos4, mat.proj_mtx2[0]), dot(pos4, mat.proj_mtx2[1]));
         }
 
@@ -603,6 +601,12 @@ fn unpack_rgba8(packed_color: u32) -> vec4<f32> {
 fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     let mat = u_standard;
 
+    let t = sample_textures(mat.texture_count, in.uv0, in.uv1, in.uv2, in.pos_mesh, mat);
+
+    if mat.debug_stage == 1u { return t[0]; }
+    if mat.debug_stage == 2u { return t[1]; }
+    if mat.debug_stage == 3u { return t[2]; }
+
     if mat.visible == 0u {
         discard;
     }
@@ -619,7 +623,38 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
     let use_texture_only = (mat.packed_alpha_flags >> 11u) & 1u;
     let use_thresholding_alpha_interpolation = (mat.packed_alpha_flags >> 12u) & 1u;
 
+    let byte0 = mat.tex_gen_mode & 0xFFu;
+    let byte1 = (mat.tex_gen_mode >> 8u) & 0xFFu;
+    let pos4 = vec4<f32>(in.pos_mesh, 0.0, 1.0);
+
+    let is_proj0 = (byte0 & 0x3u) != 0u;
+    let uv0_indirect = select(
+        in.uv0,
+        vec2<f32>(dot(pos4, mat.proj_mtx0[0]), dot(pos4, mat.proj_mtx0[1])),
+        is_proj0,
+    );
+
+    let is_proj1 = (byte1 & 0x3u) != 0u;
+    let uv1_indirect = select(
+        in.uv0,
+        vec2<f32>(dot(pos4, mat.proj_mtx1[0]), dot(pos4, mat.proj_mtx1[1])),
+        is_proj1,
+    );
+
+    if mat.debug_stage == 4u { return vec4<f32>(uv0_indirect, 0.0, 1.0); }
+    if mat.debug_stage == 5u { return vec4<f32>(uv1_indirect, 0.0, 1.0); }
+
+    let iv = vec4<f32>(t[1].xyz, 1.0);
+    let offset = vec2<f32>(dot(iv, mat.indirect_mtx0), dot(iv, mat.indirect_mtx1));
+
+    if mat.debug_stage == 6u { return vec4<f32>(offset, 0.0, 1.0); }
+    if mat.debug_stage == 7u { return vec4<f32>(uv0_indirect + offset, 0.0, 1.0); }
+
     if use_texture_only == 1u {
+        if mat.debug_stage != 0u {
+            discard;
+        }
+
         let tex_color_raw = textureSample(t_texture0, s_sampler0, in.uv0);
         var final_alpha = tex_color_raw.a;
 
@@ -642,39 +677,6 @@ fn fs_standard(in: VertexOutput) -> @location(0) vec4<f32> {
         color.a = clamp(final_alpha * in.tint.a, 0.0, 1.0);
         return color;
     }
-
-    let t = sample_textures(mat.texture_count, in.uv0, in.uv1, in.uv2, in.pos_mesh, mat);
-
-    if mat.debug_stage == 1u { return t[0]; }
-    if mat.debug_stage == 2u { return t[1]; }
-    if mat.debug_stage == 3u { return t[2]; }
-
-    let byte0 = mat.tex_gen_mode & 0xFFu;
-    let byte1 = (mat.tex_gen_mode >> 8u) & 0xFFu;
-    let pos4 = vec4<f32>(in.pos_mesh, 0.0, 1.0);
-
-    let is_proj0 = (byte0 & 0x3u) != 0u;
-    let uv0_indirect = select(
-        in.uv0,
-        vec2<f32>(dot(pos4, mat.proj_mtx0[0]), dot(pos4, mat.proj_mtx0[1])),
-        is_proj0,
-    );
-
-    let is_proj1 = (byte1 & 0x3u) != 0u;
-    let uv1_indirect = select(
-        in.uv0,
-        vec2<f32>(dot(pos4, mat.proj_mtx1[0]), dot(pos4, mat.proj_mtx1[1])),
-        is_proj1,
-    );
-
-    let iv = vec4<f32>(t[1].xyz, 1.0);
-    let offset = vec2<f32>(dot(iv, mat.indirect_mtx0), dot(iv, mat.indirect_mtx1));
-
-    if mat.debug_stage == 4u { return vec4<f32>(uv0_indirect, 0.0, 1.0); }
-    if mat.debug_stage == 5u { return vec4<f32>(uv1_indirect, 0.0, 1.0); }
-
-    if mat.debug_stage == 6u { return vec4<f32>(offset, 0.0, 1.0); }
-    if mat.debug_stage == 7u { return vec4<f32>(uv0_indirect + offset, 0.0, 1.0); }
 
     let rgb_mode1 = mat.combine_mode & 0x00FFFFFFu;
     let rgb_mode2 = mat.combine_mode2 & 0x00FFFFFFu;

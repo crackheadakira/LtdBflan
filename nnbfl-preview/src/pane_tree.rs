@@ -27,7 +27,9 @@ use crate::{
     decompress_if_needed, extract_all_files_recursive,
     renderer::{
         quad::Quad,
-        textured_quad::{MaterialPaneData, PaneQuadData, TexturedQuad},
+        textured_quad::{
+            MaterialPaneData, PaneQuadData, TexturedQuad, vertex_corners_color_to_corner_tints,
+        },
         window_quad::{calculate_scaled_frame_uvs, calculate_window_layout, derive_from_window},
     },
     traits::Displaying,
@@ -312,7 +314,9 @@ impl PaneNode {
                                 continue;
                             };
 
-                            let Some(config_idx) = kind.to_binary_index(win.frames.len()) else {
+                            let Some((config_idx, flip_override)) =
+                                kind.to_binary_index(win.frames.len())
+                            else {
                                 continue;
                             };
 
@@ -336,13 +340,17 @@ impl PaneNode {
                                         .unwrap_or((1.0, 1.0))
                                 };
 
+                                let effective_flip =
+                                    flip_override.unwrap_or(frame_data.texture_flip_mode);
+
                                 let texture_uvs = calculate_scaled_frame_uvs(
                                     geom.width,
                                     geom.height,
                                     tex_w,
                                     tex_h,
                                     kind,
-                                    frame_data.texture_flip_mode,
+                                    win.flag.window_kind,
+                                    effective_flip,
                                     tq.standard_material.texture_count as usize,
                                 );
 
@@ -402,10 +410,12 @@ impl PaneNode {
             && let Some(tq) = TexturedQuad::derive_from_material(
                 MaterialPaneData {
                     base_section: &pic.base,
-                    top_left_vertex_color: &pic.top_left_vertex_color,
-                    top_right_vertex_color: &pic.top_right_vertex_color,
-                    bottom_left_vertex_color: &pic.bottom_left_vertex_color,
-                    bottom_right_vertex_color: &pic.bottom_right_vertex_color,
+                    corner_tints: vertex_corners_color_to_corner_tints(
+                        &pic.top_left_vertex_color,
+                        &pic.top_right_vertex_color,
+                        &pic.bottom_left_vertex_color,
+                        &pic.bottom_right_vertex_color,
+                    ),
                     material_idx: pic.material_index,
                     texture_uvs: &pic.texture_uvs,
                 },
@@ -1284,10 +1294,12 @@ impl<'a> Builder<'a> {
         TexturedQuad::derive_from_material(
             MaterialPaneData {
                 base_section: &pic.base,
-                top_left_vertex_color: &pic.top_left_vertex_color,
-                top_right_vertex_color: &pic.top_right_vertex_color,
-                bottom_left_vertex_color: &pic.bottom_left_vertex_color,
-                bottom_right_vertex_color: &pic.bottom_right_vertex_color,
+                corner_tints: vertex_corners_color_to_corner_tints(
+                    &pic.top_left_vertex_color,
+                    &pic.top_right_vertex_color,
+                    &pic.bottom_left_vertex_color,
+                    &pic.bottom_right_vertex_color,
+                ),
                 material_idx: pic.material_index,
                 texture_uvs: &pic.texture_uvs,
             },

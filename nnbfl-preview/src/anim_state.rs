@@ -257,8 +257,6 @@ impl AnimPlayer {
                 && let Some(view) = view
             {
                 self.anims[idx].resolve_group_visibility(view, hidden_panes);
-            } else {
-                hidden_panes.clear();
             }
         }
     }

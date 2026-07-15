@@ -30,24 +30,34 @@ pub enum FrameKind {
 }
 
 impl FrameKind {
-    pub fn to_binary_index(self, total_frames: usize) -> Option<usize> {
+    pub fn to_binary_index(self, total_frames: usize) -> Option<(usize, Option<TextureFlip>)> {
         match total_frames {
+            1 => match self {
+                FrameKind::Left => Some((0, None)),
+                FrameKind::Right => Some((0, None)),
+                _ => None,
+            },
+            2 => match self {
+                FrameKind::Left => Some((0, None)),
+                FrameKind::Right => Some((1, None)),
+                _ => None,
+            },
             4 => match self {
-                FrameKind::TopLeft => Some(0),
-                FrameKind::TopRight => Some(1),
-                FrameKind::BottomLeft => Some(2),
-                FrameKind::BottomRight => Some(3),
+                FrameKind::TopLeft => Some((0, None)),
+                FrameKind::TopRight => Some((1, None)),
+                FrameKind::BottomLeft => Some((2, None)),
+                FrameKind::BottomRight => Some((3, None)),
                 _ => None,
             },
             8 => match self {
-                FrameKind::TopLeft => Some(0),
-                FrameKind::TopRight => Some(1),
-                FrameKind::BottomLeft => Some(2),
-                FrameKind::BottomRight => Some(3),
-                FrameKind::Left => Some(4),
-                FrameKind::Right => Some(5),
-                FrameKind::Top => Some(6),
-                FrameKind::Bottom => Some(7),
+                FrameKind::TopLeft => Some((0, None)),
+                FrameKind::TopRight => Some((1, None)),
+                FrameKind::BottomLeft => Some((2, None)),
+                FrameKind::BottomRight => Some((3, None)),
+                FrameKind::Left => Some((4, None)),
+                FrameKind::Right => Some((5, None)),
+                FrameKind::Top => Some((6, None)),
+                FrameKind::Bottom => Some((7, None)),
             },
             _ => None,
         }
@@ -98,6 +108,7 @@ pub fn resolve_frame_size(win: &WindowPane, pane_size: Vector2f) -> (FrameSizeF,
         ),
         WindowKind::HorizontalNoContent => {
             let effective_size = Vector2f::new(pane_size.x, fs_top);
+
             (
                 FrameSizeF {
                     left: pane_size.x - fs_right,
@@ -124,6 +135,7 @@ pub fn calculate_content_rect(
     if let Some((infl_l, infl_r, infl_t, infl_b)) = inflation {
         x -= infl_l;
         y -= infl_t;
+
         w += infl_l + infl_r;
         h += infl_t + infl_b;
     }
@@ -269,6 +281,25 @@ pub fn calculate_frame_rects_around(size: Vector2f, fs: FrameSizeF) -> [FrameRec
     ]
 }
 
+pub fn calculate_frame_rects_horizontal(size: Vector2f, fs: FrameSizeF) -> [FrameRect; 2] {
+    [
+        FrameRect {
+            x: 0.0,
+            y: 0.0,
+            width: fs.left,
+            height: size.y,
+            frame_kind: Some(FrameKind::Left),
+        },
+        FrameRect {
+            x: size.x - fs.right,
+            y: 0.0,
+            width: fs.right,
+            height: size.y,
+            frame_kind: Some(FrameKind::Right),
+        },
+    ]
+}
+
 const PLAIN_UV_CORNERS: [[f32; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
 
 fn flipped_plain_uvs(texture_count: usize, flip: TextureFlip) -> Vec<TextureUv> {
@@ -293,6 +324,18 @@ pub struct WindowPieceGeometry {
     pub frame_kind: Option<FrameKind>,
 }
 
+impl WindowPieceGeometry {
+    pub fn flip_horizontal(&mut self) {
+        self.corners.swap(0, 1);
+        self.corners.swap(2, 3);
+    }
+
+    pub fn flip_vertical(&mut self) {
+        self.corners.swap(0, 2);
+        self.corners.swap(1, 3);
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct WindowLayoutGeometry {
     pub content: Option<WindowPieceGeometry>,
@@ -306,6 +349,7 @@ pub fn calculate_window_layout(win: &WindowPane, corners: [[f32; 2]; 4]) -> Wind
     let unscaled_size = win.base.size;
 
     let (fs, effective_size) = resolve_frame_size(win, unscaled_size);
+
     if effective_size.x <= 0.0 || effective_size.y <= 0.0 {
         return WindowLayoutGeometry { content, frames };
     }
@@ -338,7 +382,10 @@ pub fn calculate_window_layout(win: &WindowPane, corners: [[f32; 2]; 4]) -> Wind
         }
     };
 
-    if !win.flag.not_draw_content {
+    let draws_content =
+        !win.flag.not_draw_content && win.flag.window_kind != WindowKind::HorizontalNoContent;
+
+    if draws_content {
         let inflation = Some((
             win.inflation_left as f32,
             win.inflation_right as f32,
@@ -351,27 +398,84 @@ pub fn calculate_window_layout(win: &WindowPane, corners: [[f32; 2]; 4]) -> Wind
         content = Some(map_local_to_world(local_rect));
     }
 
-    match win.frames.len() {
-        4 => {
-            let all_local_frames = calculate_frame_rects_four(effective_size, fs);
+    match win.flag.window_kind {
+        WindowKind::Around => match win.frames.len() {
+            4 => {
+                let all_local_frames = calculate_frame_rects_four(effective_size, fs);
 
-            for i in 0..4 {
-                frames.push(map_local_to_world(all_local_frames[i]));
+                for rect in all_local_frames {
+                    frames.push(map_local_to_world(rect));
+                }
+            }
+
+            8 => {
+                let all_local_frames = calculate_frame_rects_around(effective_size, fs);
+
+                for rect in all_local_frames {
+                    frames.push(map_local_to_world(rect));
+                }
+            }
+
+            1 => {
+                let all_local_frames = calculate_frame_rects_four(effective_size, fs);
+
+                for rect in all_local_frames {
+                    let mut world_frame = map_local_to_world(rect);
+
+                    if let Some(kind) = rect.frame_kind {
+                        match kind {
+                            FrameKind::TopRight => {
+                                world_frame.flip_horizontal();
+                            }
+                            FrameKind::BottomLeft => {
+                                world_frame.flip_vertical();
+                            }
+                            FrameKind::BottomRight => {
+                                world_frame.flip_horizontal();
+                                world_frame.flip_vertical();
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    frames.push(world_frame);
+                }
+            }
+
+            _ => {}
+        },
+
+        WindowKind::Horizontal | WindowKind::HorizontalNoContent => {
+            let all_local_frames = calculate_frame_rects_horizontal(effective_size, fs);
+
+            match win.frames.len() {
+                1 => {
+                    for rect in all_local_frames {
+                        let mut world_frame = map_local_to_world(rect);
+
+                        if let Some(kind) = rect.frame_kind {
+                            match kind {
+                                FrameKind::Right => {
+                                    world_frame.flip_horizontal();
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        frames.push(world_frame);
+                    }
+                }
+
+                2 => {
+                    for rect in all_local_frames {
+                        frames.push(map_local_to_world(rect));
+                    }
+                }
+
+                _ => {}
             }
         }
-
-        8 => {
-            let all_local_frames = calculate_frame_rects_around(effective_size, fs);
-
-            for rect in all_local_frames {
-                frames.push(map_local_to_world(rect));
-            }
-        }
-
-        _ => {}
     }
-
-    if win.frames.len() == 4 {}
 
     WindowLayoutGeometry { content, frames }
 }
@@ -399,7 +503,6 @@ pub fn derive_from_window(
                 win.content.picture_uvs.clone()
             };
 
-            // TODO: probably make this work in shader?
             if content_uvs.is_empty() {
                 content_uvs.push(TextureUv {
                     top_left: Vector2f::new(0.0, 0.0),
@@ -409,13 +512,19 @@ pub fn derive_from_window(
                 });
             }
 
+            let content_colors = (
+                &win.content.top_left_vertex_color,
+                &win.content.top_right_vertex_color,
+                &win.content.bottom_left_vertex_color,
+                &win.content.bottom_right_vertex_color,
+            );
+
+            let corner_tints = interpolate_slice_corners(geom.corners, corners, content_colors);
+
             if let Some(tq) = TexturedQuad::derive_from_material(
                 MaterialPaneData {
                     base_section: &win.base,
-                    top_left_vertex_color: &win.content.top_left_vertex_color,
-                    top_right_vertex_color: &win.content.top_right_vertex_color,
-                    bottom_left_vertex_color: &win.content.bottom_left_vertex_color,
-                    bottom_right_vertex_color: &win.content.bottom_right_vertex_color,
+                    corner_tints,
                     material_idx: win.content.material_index,
                     texture_uvs: &content_uvs,
                 },
@@ -436,7 +545,7 @@ pub fn derive_from_window(
             continue;
         };
 
-        let Some(config_idx) = kind.to_binary_index(win.frames.len()) else {
+        let Some((config_idx, flip_override)) = kind.to_binary_index(win.frames.len()) else {
             continue;
         };
 
@@ -444,12 +553,12 @@ pub fn derive_from_window(
             continue;
         };
 
-        let Some(lt_frame_data) = win.frames.first() else {
-            continue;
-        };
-
         let base_material_idx = if win.flag.use_left_corner_material {
-            lt_frame_data.material_index
+            if let Some(lt_frame_data) = win.frames.first() {
+                lt_frame_data.material_index
+            } else {
+                continue;
+            }
         } else {
             frame_data.material_index
         };
@@ -482,17 +591,20 @@ pub fn derive_from_window(
             (1.0, 1.0)
         };
 
+        let effective_flip = flip_override.unwrap_or(frame_data.texture_flip_mode);
+
         let frame_uvs = calculate_scaled_frame_uvs(
             geom.width,
             geom.height,
             tex_w,
             tex_h,
             kind,
-            frame_data.texture_flip_mode,
+            win.flag.window_kind,
+            effective_flip,
             mat.tex_maps.len(),
         );
 
-        let (tl, tr, bl, br) = if win.flag.use_vertex_color_for_all_window {
+        let frame_colors = if win.flag.use_vertex_color_for_all_window {
             (
                 &win.content.top_left_vertex_color,
                 &win.content.top_right_vertex_color,
@@ -509,13 +621,12 @@ pub fn derive_from_window(
             (&EMPTY, &EMPTY, &EMPTY, &EMPTY)
         };
 
+        let corner_tints = interpolate_slice_corners(geom.corners, corners, frame_colors);
+
         if let Some(tq) = TexturedQuad::derive_from_material(
             MaterialPaneData {
                 base_section: &win.base,
-                top_left_vertex_color: tl,
-                top_right_vertex_color: tr,
-                bottom_left_vertex_color: bl,
-                bottom_right_vertex_color: br,
+                corner_tints,
                 material_idx: frame_data.material_index,
                 texture_uvs: &frame_uvs,
             },
@@ -533,56 +644,123 @@ pub fn derive_from_window(
     out
 }
 
+fn normalize_vertex(pt: [f32; 2], window_corners: [[f32; 2]; 4]) -> [f32; 2] {
+    let tl = window_corners[0];
+    let br = window_corners[3];
+
+    let width = br[0] - tl[0];
+    let height = br[1] - tl[1];
+
+    let u = if width > 0.0 {
+        (pt[0] - tl[0]) / width
+    } else {
+        0.0
+    };
+
+    let v = if height > 0.0 {
+        (pt[1] - tl[1]) / height
+    } else {
+        0.0
+    };
+
+    [u, v]
+}
+
+pub fn interpolate_slice_corners(
+    geom_corners: [[f32; 2]; 4],
+    window_corners: [[f32; 2]; 4],
+    global_colors: (&Color4u8, &Color4u8, &Color4u8, &Color4u8),
+) -> [[f32; 4]; 4] {
+    let to_f32_rgba = |color: &Color4u8| -> [f32; 4] {
+        let rgba: [f32; 4] = (*color).into();
+        if rgba[3] > 0.0 {
+            rgba
+        } else {
+            [1.0, 1.0, 1.0, 1.0]
+        }
+    };
+
+    let tl = to_f32_rgba(global_colors.0);
+    let tr = to_f32_rgba(global_colors.1);
+    let bl = to_f32_rgba(global_colors.2);
+    let br = to_f32_rgba(global_colors.3);
+
+    let lerp_color = |u: f32, v: f32| -> [f32; 4] {
+        let mut final_color = [0.0; 4];
+        for i in 0..4 {
+            let top = tl[i] * (1.0 - u) + tr[i] * u;
+            let bottom = bl[i] * (1.0 - u) + br[i] * u;
+            final_color[i] = top * (1.0 - v) + bottom * v;
+        }
+        final_color
+    };
+
+    let uv_tl = normalize_vertex(geom_corners[0], window_corners);
+    let uv_tr = normalize_vertex(geom_corners[1], window_corners);
+    let uv_bl = normalize_vertex(geom_corners[2], window_corners);
+    let uv_br = normalize_vertex(geom_corners[3], window_corners);
+
+    [
+        lerp_color(uv_tl[0], uv_tl[1]),
+        lerp_color(uv_tr[0], uv_tr[1]),
+        lerp_color(uv_bl[0], uv_bl[1]),
+        lerp_color(uv_br[0], uv_br[1]),
+    ]
+}
+
 pub fn calculate_scaled_frame_uvs(
     geom_width: f32,
     geom_height: f32,
     tex_w: f32,
     tex_h: f32,
     kind: FrameKind,
+    window_kind: WindowKind,
     flip_mode: TextureFlip,
     texture_maps_count: usize,
 ) -> Vec<TextureUv> {
     let mut frame_uvs = flipped_plain_uvs(texture_maps_count, flip_mode);
 
-    let geom_aspect = if geom_height > 0.0 {
-        geom_width / geom_height
-    } else {
-        1.0
-    };
-    let tex_aspect = if tex_h > 0.0 { tex_w / tex_h } else { 1.0 };
+    let scale_factor = (geom_width / tex_w).min(geom_height / tex_h);
 
-    let (u_scale, v_scale) = if geom_aspect > tex_aspect {
-        (geom_aspect / tex_aspect, 1.0)
-    } else {
-        (1.0, tex_aspect / geom_aspect)
-    };
+    let u_scale = (geom_width / scale_factor) / tex_w;
+    let v_scale = (geom_height / scale_factor) / tex_h;
 
-    for uv_set in &mut frame_uvs {
-        let (anchor_u, anchor_v) = match kind {
-            FrameKind::TopLeft => (0.0, 0.0),
-            FrameKind::Top => (0.5, 0.0),
-            FrameKind::TopRight => (1.0, 0.0),
-            FrameKind::Left => (0.0, 0.5),
-            FrameKind::Right => (1.0, 0.5),
-            FrameKind::BottomLeft => (0.0, 1.0),
-            FrameKind::Bottom => (0.5, 1.0),
-            FrameKind::BottomRight => (1.0, 1.0),
+    if window_kind == WindowKind::Around || window_kind == WindowKind::HorizontalNoContent {
+        let effective_u_scale = u_scale;
+
+        let effective_v_scale = if window_kind == WindowKind::HorizontalNoContent {
+            1.0
+        } else {
+            v_scale
         };
 
-        let scale_coord =
-            |val: f32, scale: f32, anchor: f32| -> f32 { anchor + (val - anchor) * scale };
+        for uv_set in &mut frame_uvs {
+            let (anchor_u, anchor_v) = match kind {
+                FrameKind::TopLeft => (0.0, 0.0),
+                FrameKind::Top => (0.5, 0.0),
+                FrameKind::TopRight => (1.0, 0.0),
+                FrameKind::Left => (0.0, 0.5),
+                FrameKind::Right => (1.0, 0.5),
+                FrameKind::BottomLeft => (0.0, 1.0),
+                FrameKind::Bottom => (0.5, 1.0),
+                FrameKind::BottomRight => (1.0, 1.0),
+            };
 
-        uv_set.top_left.x = scale_coord(uv_set.top_left.x, u_scale, anchor_u);
-        uv_set.top_left.y = scale_coord(uv_set.top_left.y, v_scale, anchor_v);
+            let scale_coord =
+                |val: f32, scale: f32, anchor: f32| -> f32 { anchor + (val - anchor) * scale };
 
-        uv_set.top_right.x = scale_coord(uv_set.top_right.x, u_scale, anchor_u);
-        uv_set.top_right.y = scale_coord(uv_set.top_right.y, v_scale, anchor_v);
+            uv_set.top_left.x = scale_coord(uv_set.top_left.x, effective_u_scale, anchor_u);
+            uv_set.top_left.y = scale_coord(uv_set.top_left.y, effective_v_scale, anchor_v);
 
-        uv_set.bottom_left.x = scale_coord(uv_set.bottom_left.x, u_scale, anchor_u);
-        uv_set.bottom_left.y = scale_coord(uv_set.bottom_left.y, v_scale, anchor_v);
+            uv_set.top_right.x = scale_coord(uv_set.top_right.x, effective_u_scale, anchor_u);
+            uv_set.top_right.y = scale_coord(uv_set.top_right.y, effective_v_scale, anchor_v);
 
-        uv_set.bottom_right.x = scale_coord(uv_set.bottom_right.x, u_scale, anchor_u);
-        uv_set.bottom_right.y = scale_coord(uv_set.bottom_right.y, v_scale, anchor_v);
+            uv_set.bottom_left.x = scale_coord(uv_set.bottom_left.x, effective_u_scale, anchor_u);
+            uv_set.bottom_left.y = scale_coord(uv_set.bottom_left.y, effective_v_scale, anchor_v);
+
+            uv_set.bottom_right.x = scale_coord(uv_set.bottom_right.x, effective_u_scale, anchor_u);
+            uv_set.bottom_right.y = scale_coord(uv_set.bottom_right.y, effective_v_scale, anchor_v);
+        }
     }
 
     frame_uvs
