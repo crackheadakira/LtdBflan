@@ -210,12 +210,19 @@ impl GpuState {
 
         let output = match self.surface.get_current_texture() {
             CurrentSurfaceTexture::Success(o) => o,
+            CurrentSurfaceTexture::Suboptimal(o) => {
+                self.surface.configure(&self.device, &self.config);
+                o
+            }
+
             CurrentSurfaceTexture::Lost | CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
                 return;
             }
-            _ => {
-                log::error!("Unknown surface error");
+
+            CurrentSurfaceTexture::Timeout | CurrentSurfaceTexture::Occluded => return,
+            CurrentSurfaceTexture::Validation => {
+                log::error!("Surface validation error");
                 return;
             }
         };
