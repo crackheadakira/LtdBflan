@@ -516,6 +516,7 @@ pub fn derive_from_window(
                 base_section: &win.base,
                 corner_tints,
                 material_idx: win.content.material_index,
+                piece_id: 0,
                 texture_uvs: &content_uvs,
             },
             mat,
@@ -611,14 +612,12 @@ pub fn derive_from_window(
 
         let corner_tints = interpolate_slice_corners(geom.corners, corners, frame_colors);
 
-        // TODO: make this not be some broken hack & actually fix batching system.
-        let offset_material_idx = base_material_idx as u32 + (frame_idx as u32 * 5000);
-
         if let Some(tq) = TexturedQuad::derive_from_material(
             MaterialPaneData {
                 base_section: &win.base,
                 corner_tints,
-                material_idx: offset_material_idx as u16,
+                material_idx: base_material_idx,
+                piece_id: frame_idx + 1,
                 texture_uvs: &frame_uvs,
             },
             &mat,
@@ -709,7 +708,7 @@ pub fn calculate_scaled_frame_uvs(
     flip_mode: TextureFlip,
     texture_maps_count: usize,
 ) -> Vec<TextureUv> {
-    let mut frame_uvs = flipped_plain_uvs(texture_maps_count, flip_mode);
+    let mut frame_uvs = flipped_plain_uvs(texture_maps_count, TextureFlip::None);
 
     let scale_factor = (geom_width / tex_w).min(geom_height / tex_h);
 
@@ -755,6 +754,23 @@ pub fn calculate_scaled_frame_uvs(
                 anchor_v,
             );
         }
+    }
+
+    // TODO: didn't seem to fix 1-frame issue for around being anchored to wrong positions.
+    for uv_set in &mut frame_uvs {
+        let corners = [
+            [uv_set.top_left.x, uv_set.top_left.y],
+            [uv_set.top_right.x, uv_set.top_right.y],
+            [uv_set.bottom_left.x, uv_set.bottom_left.y],
+            [uv_set.bottom_right.x, uv_set.bottom_right.y],
+        ];
+
+        let flipped = apply_texture_flip(flip_mode, corners);
+
+        uv_set.top_left = Vector2f::new(flipped[0][0], flipped[0][1]);
+        uv_set.top_right = Vector2f::new(flipped[1][0], flipped[1][1]);
+        uv_set.bottom_left = Vector2f::new(flipped[2][0], flipped[2][1]);
+        uv_set.bottom_right = Vector2f::new(flipped[3][0], flipped[3][1]);
     }
 
     frame_uvs

@@ -201,6 +201,7 @@ pub struct TexturedQuad {
     pub sampler_2: WgpuSamplerSettings,
 
     pub material_idx: u16,
+    pub piece_id: usize,
 
     pub is_detailed: bool,
     pub standard_material: StandardMaterial,
@@ -258,6 +259,7 @@ pub struct MaterialPaneData<'a> {
     pub base_section: &'a Pane,
     pub corner_tints: [[f32; 4]; 4],
     pub material_idx: u16,
+    pub piece_id: usize,
     pub texture_uvs: &'a [TextureUv],
 }
 
@@ -479,6 +481,7 @@ impl TexturedQuad {
             indirect_rotation,
             indirect_scale,
             material_idx: pane_data.material_idx,
+            piece_id: pane_data.piece_id,
         })
     }
 }
@@ -562,7 +565,9 @@ struct Batch {
     num_indices: u32,
 
     key: BatchKey,
-    piece_keys: Vec<(usize, u16)>,
+
+    /// [`TexturedQuad::pane_idx`] & [`TexturedQuad::piece_id]
+    piece_keys: Vec<(usize, usize)>,
 }
 
 pub struct PaneRenderer {
@@ -811,11 +816,11 @@ impl PaneRenderer {
         for data in ordered {
             let key = Self::batch_key_for(data);
             let pane_idx = data.pane_idx();
-            let material_idx = match data {
-                PaneQuadData::Plain(_) => u16::MAX,
-                PaneQuadData::Textured(tq) => tq.material_idx,
+            let piece_id = match data {
+                PaneQuadData::Plain(_) => usize::MAX,
+                PaneQuadData::Textured(tq) => tq.piece_id,
             };
-            let piece_key = (pane_idx, material_idx);
+            let piece_key = (pane_idx, piece_id);
 
             let flags = PaneVisibilityFlags::default();
             let base_tint = match data {
@@ -956,14 +961,13 @@ impl PaneRenderer {
                     batch.detailed_buffer = Some(detailed_buf);
                 }
                 BatchKey::Textured { texture_name, .. } => {
-                    let Some(&(first_pane_idx, first_material_idx)) = batch.piece_keys.first()
-                    else {
+                    let Some(&(first_pane_idx, first_piece_id)) = batch.piece_keys.first() else {
                         continue;
                     };
 
                     let Some(PaneQuadData::Textured(rep_quad)) = ordered.iter().find(|d| {
                         if let PaneQuadData::Textured(tq) = d {
-                            tq.pane_idx == first_pane_idx && tq.material_idx == first_material_idx
+                            tq.pane_idx == first_pane_idx && tq.piece_id == first_piece_id
                         } else {
                             false
                         }
@@ -1098,7 +1102,7 @@ impl PaneRenderer {
         for batch in &mut self.batches {
             let mut dirty = false;
 
-            for (batch_quad_idx, &(pane_idx, material_idx)) in batch.piece_keys.iter().enumerate() {
+            for (batch_quad_idx, &(pane_idx, piece_id)) in batch.piece_keys.iter().enumerate() {
                 let base = batch_quad_idx * 4;
                 if base + 3 >= batch.vertices.len() {
                     break;
@@ -1107,7 +1111,7 @@ impl PaneRenderer {
                 let Some(data) = ordered.iter().find(|d| {
                     d.pane_idx() == pane_idx
                         && match d {
-                            PaneQuadData::Textured(tq) => tq.material_idx == material_idx,
+                            PaneQuadData::Textured(tq) => tq.piece_id == piece_id,
                             PaneQuadData::Plain(_) => true,
                         }
                 }) else {
@@ -1169,13 +1173,13 @@ impl PaneRenderer {
                 continue;
             };
 
-            let Some(&(pane_idx, material_idx)) = batch.piece_keys.first() else {
+            let Some(&(pane_idx, piece_id)) = batch.piece_keys.first() else {
                 continue;
             };
 
             let Some(PaneQuadData::Textured(tq)) = ordered.iter().find(|d| {
                 d.pane_idx() == pane_idx
-                    && matches!(d, PaneQuadData::Textured(t) if t.material_idx == material_idx)
+                    && matches!(d, PaneQuadData::Textured(t) if t.piece_id == piece_id)
             }) else {
                 continue;
             };
@@ -1271,10 +1275,10 @@ impl PaneRenderer {
         layout_w: f32,
         layout_h: f32,
     ) {
-        let mut textured_lookup: HashMap<(usize, u16), &mut TexturedQuad> = ordered
+        let mut textured_lookup: HashMap<(usize, usize), &mut TexturedQuad> = ordered
             .iter_mut()
             .filter_map(|d| match d {
-                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.material_idx), &mut **tq)),
+                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.piece_id), &mut **tq)),
                 _ => None,
             })
             .collect();
@@ -1427,14 +1431,14 @@ impl PaneRenderer {
         hidden_panes: &HashSet<usize>,
         flags: PaneVisibilityFlags,
     ) {
-        let quad_lookup: HashMap<(usize, u16), &PaneQuadData> = ordered
+        let quad_lookup: HashMap<(usize, usize), &PaneQuadData> = ordered
             .iter()
             .map(|d| {
-                let material_idx = match d {
-                    PaneQuadData::Plain(_) => u16::MAX,
-                    PaneQuadData::Textured(tq) => tq.material_idx,
+                let piece_id = match d {
+                    PaneQuadData::Plain(_) => usize::MAX,
+                    PaneQuadData::Textured(tq) => tq.piece_id,
                 };
-                ((d.pane_idx(), material_idx), d)
+                ((d.pane_idx(), piece_id), d)
             })
             .collect();
 
@@ -1476,10 +1480,10 @@ impl PaneRenderer {
         ordered: &[PaneQuadData],
         hidden_panes: &HashSet<usize>,
     ) {
-        let textured_lookup: HashMap<(usize, u16), &TexturedQuad> = ordered
+        let textured_lookup: HashMap<(usize, usize), &TexturedQuad> = ordered
             .iter()
             .filter_map(|d| match d {
-                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.material_idx), &**tq)),
+                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.piece_id), &**tq)),
                 _ => None,
             })
             .collect();

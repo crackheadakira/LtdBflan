@@ -1,6 +1,9 @@
 use nnbfl::{
     bflyt::pane::PANE_NAME_LEN,
-    ui2d::userdata::{UserData, UserDataContent},
+    ui2d::{
+        systemdata::{LayoutData, PaneData, SystemData},
+        userdata::{UserData, UserDataContent},
+    },
 };
 
 use crate::{
@@ -141,6 +144,7 @@ impl DrawUi for UserData {
                 })
                 .inner
             }
+
             UserDataContent::Float(items) => {
                 ui.horizontal(|ui| {
                     let mut vec_changed = false;
@@ -171,11 +175,158 @@ impl DrawUi for UserData {
                 })
                 .inner
             }
-            UserDataContent::SystemData(_items) => {
-                ui.weak("System Data Blob (Editing Unsupported)");
-                false
+
+            UserDataContent::SystemData(items) => {
+                let mut vec_changed = false;
+
+                for system_data_container in items {
+                    for system_data in system_data_container {
+                        vec_changed |= system_data.draw(ui);
+                    }
+                }
+
+                vec_changed
             }
         };
+
+        changed
+    }
+}
+
+impl DrawUi for SystemData {
+    fn draw(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+
+        let current_type = match &self {
+            Self::Layout(_) => "Layout",
+            Self::Pane(_) => "Pane",
+        };
+
+        ui.horizontal(|ui| {
+            ui.label("System Data Type:");
+
+            egui::ComboBox::from_id_salt(format!("type_select_system_data_{current_type}"))
+                .selected_text(current_type)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(current_type == "Layout", "Layout")
+                        .clicked()
+                    {
+                        *self = Self::Layout(Default::default());
+                        changed |= true;
+                    }
+
+                    if ui
+                        .selectable_label(current_type == "Pane", "Pane")
+                        .clicked()
+                    {
+                        *self = Self::Pane(Default::default());
+                        changed |= true;
+                    }
+                });
+        });
+
+        match self {
+            Self::Layout(layout) => {
+                if let LayoutData::AnimTagName(names) = layout {
+                    ui.horizontal(|ui| {
+                        ui.weak("Animation Tag Names");
+
+                        if ui.button("➕").clicked() {
+                            names.push("".to_owned());
+                            changed = true;
+                        }
+
+                        if !names.is_empty() && ui.button("🗑").clicked() {
+                            names.pop();
+                            changed = true;
+                        }
+                    });
+
+                    for name in names.iter_mut() {
+                        changed |= ui.add(egui::TextEdit::singleline(name)).changed();
+                    }
+                }
+            }
+
+            Self::Pane(pane) => {
+                let current_pane_type = match pane {
+                    PaneData::Alignment(_) => "Alignment",
+                    PaneData::VertexPos0(_) => "Vertex Position 0",
+                    PaneData::VertexPos1(_) => "Vertex Position 1",
+                    PaneData::ProceduralShape(_) => "Procedural Shape",
+                    PaneData::DropShadow(_) => "Drop Shadow",
+                    PaneData::MaskTexture(_) => "Mask Texture",
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label("Pane Type:");
+
+                    egui::ComboBox::from_id_salt(format!(
+                        "type_select_system_data_pane_{current_pane_type}"
+                    ))
+                    .selected_text(current_pane_type)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(current_pane_type == "Alignment", "Alignment")
+                            .clicked()
+                        {
+                            *pane = PaneData::Alignment(Default::default());
+                            changed |= true;
+                        }
+
+                        if ui
+                            .selectable_label(
+                                current_pane_type == "Vertex Position 0",
+                                "Vertex Position 0",
+                            )
+                            .clicked()
+                        {
+                            *pane = PaneData::VertexPos0(Default::default());
+                            changed |= true;
+                        }
+
+                        if ui
+                            .selectable_label(
+                                current_pane_type == "Vertex Position 1",
+                                "Vertex Position 1",
+                            )
+                            .clicked()
+                        {
+                            *pane = PaneData::VertexPos1(Default::default());
+                            changed |= true;
+                        }
+
+                        if ui
+                            .selectable_label(
+                                current_pane_type == "Procedural Shape",
+                                "Procedural Shape",
+                            )
+                            .clicked()
+                        {
+                            *pane = PaneData::ProceduralShape(Default::default());
+                            changed |= true;
+                        }
+
+                        if ui
+                            .selectable_label(current_pane_type == "Drop Shadow", "Drop Shadow")
+                            .clicked()
+                        {
+                            *pane = PaneData::DropShadow(Default::default());
+                            changed |= true;
+                        }
+
+                        if ui
+                            .selectable_label(current_pane_type == "Mask Texture", "Mask Texture")
+                            .clicked()
+                        {
+                            *pane = PaneData::MaskTexture(Default::default());
+                            changed |= true;
+                        }
+                    });
+                });
+            }
+        }
 
         changed
     }
