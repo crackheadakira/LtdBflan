@@ -24,6 +24,8 @@ tomolib = "1.7"
 
 szs = "0.3.7"
 bitflags = "2.13.0"
+puffin = { git = "https://github.com/EmbarkStudios/puffin", package = "puffin" }
+puffin_egui = { git = "https://github.com/EmbarkStudios/puffin", package = "puffin_egui" }
 
 [lints.rust]
 unsafe_code = "deny"

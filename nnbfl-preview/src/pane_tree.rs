@@ -189,6 +189,7 @@ pub struct PaneNode {
 
 impl PaneNode {
     pub fn flatten_to_bflyt_nodes(&self, out: &mut Vec<BflytNode>) {
+        puffin::profile_function!();
         if self.plain_quad.is_parts_root || self.parts_source.is_some() {
             return;
         }
@@ -215,6 +216,7 @@ impl PaneNode {
     }
 
     pub fn mark_transform_dirty(&mut self) {
+        puffin::profile_function!();
         self.dirty
             .insert(DirtyFlags::TRANSFORM | DirtyFlags::VERTICES);
 
@@ -256,6 +258,7 @@ impl PaneNode {
         parent_rotation: Vector3f,
         bntxs: &[Bntx],
     ) {
+        puffin::profile_function!();
         let child_scale;
 
         if self.dirty.contains(DirtyFlags::TRANSFORM) {
@@ -404,6 +407,7 @@ impl PaneNode {
         material_list: &MaterialList,
         bntxs: &[Bntx],
     ) -> bool {
+        puffin::profile_function!();
         let mut requires_reupload = false;
 
         if self.dirty.contains(DirtyFlags::MATERIAL)
@@ -543,6 +547,7 @@ impl PaneTree {
     }
 
     pub fn flatten(&self) -> Vec<&PaneNode> {
+        puffin::profile_function!();
         self.iter().collect()
     }
 
@@ -565,6 +570,7 @@ impl PaneTree {
     }
 
     pub fn recompute_dirty(&mut self) {
+        puffin::profile_function!();
         let layout_center = Vector2f {
             x: self.layout_size.x * 0.5,
             y: self.layout_size.y * 0.5,
@@ -599,6 +605,7 @@ impl PaneTree {
     }
 
     pub fn collect_render_quads(&self) -> Vec<PaneQuadData> {
+        puffin::profile_function!();
         fn collect_recursive(node: &PaneNode, out: &mut Vec<PaneQuadData>) {
             if let Some(tq) = &node.textured_quad {
                 out.push(PaneQuadData::Textured(Box::new(tq.clone())));
@@ -626,6 +633,7 @@ impl PaneTree {
     }
 
     pub fn build_idx_map(&mut self) -> HashMap<usize, *mut PaneNode> {
+        puffin::profile_function!();
         let mut map = HashMap::new();
 
         self.for_each_mut(|node| {
@@ -641,10 +649,12 @@ impl PaneTree {
     }
 
     pub fn find_by_idx(&self, target_idx: usize) -> Option<&PaneNode> {
+        puffin::profile_function!();
         self.iter().find(|n| n.pane_idx == target_idx)
     }
 
     pub fn find_by_idx_mut(&mut self, target_idx: usize) -> Option<&mut PaneNode> {
+        puffin::profile_function!();
         fn find_recursive(nodes: &mut [PaneNode], target_idx: usize) -> Option<&mut PaneNode> {
             for node in nodes {
                 if node.pane_idx == target_idx {
@@ -665,6 +675,7 @@ impl PaneTree {
     }
 
     pub fn descendants(&self, pane_idx: usize) -> Vec<usize> {
+        puffin::profile_function!();
         fn collect_all(node: &PaneNode, out: &mut Vec<usize>) {
             for child in &node.children {
                 out.push(child.pane_idx);
@@ -830,6 +841,7 @@ impl PaneTree {
         archive_entries: Option<&[ArchiveEntry]>,
         mut discovered_bntxs: Vec<Bntx>,
     ) -> Self {
+        puffin::profile_function!();
         let layout_size = Vector2f {
             x: file.layout.width,
             y: file.layout.height,

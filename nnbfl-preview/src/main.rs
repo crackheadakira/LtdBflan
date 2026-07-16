@@ -154,20 +154,15 @@ impl GpuState {
         egui_state: &mut egui_winit::State,
         mut ctx: RenderContext<'_>,
     ) {
+        puffin::profile_function!();
+        puffin::GlobalProfiler::lock().new_frame();
+
         if ctx.ui_state.material_editor.pending_upload
             && let Some(ref mut bflyt_view) = ctx.bflyt_view
         {
+            puffin::profile_scope!("material_recompute");
             ctx.ui_state.material_editor.pending_upload = false;
             bflyt_view.tree.recompute_dirty_materials();
-
-            let render_quads = bflyt_view.tree.collect_render_quads();
-            self.pane_renderer.upload_quads(
-                &self.device,
-                &render_quads,
-                &self.texture_cache,
-                bflyt_view.tree.layout_size.x,
-                bflyt_view.tree.layout_size.y,
-            );
         }
 
         self.grid_renderer
@@ -184,6 +179,7 @@ impl GpuState {
         if let Some(ref view) = ctx.bflyt_view
             && ctx.ui_state.visiblity_flags.clip_to_root
         {
+            puffin::profile_scope!("render_scissor_calc");
             let screen_w = self.config.width as f32;
             let screen_h = self.config.height as f32;
 
@@ -316,6 +312,7 @@ impl GpuState {
             self.egui_renderer
                 .update_texture(&self.device, &self.queue, *id, delta);
         }
+
         for id in &full_output.textures_delta.free {
             self.egui_renderer.free_texture(id);
         }
@@ -504,6 +501,8 @@ impl App {
             return;
         };
 
+        puffin::profile_function!();
+
         let world_pos = self.camera.screen_to_world(screen_pos);
 
         let dx = world_pos[0] - drag.start_world[0];
@@ -640,6 +639,8 @@ impl App {
 
     fn try_select_at(&mut self, screen_pos: [f32; 2]) {
         let Some(view) = &self.bflyt_view else { return };
+        puffin::profile_function!();
+
         let world_pos = self.camera.screen_to_world(screen_pos);
 
         let mut best = None;

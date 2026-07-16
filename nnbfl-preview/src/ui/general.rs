@@ -58,6 +58,7 @@ pub struct UiState {
     pub material_editor: MaterialEditor,
     pub pane_editor: PaneEditor,
     pub group_editor: GroupEditor,
+    pub enable_puffin: bool,
 }
 
 impl UiState {
@@ -345,6 +346,11 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     ui.close();
                 }
             });
+
+            if ui.button("Profiling").clicked() {
+                ctx.ui_state.enable_puffin = !ctx.ui_state.enable_puffin;
+                puffin::set_scopes_on(ctx.ui_state.enable_puffin);
+            }
         })
     });
 
@@ -704,6 +710,9 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
     };
 
     ctx.ui_state.shortcuts_window.draw(ui);
+    if ctx.ui_state.enable_puffin {
+        puffin_egui::profiler_window(ui.ctx());
+    }
 }
 
 fn hide_pane_recursive(idx: usize, view: &BflytView, hidden_set: &mut HashSet<usize>) {

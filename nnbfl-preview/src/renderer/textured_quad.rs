@@ -16,7 +16,7 @@ use crate::renderer::quad::Uniforms;
 use crate::ui::general::PaneVisibilityFlags;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq)]
 pub struct Vertex {
     pub position: [f32; 2],
     pub uv0: [f32; 2],
@@ -48,7 +48,7 @@ impl Vertex {
 const PLAIN_UVS: [[f32; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq)]
 pub struct StandardMaterial {
     pub black_color: u32,
     pub white_color: u32,
@@ -215,6 +215,7 @@ pub struct TexturedQuad {
 }
 
 pub fn build_indirect_matrices(rotation_deg: f32, scale: Vector2f) -> ([f32; 4], [f32; 4]) {
+    puffin::profile_function!();
     let rad = rotation_deg.to_radians();
     let cos_r = rad.cos();
     let sin_r = rad.sin();
@@ -273,6 +274,7 @@ impl TexturedQuad {
         is_visible: bool,
         pane_idx: usize,
     ) -> Option<Self> {
+        puffin::profile_function!();
         let tex_map = mat.tex_maps.first();
         let tex_name = tex_map.map(|m| m.texture_name.trim_end()).unwrap_or("");
 
@@ -563,6 +565,7 @@ struct Batch {
     #[allow(dead_code)]
     detailed_buffer: Option<wgpu::Buffer>,
     num_indices: u32,
+    cached_material: Option<StandardMaterial>,
 
     key: BatchKey,
 
@@ -768,6 +771,7 @@ impl PaneRenderer {
     }
 
     pub fn update_projection(&self, queue: &wgpu::Queue, matrix: [[f32; 4]; 4]) {
+        puffin::profile_function!();
         queue.write_buffer(
             &self.uniform_buffer,
             0,
@@ -811,6 +815,7 @@ impl PaneRenderer {
         layout_w: f32,
         layout_h: f32,
     ) {
+        puffin::profile_function!();
         self.batches.clear();
 
         for data in ordered {
@@ -849,6 +854,11 @@ impl PaneRenderer {
             }
 
             if !match_found {
+                let cached_material = match data {
+                    PaneQuadData::Plain(_) => None,
+                    PaneQuadData::Textured(tq) => Some(tq.standard_material.clone()),
+                };
+
                 self.batches.push(Batch {
                     vertices: verts.to_vec(),
                     indices: vec![0, 1, 2, 1, 3, 2],
@@ -859,6 +869,7 @@ impl PaneRenderer {
                     detailed_buffer: None,
                     num_indices: 0,
                     key,
+                    cached_material,
                     piece_keys: vec![piece_key],
                 });
             }
@@ -1093,11 +1104,24 @@ impl PaneRenderer {
         flags: PaneVisibilityFlags,
         active_debug_stage: u32,
     ) {
+        puffin::profile_function!();
+
         for data in ordered.iter_mut() {
             if let PaneQuadData::Textured(tq) = data {
                 tq.standard_material.debug_stage = active_debug_stage;
             }
         }
+
+        let quad_lookup: HashMap<(usize, usize), &PaneQuadData> = ordered
+            .iter()
+            .map(|d| {
+                let piece_id = match d {
+                    PaneQuadData::Plain(_) => usize::MAX,
+                    PaneQuadData::Textured(tq) => tq.piece_id,
+                };
+                ((d.pane_idx(), piece_id), d)
+            })
+            .collect();
 
         for batch in &mut self.batches {
             let mut dirty = false;
@@ -1108,13 +1132,12 @@ impl PaneRenderer {
                     break;
                 }
 
-                let Some(data) = ordered.iter().find(|d| {
-                    d.pane_idx() == pane_idx
-                        && match d {
-                            PaneQuadData::Textured(tq) => tq.piece_id == piece_id,
-                            PaneQuadData::Plain(_) => true,
-                        }
-                }) else {
+                let lookup_key = (pane_idx, if piece_id == 0 { usize::MAX } else { piece_id });
+                let Some(data) = quad_lookup
+                    .get(&lookup_key)
+                    .copied()
+                    .or_else(|| quad_lookup.get(&(pane_idx, piece_id)).copied())
+                else {
                     continue;
                 };
 
@@ -1140,18 +1163,24 @@ impl PaneRenderer {
                         PaneQuadData::Textured(tq) => tq.corner_tints[v_offset],
                     };
 
-                    batch.vertices[base + v_offset].tint = [
+                    let target_tint = [
                         tint[0] * corner_scale[0],
                         tint[1] * corner_scale[1],
                         tint[2] * corner_scale[2],
                         tint[3] * corner_scale[3],
                     ];
-                }
 
-                dirty = true;
+                    let vertex = &mut batch.vertices[base + v_offset];
+
+                    if vertex.tint != target_tint {
+                        vertex.tint = target_tint;
+                        dirty = true;
+                    }
+                }
             }
 
             if dirty && let Some(vb) = &batch.vertex_buffer {
+                puffin::profile_scope!("gpu_write_batch_vertices");
                 queue.write_buffer(vb, 0, bytemuck::cast_slice(&batch.vertices));
             }
         }
@@ -1163,6 +1192,7 @@ impl PaneRenderer {
         ordered: &[PaneQuadData],
         texture_cache: &TextureCache,
     ) {
+        puffin::profile_function!();
         for batch in &mut self.batches {
             let BatchKey::Textured {
                 texture_name,
@@ -1275,6 +1305,7 @@ impl PaneRenderer {
         layout_w: f32,
         layout_h: f32,
     ) {
+        puffin::profile_function!();
         let mut textured_lookup: HashMap<(usize, usize), &mut TexturedQuad> = ordered
             .iter_mut()
             .filter_map(|d| match d {
@@ -1431,6 +1462,7 @@ impl PaneRenderer {
         hidden_panes: &HashSet<usize>,
         flags: PaneVisibilityFlags,
     ) {
+        puffin::profile_function!();
         let quad_lookup: HashMap<(usize, usize), &PaneQuadData> = ordered
             .iter()
             .map(|d| {
@@ -1462,10 +1494,14 @@ impl PaneRenderer {
                 };
 
                 for v_offset in 0..4 {
-                    batch.vertices[base + v_offset] = corner_vertex(data, v_offset, tint);
-                }
+                    let new_vertex = corner_vertex(data, v_offset, tint);
+                    let current_vertex = &mut batch.vertices[base + v_offset];
 
-                dirty = true;
+                    if current_vertex != &new_vertex {
+                        *current_vertex = new_vertex;
+                        dirty = true;
+                    }
+                }
             }
 
             if dirty && let Some(vb) = &batch.vertex_buffer {
@@ -1475,11 +1511,12 @@ impl PaneRenderer {
     }
 
     pub fn flush_mat_buffers(
-        &self,
+        &mut self,
         queue: &wgpu::Queue,
         ordered: &[PaneQuadData],
         hidden_panes: &HashSet<usize>,
     ) {
+        puffin::profile_function!();
         let textured_lookup: HashMap<(usize, usize), &TexturedQuad> = ordered
             .iter()
             .filter_map(|d| match d {
@@ -1488,7 +1525,7 @@ impl PaneRenderer {
             })
             .collect();
 
-        for batch in &self.batches {
+        for batch in &mut self.batches {
             if !matches!(batch.key, BatchKey::Textured { .. }) {
                 continue;
             }
@@ -1510,7 +1547,15 @@ impl PaneRenderer {
                 mat.visible = 0;
             }
 
-            queue.write_buffer(mb, 0, bytemuck::bytes_of(&mat));
+            let needs_update = match &batch.cached_material {
+                Some(cached) => cached != &mat,
+                None => true,
+            };
+
+            if needs_update {
+                queue.write_buffer(mb, 0, bytemuck::bytes_of(&mat));
+                batch.cached_material = Some(mat);
+            }
         }
     }
 
