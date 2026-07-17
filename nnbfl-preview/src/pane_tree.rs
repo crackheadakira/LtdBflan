@@ -18,6 +18,7 @@ use nnbfl::{
         userdata::UserDataArray,
     },
 };
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tomolib::formats::bntx::Bntx;
 
 use crate::{
@@ -402,13 +403,8 @@ impl PaneNode {
         }
     }
 
-    pub fn recompute_dirty_material(
-        &mut self,
-        material_list: &MaterialList,
-        bntxs: &[Bntx],
-    ) -> bool {
+    pub fn recompute_dirty_material(&mut self, material_list: &MaterialList, bntxs: &[Bntx]) {
         puffin::profile_function!();
-        let mut requires_reupload = false;
 
         if self.dirty.contains(DirtyFlags::MATERIAL)
             && let Some(quad) = &mut self.textured_quad
@@ -423,7 +419,7 @@ impl PaneNode {
                         &pic.bottom_left_vertex_color,
                         &pic.bottom_right_vertex_color,
                     ),
-                    piece_id: 0,
+                    piece_id: quad.piece_id,
                     material_idx: pic.material_index,
                     texture_uvs: &pic.texture_uvs,
                 },
@@ -440,8 +436,6 @@ impl PaneNode {
             if let Some(base_quad) = &mut self.base_textured_quad {
                 *base_quad = quad.clone();
             }
-
-            requires_reupload = true;
         };
 
         if self.dirty.contains(DirtyFlags::MATERIAL)
@@ -456,12 +450,9 @@ impl PaneNode {
                 self.pane_idx,
                 bntxs,
             );
-
-            requires_reupload = true;
         }
 
         self.dirty.remove(DirtyFlags::MATERIAL);
-        requires_reupload
     }
 
     pub fn compute_uvs(texture_uvs: &[TextureUv]) -> UvMatrix4x3x2 {
@@ -587,21 +578,18 @@ impl PaneTree {
         }
     }
 
-    pub fn recompute_dirty_materials(&mut self) -> bool {
+    pub fn recompute_dirty_materials(&mut self) {
         let material_list = std::mem::take(&mut self.material_list);
         let bntxs = std::mem::take(&mut self.discovered_bntxs);
-        let mut require_reupload = false;
 
         if let Some(ref list) = material_list {
             self.for_each_mut(|node| {
-                require_reupload |= node.recompute_dirty_material(list, &bntxs);
+                node.recompute_dirty_material(list, &bntxs);
             });
         }
 
         self.material_list = material_list;
         self.discovered_bntxs = bntxs;
-
-        require_reupload
     }
 
     pub fn collect_render_quads(&self) -> Vec<PaneQuadData> {
@@ -624,7 +612,7 @@ impl PaneTree {
             }
         }
 
-        let mut out = Vec::new();
+        let mut out = Vec::with_capacity(self.roots.len() * 4);
         for root in &self.roots {
             collect_recursive(root, &mut out);
         }
@@ -847,11 +835,10 @@ impl PaneTree {
             y: file.layout.height,
         };
 
-        let material_list = file.material_list.clone();
         let mut blarc_cache: HashMap<String, Option<Bflyt>> = HashMap::new();
 
         let mut builder = Builder {
-            material_list: material_list.as_ref(),
+            material_list: file.material_list.as_ref(),
             sub_material_list: None,
             archive_entries,
             blarc_dir,
@@ -917,7 +904,7 @@ impl PaneTree {
         PaneTree {
             roots,
             layout_size,
-            material_list,
+            material_list: file.material_list,
             file_name,
             discovered_bntxs,
             parent_map,
@@ -960,7 +947,7 @@ impl<'a> Builder<'a> {
     ) -> Vec<PaneNode> {
         let mut out = Vec::new();
 
-        for node in nodes {
+        for node in nodes.iter() {
             match node {
                 BflytNode::Pane(pane_el) => {
                     if let Some(mut pane_node) = self.build_node(
@@ -1127,9 +1114,9 @@ impl<'a> Builder<'a> {
         let bytes = std::fs::read(&entry.path).ok()?;
 
         let target_bflyt_bytes =
-            resolve_nested_file_bytes_by_idx(bytes.clone(), &entry.nested_path, entry.file_idx)?;
+            resolve_nested_file_bytes_by_idx(&bytes, &entry.nested_path, entry.file_idx)?;
 
-        let parent_package_bytes = resolve_nested_package_bytes(bytes, &entry.nested_path)?;
+        let parent_package_bytes = resolve_nested_package_bytes(&bytes, &entry.nested_path)?;
         let mut all_files = Vec::new();
         extract_all_files_recursive(parent_package_bytes, &mut all_files);
 
@@ -1177,17 +1164,24 @@ impl<'a> Builder<'a> {
                 });
 
                 if let Some(sub_bflyt) = bflyt_res {
-                    for asset in assets {
-                        if let MagicFiles::Bntx(bntx_data) = asset {
-                            match Bntx::parse(&bntx_data) {
-                                Ok(bntx) => self.discovered_bntxs.push(bntx),
-                                Err(e) => {
-                                    log::error!("TextureCache: failed to parse BNTX: {e}");
-                                    continue;
+                    let parsed_bntxs: Vec<_> = assets
+                        .par_iter()
+                        .filter_map(|asset| {
+                            if let MagicFiles::Bntx(bntx_data) = asset {
+                                match Bntx::parse(bntx_data) {
+                                    Ok(bntx) => Some(bntx),
+                                    Err(e) => {
+                                        log::error!("TextureCache: failed to parse BNTX: {e}");
+                                        None
+                                    }
                                 }
+                            } else {
+                                None
                             }
-                        }
-                    }
+                        })
+                        .collect();
+
+                    self.discovered_bntxs.extend(parsed_bntxs);
 
                     self.blarc_cache
                         .insert(layout_name.to_string(), Some(sub_bflyt));

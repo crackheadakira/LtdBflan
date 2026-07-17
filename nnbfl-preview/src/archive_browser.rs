@@ -238,53 +238,55 @@ fn peek_is_container_or_bflyt(path: &Path) -> bool {
         return false;
     }
 
-    matches!(&header, b"FLYT" | b"SARC" | b"Yaz0") || header == [0x28, 0xB5, 0x2F, 0xFD]
+    matches!(
+        peek_magic_kind(&header),
+        MagicKind::Bflyt | MagicKind::Sarc | MagicKind::Yaz0 | MagicKind::Zstd
+    )
 }
 
-fn is_bflyt(data: &[u8]) -> bool {
-    data.len() >= 4 && &data[0..4] == b"FLYT"
+#[derive(Debug)]
+pub enum UnwrappedError {
+    DecompressionFailed,
+    MaxDepthExceeded,
+    DataAlreadyUncompressed,
 }
 
-fn unwrap_compression(mut data: Vec<u8>, origin: &Path, depth: u32) -> Option<Vec<u8>> {
+fn unwrap_compression(data: &[u8], origin: &Path, depth: u32) -> Result<Vec<u8>, UnwrappedError> {
     if depth >= MAX_RECURSION_DEPTH {
         log::warn!(
             "Archive scan: hit max nesting depth ({MAX_RECURSION_DEPTH}) in {}",
             origin.display()
         );
-        return Some(data);
+
+        return Err(UnwrappedError::MaxDepthExceeded);
     }
 
     loop {
-        let probe = SarcFile {
-            name: None,
-            hash: 0,
-            data: data.clone(),
-        };
-
-        match probe.match_by_magic() {
-            MagicFiles::Zstd(compressed) => {
+        match peek_magic_kind(&data) {
+            MagicKind::Zstd => {
                 let mut decompressed = Vec::new();
-                if tomolib::formats::zs::decompress(&compressed[..], &mut decompressed).is_err() {
+                if tomolib::formats::zs::decompress(&data[..], &mut decompressed).is_err() {
                     log::warn!(
                         "Archive scan: Zstd decompress failed in {}",
                         origin.display()
                     );
-                    return None;
+
+                    return Err(UnwrappedError::DecompressionFailed);
                 }
-                data = decompressed;
+                return Ok(decompressed);
             }
 
-            MagicFiles::Yaz0(compressed) => match szs::decode(&compressed) {
-                Ok(decompressed) => data = decompressed,
+            MagicKind::Yaz0 => match szs::decode(&data) {
+                Ok(decompressed) => return Ok(decompressed),
                 Err(err) => {
                     log::warn!(
                         "Archive scan: Yaz0 decode failed in {}: {err}",
                         origin.display()
                     );
-                    return None;
+                    return Err(UnwrappedError::DecompressionFailed);
                 }
             },
-            _ => return Some(data),
+            _ => return Err(UnwrappedError::DataAlreadyUncompressed),
         }
     }
 }
@@ -292,16 +294,18 @@ fn unwrap_compression(mut data: Vec<u8>, origin: &Path, depth: u32) -> Option<Ve
 fn find_bflyt_packages(path: &Path) -> Vec<(Vec<usize>, usize, u32, u32, Vec<String>)> {
     let mut out = Vec::new();
 
-    let Ok(bytes) = std::fs::read(path) else {
+    let Ok(mut bytes) = std::fs::read(path) else {
         log::warn!("Archive scan: failed to read {}", path.display());
         return out;
     };
 
-    let Some(bytes) = unwrap_compression(bytes, path, 0) else {
-        return out;
+    match unwrap_compression(&bytes, path, 0) {
+        Ok(decompressed) => bytes = decompressed,
+        Err(UnwrappedError::DataAlreadyUncompressed) => {}
+        Err(_) => return out,
     };
 
-    if is_bflyt(&bytes) {
+    if matches!(peek_magic_kind(&bytes), MagicKind::Bflyt) {
         out.push((Vec::new(), 0, 0, 0, Vec::new()));
         return out;
     }
@@ -351,8 +355,16 @@ fn walk_sarc_for_packages(
     };
 
     for (i, file) in sarc.files.iter().enumerate() {
-        let Some(unwrapped) = unwrap_compression(file.data.clone(), origin, depth + 1) else {
-            continue;
+        // so we can pass out a ref from unwrap_compression
+        let decompressed_holder: Vec<u8>;
+
+        let unwrapped = match unwrap_compression(&file.data, origin, depth + 1) {
+            Ok(decompressed) => {
+                decompressed_holder = decompressed;
+                &decompressed_holder
+            }
+            Err(UnwrappedError::DataAlreadyUncompressed) => &file.data,
+            Err(_) => continue,
         };
 
         let label = file
@@ -360,7 +372,7 @@ fn walk_sarc_for_packages(
             .clone()
             .unwrap_or_else(|| format!("#{i} (0x{:08X})", file.hash));
 
-        if is_bflyt(&unwrapped) {
+        if matches!(peek_magic_kind(unwrapped), MagicKind::Bflyt) {
             let mut final_labels = labels.clone();
             final_labels.push(label);
             out.push((
@@ -370,19 +382,11 @@ fn walk_sarc_for_packages(
                 sarc.hash_multiplier,
                 final_labels,
             ));
-        } else if matches!(
-            SarcFile {
-                name: None,
-                hash: 0,
-                data: unwrapped.clone(),
-            }
-            .match_by_magic(),
-            MagicFiles::Sarc(_)
-        ) {
+        } else if matches!(peek_magic_kind(unwrapped), MagicKind::Sarc) {
             nested_path.push(i);
             labels.push(label);
 
-            walk_sarc_for_packages(&unwrapped, origin, depth + 1, nested_path, labels, out);
+            walk_sarc_for_packages(unwrapped, origin, depth + 1, nested_path, labels, out);
 
             labels.pop();
             nested_path.pop();
@@ -392,43 +396,71 @@ fn walk_sarc_for_packages(
 
 /// Resolves one specific package identified by [`ArchiveEntry::nested_path`].
 pub fn resolve_nested_package_bytes(
-    top_level_bytes: Vec<u8>,
+    top_level_bytes: &[u8],
     nested_path: &[usize],
 ) -> Option<Vec<u8>> {
     let origin = Path::new("<selected archive entry>");
-    let mut data = unwrap_compression(top_level_bytes, origin, 0)?;
+    let mut decompressed_holder: Vec<u8>;
+
+    let mut current_data: &[u8] = match unwrap_compression(top_level_bytes, origin, 0) {
+        Ok(decompressed) => {
+            decompressed_holder = decompressed;
+            &decompressed_holder
+        }
+        Err(UnwrappedError::DataAlreadyUncompressed) => top_level_bytes,
+        Err(_) => return None,
+    };
 
     for &idx in nested_path {
-        let probe = SarcFile {
-            name: None,
-            hash: 0,
-            data: data.clone(),
-        };
-
-        let MagicFiles::Sarc(sarc_bytes) = probe.match_by_magic() else {
+        if !matches!(peek_magic_kind(current_data), MagicKind::Sarc) {
             return None;
-        };
+        }
 
-        let sarc = Sarc::parse_file(&sarc_bytes).ok()?;
-        let child = sarc.files.get(idx)?;
-        data = unwrap_compression(child.data.clone(), origin, 0)?;
+        let mut sarc = Sarc::parse_file(current_data).ok()?;
+
+        if idx >= sarc.files.len() {
+            return None;
+        }
+
+        let child = sarc.files.remove(idx);
+
+        match unwrap_compression(&child.data, origin, 0) {
+            Ok(decompressed) => {
+                decompressed_holder = decompressed;
+                current_data = &decompressed_holder;
+            }
+            Err(UnwrappedError::DataAlreadyUncompressed) => {
+                decompressed_holder = child.data;
+                current_data = &decompressed_holder;
+            }
+            Err(_) => return None,
+        }
     }
 
-    Some(data)
+    Some(current_data.to_vec())
 }
 
 /// Resolves one specific package identified by [`ArchiveEntry::nested_path`] and [`ArchiveEntry::file_idx`].
 pub fn resolve_nested_file_bytes_by_idx(
-    top_level_bytes: Vec<u8>,
+    top_level_bytes: &[u8],
     nested_path: &[usize],
     target_file_idx: usize,
 ) -> Option<Vec<u8>> {
     let parent_sarc_bytes = resolve_nested_package_bytes(top_level_bytes, nested_path)?;
 
-    let final_sarc = Sarc::parse_file(&parent_sarc_bytes).ok()?;
-    let target_file = final_sarc.files.get(target_file_idx)?;
+    let mut final_sarc = Sarc::parse_file(&parent_sarc_bytes).ok()?;
 
-    unwrap_compression(target_file.data.clone(), Path::new(""), 0)
+    if target_file_idx >= final_sarc.files.len() {
+        return None;
+    }
+
+    let target_file = final_sarc.files.remove(target_file_idx);
+
+    match unwrap_compression(&target_file.data, Path::new(""), 0) {
+        Ok(decompressed) => Some(decompressed),
+        Err(UnwrappedError::DataAlreadyUncompressed) => Some(target_file.data),
+        Err(_) => None,
+    }
 }
 
 fn calculate_sarc_hash(filename: &str, multiplier: u32) -> u32 {
@@ -439,4 +471,40 @@ fn calculate_sarc_hash(filename: &str, multiplier: u32) -> u32 {
     }
 
     hash
+}
+
+pub enum MagicKind {
+    Bflyt,
+    Bflan,
+    Bntx,
+    Msbp,
+    Msbt,
+    Sarc,
+    Yaz0,
+    Zstd,
+    Unknown,
+}
+
+pub fn peek_magic_kind(data: &[u8]) -> MagicKind {
+    if data.len() < 4 {
+        return MagicKind::Unknown;
+    }
+
+    if data.len() >= 8 {
+        match &data[0..8] {
+            b"MsgPrjBn" => return MagicKind::Msbp,
+            b"MsgStdBn" => return MagicKind::Msbt,
+            _ => {}
+        }
+    }
+
+    match &data[0..4] {
+        b"FLYT" => MagicKind::Bflyt,
+        b"FLAN" => MagicKind::Bflan,
+        b"BNTX" => MagicKind::Bntx,
+        b"SARC" => MagicKind::Sarc,
+        b"Yaz0" => MagicKind::Yaz0,
+        [0x28, 0xB5, 0x2F, 0xFD] => MagicKind::Zstd,
+        _ => MagicKind::Unknown,
+    }
 }

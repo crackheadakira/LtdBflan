@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tomolib::formats::bntx::{
     Bntx,
     image::{ChannelResolve, decode_texture_rgba_with},
@@ -36,6 +37,7 @@ impl TextureCache {
                 "TextureCache: skipping BNTX payload processing. All {} textures are already loaded.",
                 bntx.textures.len()
             );
+
             return;
         }
 
@@ -44,26 +46,26 @@ impl TextureCache {
             bntx.textures.len()
         );
 
-        for tex in &bntx.textures {
-            if self.textures.contains_key(&tex.name) {
-                continue;
-            }
+        let decoded_textures: Vec<_> = bntx
+            .textures
+            .par_iter()
+            .filter(|tex| !self.textures.contains_key(&tex.name))
+            .map(|tex| {
+                let res = decode_texture_rgba_with(tex, 0, ChannelResolve::Resolved);
+                (&tex.name, res)
+            })
+            .collect();
 
-            match decode_texture_rgba_with(tex, 0, ChannelResolve::Resolved) {
+        for (name, result) in decoded_textures {
+            match result {
                 Ok(rgba) => {
-                    let gpu_tex = upload_rgba(
-                        device,
-                        queue,
-                        &rgba.data,
-                        rgba.width,
-                        rgba.height,
-                        &tex.name,
-                    );
+                    let gpu_tex =
+                        upload_rgba(device, queue, &rgba.data, rgba.width, rgba.height, name);
 
-                    self.textures.insert(tex.name.clone(), gpu_tex);
+                    self.textures.insert(name.clone(), gpu_tex);
                 }
                 Err(e) => {
-                    log::warn!("TextureCache: failed to decode '{}': {e}", tex.name);
+                    log::warn!("TextureCache: failed to decode '{name}': {e}");
                 }
             }
         }

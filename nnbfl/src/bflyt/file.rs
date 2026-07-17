@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -595,7 +597,8 @@ impl Bflyt {
         if let Some(ml) = &mut self.material_list {
             for mat in &mut ml.materials {
                 for tm in &mut mat.tex_maps {
-                    if let Some(name) = textures.get(tm.texture_index.get() as usize) {
+                    let idx = tm.texture_index.load(Ordering::Relaxed) as usize;
+                    if let Some(name) = textures.get(idx) {
                         tm.texture_name = name.clone();
                     }
                 }
@@ -617,7 +620,7 @@ impl Bflyt {
                         .position(|t| t == &tm.texture_name)
                         .unwrap_or(0) as u16;
 
-                    tm.texture_index.set(idx);
+                    tm.texture_index.store(idx, Ordering::Relaxed);
                 }
             }
         }

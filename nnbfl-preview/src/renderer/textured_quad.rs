@@ -109,7 +109,7 @@ impl StandardMaterial {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq)]
 pub struct DetailedCombinerMaterial {
     pub constant_colors: [[f32; 4]; 7],
 
@@ -565,7 +565,14 @@ struct Batch {
     #[allow(dead_code)]
     detailed_buffer: Option<wgpu::Buffer>,
     num_indices: u32,
+
     cached_material: Option<StandardMaterial>,
+    cached_detailed_material: Option<DetailedCombinerMaterial>,
+    cached_sampler_settings: Option<(
+        WgpuSamplerSettings,
+        WgpuSamplerSettings,
+        WgpuSamplerSettings,
+    )>,
 
     key: BatchKey,
 
@@ -856,7 +863,17 @@ impl PaneRenderer {
             if !match_found {
                 let cached_material = match data {
                     PaneQuadData::Plain(_) => None,
-                    PaneQuadData::Textured(tq) => Some(tq.standard_material.clone()),
+                    PaneQuadData::Textured(tq) => Some(tq.standard_material),
+                };
+
+                let cached_detailed_material = match data {
+                    PaneQuadData::Plain(_) => None,
+                    PaneQuadData::Textured(tq) => Some(tq.detailed_combiner_material),
+                };
+
+                let cached_sampler_settings = match data {
+                    PaneQuadData::Plain(_) => None,
+                    PaneQuadData::Textured(tq) => Some((tq.sampler_0, tq.sampler_1, tq.sampler_2)),
                 };
 
                 self.batches.push(Batch {
@@ -870,6 +887,8 @@ impl PaneRenderer {
                     num_indices: 0,
                     key,
                     cached_material,
+                    cached_detailed_material,
+                    cached_sampler_settings,
                     piece_keys: vec![piece_key],
                 });
             }
@@ -920,7 +939,7 @@ impl PaneRenderer {
                         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("pane_plain_detailed_buf"),
                             contents: bytemuck::bytes_of(&DetailedCombinerMaterial::default()),
-                            usage: wgpu::BufferUsages::UNIFORM,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                         });
 
                     batch.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1193,6 +1212,15 @@ impl PaneRenderer {
         texture_cache: &TextureCache,
     ) {
         puffin::profile_function!();
+
+        let textured_lookup: HashMap<(usize, usize), &TexturedQuad> = ordered
+            .iter()
+            .filter_map(|d| match d {
+                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.piece_id), &**tq)),
+                _ => None,
+            })
+            .collect();
+
         for batch in &mut self.batches {
             let BatchKey::Textured {
                 texture_name,
@@ -1203,24 +1231,24 @@ impl PaneRenderer {
                 continue;
             };
 
-            let Some(&(pane_idx, piece_id)) = batch.piece_keys.first() else {
+            let Some(&piece_key) = batch.piece_keys.first() else {
                 continue;
             };
 
-            let Some(PaneQuadData::Textured(tq)) = ordered.iter().find(|d| {
-                d.pane_idx() == pane_idx
-                    && matches!(d, PaneQuadData::Textured(t) if t.piece_id == piece_id)
-            }) else {
+            let Some(tq) = textured_lookup.get(&piece_key) else {
                 continue;
             };
 
             let tex0_name = &tq.texture_name;
-            let tex1_name = tq.texture_name1.as_deref().unwrap_or(tex0_name);
-            let tex2_name = tq.texture_name2.as_deref().unwrap_or(tex0_name);
+            let current_samplers = (*sampler, tq.sampler_1, tq.sampler_2);
 
-            if texture_name == tex0_name {
+            if texture_name == tex0_name && batch.cached_sampler_settings == Some(current_samplers)
+            {
                 continue;
             }
+
+            let tex1_name = tq.texture_name1.as_deref().unwrap_or(tex0_name);
+            let tex2_name = tq.texture_name2.as_deref().unwrap_or(tex0_name);
 
             let Some(gpu_tex0) = texture_cache.get(tex0_name) else {
                 continue;
@@ -1251,7 +1279,7 @@ impl PaneRenderer {
             let detailed_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("pane_detailed_mat_buf_pat"),
                 contents: bytemuck::bytes_of(&tq.detailed_combiner_material),
-                usage: wgpu::BufferUsages::UNIFORM,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
             batch.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1294,6 +1322,8 @@ impl PaneRenderer {
             }));
 
             batch.detailed_buffer = Some(detailed_buf);
+            batch.cached_sampler_settings = Some(current_samplers);
+            batch.cached_detailed_material = None;
             *texture_name = tex0_name.clone();
         }
     }
@@ -1538,23 +1568,37 @@ impl PaneRenderer {
                 continue;
             };
 
-            let Some(mb) = &batch.mat_buffer else {
-                continue;
-            };
+            if let Some(mb) = &batch.mat_buffer {
+                let mut mat = tq.standard_material;
+                if hidden_panes.contains(&first_key.0) {
+                    mat.visible = 0;
+                }
 
-            let mut mat = tq.standard_material;
-            if hidden_panes.contains(&first_key.0) {
-                mat.visible = 0;
+                let needs_update = match &batch.cached_material {
+                    Some(cached) => cached != &mat,
+                    None => true,
+                };
+
+                if needs_update {
+                    puffin::profile_scope!("gpu_write_standard_material");
+                    queue.write_buffer(mb, 0, bytemuck::bytes_of(&mat));
+                    batch.cached_material = Some(mat);
+                }
             }
 
-            let needs_update = match &batch.cached_material {
-                Some(cached) => cached != &mat,
-                None => true,
-            };
+            if let Some(db) = &batch.detailed_buffer {
+                let detailed_mat = &tq.detailed_combiner_material;
 
-            if needs_update {
-                queue.write_buffer(mb, 0, bytemuck::bytes_of(&mat));
-                batch.cached_material = Some(mat);
+                let detailed_needs_update = match &batch.cached_detailed_material {
+                    Some(cached) => cached != detailed_mat,
+                    None => true,
+                };
+
+                if detailed_needs_update {
+                    puffin::profile_scope!("gpu_write_detailed_material");
+                    queue.write_buffer(db, 0, bytemuck::bytes_of(detailed_mat));
+                    batch.cached_detailed_material = Some(*detailed_mat);
+                }
             }
         }
     }

@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::sync::atomic::{AtomicU16, Ordering};
 
 use num_enum::{FromPrimitive, IntoPrimitive};
 use serde::{Deserialize, Serialize};
@@ -173,19 +173,30 @@ impl BitPackable<u32> for MaterialTextureExtension {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct MaterialTextureMap {
     #[serde(skip)]
-    pub texture_index: Cell<u16>,
+    pub texture_index: AtomicU16,
     pub texture_name: String,
     pub u_options: MaterialTextureOptions,
     pub v_options: MaterialTextureOptions,
 }
 
+impl Clone for MaterialTextureMap {
+    fn clone(&self) -> Self {
+        Self {
+            texture_index: AtomicU16::new(self.texture_index.load(Ordering::Relaxed)),
+            texture_name: self.texture_name.clone(),
+            u_options: self.u_options.clone(),
+            v_options: self.v_options.clone(),
+        }
+    }
+}
+
 impl ReadWriteable for MaterialTextureMap {
     fn parse(c: &mut Cursor) -> Result<Self, FormatError> {
         Ok(Self {
-            texture_index: Cell::new(c.read_u16()?),
+            texture_index: AtomicU16::new(c.read_u16()?),
             texture_name: String::new(),
             u_options: MaterialTextureOptions::decode(c.read_u8()?),
             v_options: MaterialTextureOptions::decode(c.read_u8()?),
@@ -193,7 +204,7 @@ impl ReadWriteable for MaterialTextureMap {
     }
 
     fn write(&self, w: &mut Writer) {
-        w.write_u16(self.texture_index.get());
+        w.write_u16(self.texture_index.load(Ordering::Relaxed));
         w.write_u8(self.u_options.encode());
         w.write_u8(self.v_options.encode());
     }

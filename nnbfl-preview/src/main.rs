@@ -23,6 +23,7 @@ use nnbfl::{
     ui2d::types::{Vector2f, Vector3f},
 };
 use pollster::FutureExt;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use renderer::quad::GridRenderer;
 use renderer::texture::TextureCache;
 use renderer::textured_quad::PaneRenderer;
@@ -112,6 +113,7 @@ impl GpuState {
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
+
         surface.configure(&device, &config);
 
         let grid_renderer = GridRenderer::new(&device, surface_format);
@@ -533,20 +535,15 @@ impl App {
                 base.translation.y = drag.start_translation.y - dy;
             }
             Handle::Rotation => {
-                let tl = [node.world_corners.top_left.x, node.world_corners.top_left.y];
-                let br = [
-                    node.world_corners.bottom_right.x,
-                    node.world_corners.bottom_right.y,
-                ];
-                let geom_center_x = (tl[0] + br[0]) * 0.5;
-                let geom_center_y = (tl[1] + br[1]) * 0.5;
+                let pivot_x = node.world_center.x;
+                let pivot_y = node.world_center.y;
 
-                let start_v_x = drag.start_world[0] - geom_center_x;
-                let start_v_y = drag.start_world[1] - geom_center_y;
+                let start_v_x = drag.start_world[0] - pivot_x;
+                let start_v_y = drag.start_world[1] - pivot_y;
                 let start_angle = start_v_y.atan2(start_v_x).to_degrees();
 
-                let current_v_x = world_pos[0] - geom_center_x;
-                let current_v_y = world_pos[1] - geom_center_y;
+                let current_v_x = world_pos[0] - pivot_x;
+                let current_v_y = world_pos[1] - pivot_y;
                 let current_angle = current_v_y.atan2(current_v_x).to_degrees();
 
                 let mut angle_delta = current_angle - start_angle;
@@ -714,27 +711,42 @@ impl App {
 
         self.ui_state.timeline.anim_player = AnimPlayer::new();
 
-        let mut discovered_bntxs = Vec::new();
-        for magic_file in all_files {
-            match magic_file {
-                MagicFiles::Bntx(bytes) => match Bntx::parse(&bytes) {
-                    Ok(bntx) => discovered_bntxs.push(bntx),
-                    Err(e) => {
-                        log::error!("TextureCache: failed to parse BNTX: {e}");
-                        continue;
+        let (discovered_bntxs, discovered_bflans): (Vec<_>, Vec<_>) = all_files
+            .into_par_iter()
+            .fold(
+                || (Vec::new(), Vec::new()),
+                |(mut bntxs, mut bflans), magic_file| {
+                    match magic_file {
+                        MagicFiles::Bntx(bytes) => match Bntx::parse(&bytes) {
+                            Ok(bntx) => bntxs.push(bntx),
+                            Err(e) => log::error!("TextureCache: failed to parse BNTX: {e}"),
+                        },
+                        MagicFiles::Bflan(bytes) => {
+                            if let Ok(bflan) = Bflan::parse_file(&bytes) {
+                                bflans.push(bflan);
+                            }
+                        }
+                        _ => {}
                     }
+                    (bntxs, bflans)
                 },
+            )
+            .reduce(
+                || (Vec::new(), Vec::new()),
+                |(mut bntxs_a, mut bflans_a), (bntxs_b, bflans_b)| {
+                    bntxs_a.extend(bntxs_b);
+                    bflans_a.extend(bflans_b);
+                    (bntxs_a, bflans_a)
+                },
+            );
 
-                MagicFiles::Bflan(bytes) => {
-                    if let Ok(bflan) = Bflan::parse_file(&bytes) {
-                        self.ui_state.timeline.anim_player.load(bflan);
-                    }
-                }
-                _ => {}
-            }
+        for bflan in discovered_bflans {
+            self.ui_state.timeline.anim_player.load(bflan);
         }
 
         let layout_name = bflyt.layout.name.clone();
+        log::info!("Preparing to build BflytView...");
+
         let view = build_view(
             bflyt,
             self.ui_state.archive_browser.layout_dir.as_deref(),
@@ -1141,7 +1153,7 @@ impl ApplicationHandler for App {
 
                 UiAction::LoadArchiveEntry(entry) => {
                     let resolved = std::fs::read(&entry.path).ok().and_then(|bytes| {
-                        archive_browser::resolve_nested_package_bytes(bytes, &entry.nested_path)
+                        archive_browser::resolve_nested_package_bytes(&bytes, &entry.nested_path)
                     });
 
                     self.ui_state.reset();
@@ -1236,7 +1248,14 @@ impl ApplicationHandler for App {
                     if !egui_wants_pointer {
                         let pos = self.camera.cursor_screen;
 
-                        if !self.try_start_drag(pos) {
+                        self.egui_ctx.input(|i| {
+                            if i.key_down(egui::Key::Space) {
+                                self.camera.start_pan(pos);
+                                return;
+                            }
+                        });
+
+                        if !self.try_start_drag(pos) && !self.camera.is_panning {
                             self.try_select_at(pos);
                             self.try_start_drag(pos);
                         }
@@ -1244,6 +1263,10 @@ impl ApplicationHandler for App {
                 }
                 winit::event::ElementState::Released => {
                     self.end_drag();
+
+                    if self.camera.is_panning {
+                        self.camera.end_pan();
+                    }
                 }
             },
 
