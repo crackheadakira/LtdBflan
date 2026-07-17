@@ -550,8 +550,6 @@ enum BatchKey {
     Textured {
         texture_name: String,
         sampler: WgpuSamplerSettings,
-        texture_name1: Option<String>,
-        texture_name2: Option<String>,
         material_idx: u16,
         combine_mode: u32,
         combine_mode2: u32,
@@ -808,8 +806,6 @@ impl PaneRenderer {
                 // helps avoid bad collisions.
                 BatchKey::Textured {
                     texture_name: tq.texture_name.clone(),
-                    texture_name1: tq.texture_name1.clone(),
-                    texture_name2: tq.texture_name2.clone(),
                     sampler: tq.sampler_0,
                     material_idx: tq.material_idx,
                     combine_mode: tq.standard_material.combine_mode,
@@ -1231,8 +1227,6 @@ impl PaneRenderer {
         for batch in &mut self.batches {
             let BatchKey::Textured {
                 texture_name,
-                texture_name1,
-                texture_name2,
                 sampler,
                 ..
             } = &mut batch.key
@@ -1251,10 +1245,7 @@ impl PaneRenderer {
             let tex0_name = &tq.texture_name;
             let current_samplers = (*sampler, tq.sampler_1, tq.sampler_2);
 
-            if texture_name == tex0_name
-                && texture_name1 == &tq.texture_name1
-                && texture_name2 == &tq.texture_name2
-                && batch.cached_sampler_settings == Some(current_samplers)
+            if texture_name == tex0_name && batch.cached_sampler_settings == Some(current_samplers)
             {
                 continue;
             }
@@ -1346,8 +1337,6 @@ impl PaneRenderer {
             batch.cached_detailed_material = None;
 
             *texture_name = tex0_name.clone();
-            *texture_name1 = tq.texture_name1.clone();
-            *texture_name2 = tq.texture_name2.clone();
         }
     }
 

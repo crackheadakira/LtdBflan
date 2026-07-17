@@ -18,7 +18,7 @@ use nnbfl::{
         userdata::UserDataArray,
     },
 };
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 use tomolib::formats::bntx::Bntx;
 
 use crate::{
@@ -219,7 +219,6 @@ impl PaneNode {
     }
 
     pub fn mark_transform_dirty(&mut self) {
-        puffin::profile_function!();
         self.dirty
             .insert(DirtyFlags::TRANSFORM | DirtyFlags::VERTICES);
 
@@ -261,7 +260,6 @@ impl PaneNode {
         parent_rotation: Vector3f,
         bntxs: &[Bntx],
     ) {
-        puffin::profile_function!();
         let child_scale;
 
         if self.dirty.contains(DirtyFlags::TRANSFORM) {
@@ -398,7 +396,7 @@ impl PaneNode {
             .map(|b| (b.rotation + parent_rotation, self.world_size))
             .unwrap_or((parent_rotation, parent_size));
 
-        for child in &mut self.children {
+        self.children.par_iter_mut().for_each(|child| {
             child.recompute(
                 self.world_center,
                 child_size,
@@ -406,12 +404,10 @@ impl PaneNode {
                 child_rotation,
                 bntxs,
             );
-        }
+        });
     }
 
     pub fn recompute_dirty_material(&mut self, material_list: &MaterialList, bntxs: &[Bntx]) {
-        puffin::profile_function!();
-
         if self.dirty.contains(DirtyFlags::MATERIAL)
             && let Some(quad) = &mut self.textured_quad
             && let BflytSection::PicturePane(pic) = &self.section
@@ -542,6 +538,8 @@ pub struct PaneTree {
 
     pub parent_map: HashMap<usize, Option<usize>>,
     pub label_map: HashMap<String, usize>,
+    pub path_map: HashMap<usize, Vec<usize>>,
+
     pub max_pane_idx: usize,
 }
 
@@ -580,7 +578,7 @@ impl PaneTree {
             y: self.layout_size.y * 0.5,
         };
 
-        for root in &mut self.roots {
+        self.roots.par_iter_mut().for_each(|root| {
             root.recompute(
                 layout_center,
                 self.layout_size,
@@ -588,7 +586,7 @@ impl PaneTree {
                 Vector3f::default(),
                 &self.discovered_bntxs,
             );
-        }
+        });
     }
 
     pub fn recompute_dirty_materials(&mut self) {
@@ -633,17 +631,6 @@ impl PaneTree {
         out
     }
 
-    pub fn build_idx_map(&mut self) -> HashMap<usize, *mut PaneNode> {
-        puffin::profile_function!();
-        let mut map = HashMap::new();
-
-        self.for_each_mut(|node| {
-            map.insert(node.pane_idx, node as *mut PaneNode);
-        });
-
-        map
-    }
-
     pub fn find_by_label(&self, label: &str) -> Option<&PaneNode> {
         let idx = *self.label_map.get(label)?;
         self.find_by_idx(idx)
@@ -651,24 +638,32 @@ impl PaneTree {
 
     pub fn find_by_idx(&self, target_idx: usize) -> Option<&PaneNode> {
         puffin::profile_function!();
-        self.iter().find(|n| n.pane_idx == target_idx)
+        let path = self.path_map.get(&target_idx)?;
+        let mut path_iter = path.iter();
+
+        let root_sibling_idx = *path_iter.next()?;
+        let mut current_node = self.roots.get(root_sibling_idx)?;
+
+        for &sibling_idx in path_iter {
+            current_node = current_node.children.get(sibling_idx)?;
+        }
+
+        Some(current_node)
     }
 
     pub fn find_by_idx_mut(&mut self, target_idx: usize) -> Option<&mut PaneNode> {
         puffin::profile_function!();
-        fn find_recursive(nodes: &mut [PaneNode], target_idx: usize) -> Option<&mut PaneNode> {
-            for node in nodes {
-                if node.pane_idx == target_idx {
-                    return Some(node);
-                }
-                if let Some(found) = find_recursive(&mut node.children, target_idx) {
-                    return Some(found);
-                }
-            }
-            None
+        let path = self.path_map.get(&target_idx)?;
+        let mut path_iter = path.iter();
+
+        let root_sibling_idx = *path_iter.next()?;
+        let mut current_node = self.roots.get_mut(root_sibling_idx)?;
+
+        for &sibling_idx in path_iter {
+            current_node = current_node.children.get_mut(sibling_idx)?;
         }
 
-        find_recursive(&mut self.roots, target_idx)
+        Some(current_node)
     }
 
     pub fn label_to_idx(&self) -> HashMap<String, usize> {
@@ -741,18 +736,16 @@ impl PaneTree {
                 self.roots.insert(pos, node);
             }
         }
+        self.rebuild_path_map();
 
         idx
     }
 
     pub fn sibling_position(&self, target_idx: usize) -> Option<(Option<usize>, usize)> {
         let parent_idx = *self.parent_map.get(&target_idx)?;
-        let siblings = match parent_idx {
-            Some(pid) => &self.find_by_idx(pid)?.children,
-            None => &self.roots,
-        };
+        let path = self.path_map.get(&target_idx)?;
+        let position = *path.last()?;
 
-        let position = siblings.iter().position(|n| n.pane_idx == target_idx)?;
         Some((parent_idx, position))
     }
 
@@ -781,16 +774,25 @@ impl PaneTree {
                 n: &PaneNode,
                 p_map: &mut HashMap<usize, Option<usize>>,
                 l_map: &mut HashMap<String, usize>,
+                path_map: &mut HashMap<usize, Vec<usize>>,
             ) {
                 p_map.remove(&n.pane_idx);
                 l_map.remove(n.label.trim_end_matches('\0'));
+                path_map.remove(&n.pane_idx);
 
                 for child in &n.children {
-                    unregister_subtree(child, p_map, l_map);
+                    unregister_subtree(child, p_map, l_map, path_map);
                 }
             }
 
-            unregister_subtree(node, &mut self.parent_map, &mut self.label_map);
+            unregister_subtree(
+                node,
+                &mut self.parent_map,
+                &mut self.label_map,
+                &mut self.path_map,
+            );
+
+            self.rebuild_path_map();
         }
 
         removed_node
@@ -879,6 +881,7 @@ impl PaneTree {
 
         let mut parent_map = HashMap::new();
         let mut label_map = HashMap::new();
+        let mut path_map = HashMap::new();
         let mut max_pane_idx = 0;
 
         fn index_tree(
@@ -886,6 +889,8 @@ impl PaneTree {
             parent: Option<usize>,
             p_map: &mut HashMap<usize, Option<usize>>,
             l_map: &mut HashMap<String, usize>,
+            path_map: &mut HashMap<usize, Vec<usize>>,
+            current_path: &mut Vec<usize>,
             max_idx: &mut usize,
         ) {
             if node.parts_source.is_some() {
@@ -899,19 +904,36 @@ impl PaneTree {
             let clean_label = node.label.trim_end_matches('\0').to_string();
             l_map.insert(clean_label, idx);
 
-            for child in &node.children {
-                index_tree(child, Some(idx), p_map, l_map, max_idx);
+            path_map.insert(idx, current_path.clone());
+
+            for (sibling_idx, child) in node.children.iter().enumerate() {
+                current_path.push(sibling_idx);
+                index_tree(
+                    child,
+                    Some(idx),
+                    p_map,
+                    l_map,
+                    path_map,
+                    current_path,
+                    max_idx,
+                );
+                current_path.pop();
             }
         }
 
-        for root in &roots {
+        let mut tracking_path = Vec::new();
+        for (root_idx, root) in roots.iter().enumerate() {
+            tracking_path.push(root_idx);
             index_tree(
                 root,
                 None,
                 &mut parent_map,
                 &mut label_map,
+                &mut path_map,
+                &mut tracking_path,
                 &mut max_pane_idx,
             );
+            tracking_path.pop();
         }
 
         PaneTree {
@@ -929,7 +951,30 @@ impl PaneTree {
             capture_texture_list: file.capture_texture_list,
             group: file.root_group,
             control_source: file.control_source,
+            path_map,
         }
+    }
+
+    pub fn rebuild_path_map(&mut self) {
+        self.path_map.clear();
+
+        fn walk(
+            nodes: &[PaneNode],
+            current_path: &mut Vec<usize>,
+            map: &mut HashMap<usize, Vec<usize>>,
+        ) {
+            for (sibling_idx, node) in nodes.iter().enumerate() {
+                current_path.push(sibling_idx);
+
+                map.insert(node.pane_idx, current_path.clone());
+                walk(&node.children, current_path, map);
+
+                current_path.pop();
+            }
+        }
+
+        let mut tracking_path = Vec::new();
+        walk(&self.roots, &mut tracking_path, &mut self.path_map);
     }
 }
 
@@ -1277,6 +1322,7 @@ impl<'a> Builder<'a> {
             ) {
                 for node in nodes.iter_mut() {
                     if node.label.trim_end_matches('\0') == prop_name {
+                        // How should the section actually be overriden, as I don't think it's a full overwrite?
                         node.section = override_section.clone();
                         node.is_parts_overridden = true;
 
