@@ -688,13 +688,21 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
 
                         match &t.target {
                             TargetIndex::VertexColor(VertexColorTarget::PaneAlpha) => {
-                                let mut apply_to = vec![pane_idx];
-                                apply_to.extend(view.tree.descendants(pane_idx));
+                                if let Some(node) = view.tree.find_by_idx_mut(pane_idx) {
+                                    for tq in all_quads_mut(node) {
+                                        tq.tint[3] = v;
 
-                                for idx in apply_to {
-                                    if let Some(node) = view.tree.find_by_idx_mut(idx) {
+                                        for c in tq.corner_tints.iter_mut() {
+                                            c[3] = v;
+                                        }
+                                    }
+                                }
+
+                                for descendant_idx in view.tree.descendants(pane_idx) {
+                                    if let Some(node) = view.tree.find_by_idx_mut(descendant_idx) {
                                         for tq in all_quads_mut(node) {
                                             tq.tint[3] = v;
+
                                             for c in tq.corner_tints.iter_mut() {
                                                 c[3] = v;
                                             }

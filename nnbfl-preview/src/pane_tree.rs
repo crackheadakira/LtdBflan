@@ -1340,8 +1340,14 @@ impl<'a> Builder<'a> {
                 for node in nodes.iter_mut() {
                     if node.label.trim_end_matches('\0') == prop_name {
                         // How should the section actually be overriden, as I don't think it's a full overwrite?
-                        node.section = override_section.clone();
-                        node.is_parts_overridden = true;
+                        if let BflytSection::PicturePane(override_pic) = override_section
+                            && let BflytSection::PicturePane(pic) = &mut node.section
+                        {
+                            let base = pic.base.clone();
+
+                            *pic = (*override_pic).clone();
+                            pic.base = base;
+                        };
 
                         if let BflytSection::PicturePane(pic) = override_section {
                             let tq = builder.build_textured_quad(
