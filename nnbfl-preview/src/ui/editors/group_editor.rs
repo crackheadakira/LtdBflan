@@ -41,57 +41,64 @@ impl DrawUiWith<&mut PaneTree> for GroupEditor {
             .resizable(true)
             .open(&mut self.is_editor_visible)
             .show(ui, |ui| {
-                ui.heading("Root Group");
-                changed |= tree.group.data.draw_with(ui, &mut available_panes);
+                egui::ScrollArea::vertical()
+                    .id_salt("group_editor_scroll")
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        ui.heading("Root Group");
+                        changed |= tree.group.data.draw_with(ui, &mut available_panes);
 
-                ui.separator();
-                ui.heading("Subgroups");
+                        ui.separator();
+                        ui.heading("Subgroups");
 
-                let mut subgroup_to_delete = None;
+                        let mut subgroup_to_delete = None;
 
-                for (i, child) in tree.group.children.iter_mut().enumerate() {
-                    ui.horizontal(|ui| {
-                        if ui
-                            .button("❌")
-                            .on_hover_text("Delete this entire subgroup")
-                            .clicked()
-                        {
-                            subgroup_to_delete = Some(i);
+                        for (i, child) in tree.group.children.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .button("❌")
+                                    .on_hover_text("Delete this entire subgroup")
+                                    .clicked()
+                                {
+                                    subgroup_to_delete = Some(i);
+                                }
+
+                                changed |= child.draw_with(ui, &mut available_panes);
+                            });
                         }
 
-                        changed |= child.draw_with(ui, &mut available_panes);
-                    });
-                }
-
-                if let Some(idx) = subgroup_to_delete {
-                    tree.group.children.remove(idx);
-                    changed |= true;
-                }
-
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    ui.label("New Subgroup Name:");
-                    ui.text_edit_singleline(&mut self.new_group_name);
-
-                    if ui.button("Create Group").clicked() && !self.new_group_name.is_empty() {
-                        let formatted_name = self.new_group_name.trim().to_string();
-
-                        if !tree
-                            .group
-                            .children
-                            .iter()
-                            .any(|g| g.group_name == formatted_name)
-                        {
-                            tree.group.children.push(Group {
-                                group_name: formatted_name,
-                                child_names: Vec::new(),
-                            });
-                            self.new_group_name.clear();
+                        if let Some(idx) = subgroup_to_delete {
+                            tree.group.children.remove(idx);
                             changed |= true;
                         }
-                    }
-                });
+
+                        ui.separator();
+
+                        ui.horizontal(|ui| {
+                            ui.label("New Subgroup Name:");
+                            ui.text_edit_singleline(&mut self.new_group_name);
+
+                            if ui.button("Create Group").clicked()
+                                && !self.new_group_name.is_empty()
+                            {
+                                let formatted_name = self.new_group_name.trim().to_string();
+
+                                if !tree
+                                    .group
+                                    .children
+                                    .iter()
+                                    .any(|g| g.group_name == formatted_name)
+                                {
+                                    tree.group.children.push(Group {
+                                        group_name: formatted_name,
+                                        child_names: Vec::new(),
+                                    });
+                                    self.new_group_name.clear();
+                                    changed |= true;
+                                }
+                            }
+                        });
+                    });
             });
 
         changed
