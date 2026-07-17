@@ -1,7 +1,7 @@
 use nnbfl::bflyt::flags::WindowKind;
 use nnbfl::bflyt::list::MaterialList;
 use nnbfl::bflyt::pane::{TextureFlip, TextureUv, WindowPane};
-use nnbfl::ui2d::types::{Color4u8, Vector2f};
+use nnbfl::ui2d::types::{Color4u8, Vector2f, Vector3f};
 use tomolib::formats::bntx::Bntx;
 
 use crate::renderer::textured_quad::{MaterialPaneData, TexturedQuad};
@@ -518,6 +518,7 @@ pub fn derive_from_window(
                 material_idx: win.content.material_index,
                 piece_id: 0,
                 texture_uvs: &content_uvs,
+                rotation: Vector3f::default(),
             },
             mat,
             Vector2f::new(geom.x, geom.y),
@@ -619,6 +620,7 @@ pub fn derive_from_window(
                 material_idx: base_material_idx,
                 piece_id: frame_idx + 1,
                 texture_uvs: &frame_uvs,
+                rotation: Vector3f::default(),
             },
             &mat,
             Vector2f::new(geom.x, geom.y),

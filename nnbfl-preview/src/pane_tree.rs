@@ -175,6 +175,7 @@ pub struct PaneNode {
     pub world_pos: Vector2f,
     pub world_size: Vector2f,
     pub world_center: Vector2f,
+    pub world_rotation: Vector3f,
     pub world_corners: Corners,
     pub parent_anchor: Vector2f,
 
@@ -272,13 +273,14 @@ impl PaneNode {
                 self.world_size = size;
                 self.world_center = center;
                 self.parent_anchor = anchor;
+                self.world_rotation = base.rotation + parent_rotation;
 
                 let corners = Corners::compute(
                     center,
                     size,
                     &base.position.position_x,
                     &base.position.position_y,
-                    base.rotation + parent_rotation,
+                    self.world_rotation,
                 );
 
                 self.world_corners = corners;
@@ -295,6 +297,7 @@ impl PaneNode {
                     tq.height = size.y;
 
                     tq.corners = corners.to_array();
+                    tq.rotation = self.world_rotation;
                 }
 
                 if !self.window_quads.is_empty()
@@ -313,6 +316,7 @@ impl PaneNode {
                             tq.width = geom.width;
                             tq.height = geom.height;
                             tq.corners = geom.corners;
+                            tq.rotation = self.world_rotation;
                         }
 
                         quad_idx += 1;
@@ -339,6 +343,7 @@ impl PaneNode {
                             tq.width = geom.width;
                             tq.height = geom.height;
                             tq.corners = geom.corners;
+                            tq.rotation = self.world_rotation;
 
                             let (tex_w, tex_h) = {
                                 bntxs
@@ -428,6 +433,7 @@ impl PaneNode {
                         piece_id: quad.piece_id,
                         material_idx: pic.material_index,
                         texture_uvs: &pic.texture_uvs,
+                        rotation: self.world_rotation,
                     },
                     mat,
                     Vector2f::new(quad.x, quad.y),
@@ -1096,6 +1102,7 @@ impl<'a> Builder<'a> {
             world_center: center,
             parent_anchor: anchor,
             world_corners: corners,
+            world_rotation: base.rotation,
             textured_quad: textured_quad.clone(),
             base_textured_quad: textured_quad,
             window_quads,
@@ -1343,6 +1350,7 @@ impl<'a> Builder<'a> {
                 piece_id: 0,
                 material_idx: pic.material_index,
                 texture_uvs: &pic.texture_uvs,
+                rotation,
             },
             mat,
             position,

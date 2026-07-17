@@ -6,7 +6,7 @@ use nnbfl::bflyt::list::{
     CombinerTevMode, Material, MaterialTextureMap, MaterialTextureSrt, TexGenSrc,
 };
 use nnbfl::bflyt::pane::{Pane, TextureUv};
-use nnbfl::ui2d::types::{Color4u8, Vector2f};
+use nnbfl::ui2d::types::{Color4u8, Vector2f, Vector3f};
 use wgpu::util::DeviceExt;
 
 use super::quad::Quad;
@@ -186,6 +186,7 @@ pub struct TexturedQuad {
     pub height: f32,
     /// World-space corner positions [TL, TR, BL, BR] after rotation.
     pub corners: [[f32; 2]; 4],
+    pub rotation: Vector3f,
 
     pub uvs: [[[f32; 2]; 3]; 4],
     pub base_uvs: [[[f32; 2]; 3]; 4],
@@ -261,6 +262,7 @@ pub struct MaterialPaneData<'a> {
     pub corner_tints: [[f32; 4]; 4],
     pub material_idx: u16,
     pub piece_id: usize,
+    pub rotation: Vector3f,
     pub texture_uvs: &'a [TextureUv],
 }
 
@@ -484,6 +486,7 @@ impl TexturedQuad {
             indirect_scale,
             material_idx: pane_data.material_idx,
             piece_id: pane_data.piece_id,
+            rotation: pane_data.rotation,
         })
     }
 }
@@ -1460,7 +1463,7 @@ impl PaneRenderer {
             let srt_scale_y = srt.map(|s| s.scale_v).unwrap_or(1.0);
             let srt_rotate = srt.map(|s| s.rotate).unwrap_or(0.0);
 
-            let rad = srt_rotate.to_radians();
+            let rad = (srt_rotate + quad.rotation.z).to_radians();
             let (sin_r, cos_r) = rad.sin_cos();
 
             let base_scale_s = 1.0 / (base_w * proj_scale_x);
