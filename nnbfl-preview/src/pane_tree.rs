@@ -863,6 +863,7 @@ impl PaneTree {
             next_pane_idx: 0,
             active_all_files: Vec::new(),
             active_sarc_key: None,
+            active_sarc_bntxs_parsed: false,
         };
 
         let layout_center = Vector2f {
@@ -990,8 +991,9 @@ struct Builder<'a> {
     parts_source: Option<String>,
     next_pane_idx: usize,
 
-    pub active_sarc_key: Option<(std::path::PathBuf, Vec<usize>)>,
-    pub active_all_files: Vec<MagicFiles>,
+    active_sarc_key: Option<(std::path::PathBuf, Vec<usize>)>,
+    active_all_files: Vec<MagicFiles>,
+    active_sarc_bntxs_parsed: bool,
 }
 
 const MAX_PARTS_DEPTH: usize = 8;
@@ -1189,6 +1191,7 @@ impl<'a> Builder<'a> {
 
             self.active_sarc_key = Some(current_key);
             self.active_all_files = all_files;
+            self.active_sarc_bntxs_parsed = false;
         }
 
         let target_bflyt = match self.active_all_files.get(entry.file_idx)? {
@@ -1198,9 +1201,11 @@ impl<'a> Builder<'a> {
 
         let mut final_files = vec![MagicFiles::Bflyt(target_bflyt)];
 
-        for file in &self.active_all_files {
-            if !matches!(file, MagicFiles::Bflyt(_)) {
-                final_files.push(file.clone());
+        if !self.active_sarc_bntxs_parsed {
+            for file in &self.active_all_files {
+                if !matches!(file, MagicFiles::Bflyt(_)) {
+                    final_files.push(file.clone());
+                }
             }
         }
 
@@ -1213,6 +1218,7 @@ impl<'a> Builder<'a> {
         parent_node: &mut PaneNode,
         parent_visible: bool,
     ) {
+        puffin::profile_function!();
         if self.parts_depth >= MAX_PARTS_DEPTH {
             log::warn!("PartsPane: Depth went beyond max");
             return;
@@ -1234,6 +1240,7 @@ impl<'a> Builder<'a> {
             if let Some(assets) = assets {
                 let bflyt_res = assets.iter().find_map(|f| {
                     if let MagicFiles::Bflyt(bytes) = f {
+                        puffin::profile_scope!("parts_parse_bflyt");
                         Bflyt::parse_file(bytes).ok()
                     } else {
                         None
@@ -1241,24 +1248,28 @@ impl<'a> Builder<'a> {
                 });
 
                 if let Some(sub_bflyt) = bflyt_res {
-                    let parsed_bntxs: Vec<_> = assets
-                        .par_iter()
-                        .filter_map(|asset| {
-                            if let MagicFiles::Bntx(bntx_data) = asset {
-                                match Bntx::parse(bntx_data) {
-                                    Ok(bntx) => Some(bntx),
-                                    Err(e) => {
-                                        log::error!("TextureCache: failed to parse BNTX: {e}");
-                                        None
+                    if !self.active_sarc_bntxs_parsed {
+                        puffin::profile_scope!("parts_parse_bntxs");
+                        let parsed_bntxs: Vec<_> = assets
+                            .par_iter()
+                            .filter_map(|asset| {
+                                if let MagicFiles::Bntx(bntx_data) = asset {
+                                    match Bntx::parse(bntx_data) {
+                                        Ok(bntx) => Some(bntx),
+                                        Err(e) => {
+                                            log::error!("TextureCache: failed to parse BNTX: {e}");
+                                            None
+                                        }
                                     }
+                                } else {
+                                    None
                                 }
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                            })
+                            .collect();
 
-                    self.discovered_bntxs.extend(parsed_bntxs);
+                        self.discovered_bntxs.extend(parsed_bntxs);
+                        self.active_sarc_bntxs_parsed = true;
+                    }
 
                     self.blarc_cache
                         .insert(layout_name.to_string(), Some(sub_bflyt));
