@@ -254,6 +254,7 @@ impl GpuState {
             puffin::profile_scope!("pane_renderer_logic");
             match ctx
                 .ui_state
+                .pane_tree_view
                 .selected_pane
                 .and_then(|idx| bflyt_view.tree.find_by_idx(idx))
             {
@@ -270,7 +271,7 @@ impl GpuState {
             self.pane_renderer.update_anim(
                 &self.queue,
                 &render_quads,
-                &ctx.ui_state.hidden_panes,
+                &ctx.ui_state.pane_tree_view.hidden_panes,
                 ctx.ui_state.visiblity_flags,
             );
 
@@ -290,8 +291,8 @@ impl GpuState {
             self.pane_renderer.update_selection(
                 &self.queue,
                 &mut render_quads,
-                ctx.ui_state.selected_pane,
-                &ctx.ui_state.hidden_panes,
+                ctx.ui_state.pane_tree_view.selected_pane,
+                &ctx.ui_state.pane_tree_view.hidden_panes,
                 ctx.ui_state.visiblity_flags,
                 ctx.ui_state.active_debug_stage,
             );
@@ -299,7 +300,7 @@ impl GpuState {
             self.pane_renderer.flush_mat_buffers(
                 &self.queue,
                 &render_quads,
-                &ctx.ui_state.hidden_panes,
+                &ctx.ui_state.pane_tree_view.hidden_panes,
             );
         }
 
@@ -467,7 +468,7 @@ impl App {
     fn try_start_drag(&mut self, screen_pos: [f32; 2]) -> bool {
         let Some(gpu) = &self.gpu else { return false };
 
-        let Some(idx) = self.ui_state.selected_pane else {
+        let Some(idx) = self.ui_state.pane_tree_view.selected_pane else {
             return false;
         };
 
@@ -657,7 +658,11 @@ impl App {
 
         for node in view.tree.iter() {
             if !node.visible
-                || self.ui_state.hidden_panes.contains(&node.pane_idx)
+                || self
+                    .ui_state
+                    .pane_tree_view
+                    .hidden_panes
+                    .contains(&node.pane_idx)
                     | node.plain_quad.is_parts_root
                     | node.parts_source.is_some()
             {
@@ -671,7 +676,7 @@ impl App {
             best = Some(node.pane_idx);
         }
 
-        self.ui_state.selected_pane = best;
+        self.ui_state.pane_tree_view.select(best);
     }
 
     fn load_file(&mut self) {
@@ -860,11 +865,7 @@ impl App {
         }
 
         let resulting_idx = view.history.perform(&mut view.tree, edit);
-        if resulting_idx.is_some() {
-            self.ui_state.selected_pane = resulting_idx;
-        } else {
-            self.ui_state.selected_pane = None;
-        }
+        self.ui_state.pane_tree_view.select(resulting_idx);
 
         self.after_structural_edit();
     }
@@ -1210,7 +1211,7 @@ impl ApplicationHandler for App {
                 UiAction::Undo => {
                     if let Some(view) = &mut self.bflyt_view {
                         let resulting_idx = view.history.undo(&mut view.tree);
-                        self.ui_state.selected_pane = resulting_idx;
+                        self.ui_state.pane_tree_view.select(resulting_idx);
                         self.after_structural_edit();
                     }
                 }
@@ -1218,7 +1219,7 @@ impl ApplicationHandler for App {
                 UiAction::Redo => {
                     if let Some(view) = &mut self.bflyt_view {
                         let resulting_idx = view.history.redo(&mut view.tree);
-                        self.ui_state.selected_pane = resulting_idx;
+                        self.ui_state.pane_tree_view.select(resulting_idx);
                         self.after_structural_edit();
                     }
                 }
@@ -1294,7 +1295,7 @@ impl ApplicationHandler for App {
                 ..
             } if state == winit::event::ElementState::Pressed
                 && !egui_wants_pointer
-                && let Some(pane_idx) = self.ui_state.selected_pane =>
+                && let Some(pane_idx) = self.ui_state.pane_tree_view.selected_pane =>
             {
                 self.ui_state
                     .context_menu
@@ -1363,7 +1364,7 @@ impl ApplicationHandler for App {
                             self.ui_state.timeline.anim_player.play(
                                 anim_idx,
                                 self.bflyt_view.as_ref(),
-                                &mut self.ui_state.hidden_panes,
+                                &mut self.ui_state.pane_tree_view.hidden_panes,
                             );
                         }
 
@@ -1371,7 +1372,7 @@ impl ApplicationHandler for App {
                             self.ui_state.timeline.anim_player.play(
                                 Some(anim_idx),
                                 self.bflyt_view.as_ref(),
-                                &mut self.ui_state.hidden_panes,
+                                &mut self.ui_state.pane_tree_view.hidden_panes,
                             );
                         }
 

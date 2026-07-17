@@ -15,7 +15,7 @@ use crate::{
     RenderContext,
     anim_state::all_quads_mut,
     bflyt_view::BflytView,
-    pane_tree::DirtyFlags,
+    pane_tree::{DirtyFlags, PaneNode},
     traits::Displaying,
     ui::{
         DrawUi, DrawUiWith,
@@ -24,6 +24,7 @@ use crate::{
         editors::{GroupEditor, MaterialEditor, PaneEditor},
         shortcuts::Shortcuts,
         timeline::TimelineState,
+        tree_view::TreeView,
     },
 };
 
@@ -39,8 +40,6 @@ pub const SUPPORTED_SARC_EXTENSIONS: &[&str] = &[
 
 #[derive(Default)]
 pub struct UiState {
-    pub selected_pane: Option<usize>,
-    pub hidden_panes: HashSet<usize>,
     pub error_message: Option<String>,
     pub pending_action: Option<UiAction>,
     pub visiblity_flags: PaneVisibilityFlags,
@@ -50,6 +49,7 @@ pub struct UiState {
     pub right_sidebar_tab: SidebarRightTab,
     pub active_debug_stage: u32,
 
+    pub pane_tree_view: TreeView,
     pub context_menu: ContextMenu,
     pub archive_browser: ArchiveBrowser,
     pub shortcuts_window: Shortcuts,
@@ -63,8 +63,8 @@ pub struct UiState {
 
 impl UiState {
     pub fn reset(&mut self) {
-        self.hidden_panes.clear();
-        self.selected_pane = None;
+        self.pane_tree_view.hidden_panes.clear();
+        self.pane_tree_view.selected_pane = None;
     }
 }
 
@@ -144,7 +144,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
             let i = node.pane_idx;
 
             if let BflytSection::TextBoxPane(text_box) = &node.section
-                && !ctx.ui_state.hidden_panes.contains(&i)
+                && !ctx.ui_state.pane_tree_view.hidden_panes.contains(&i)
                 && node.visible
             {
                 let display_text = text_box.text.as_deref().unwrap_or("");
@@ -260,6 +260,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
             node,
             is_hidden: ctx
                 .ui_state
+                .pane_tree_view
                 .hidden_panes
                 .contains(&ctx.ui_state.context_menu.pane_idx),
         };
@@ -267,10 +268,10 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         if let Some(action) = ctx.ui_state.context_menu.draw_with(ui, state) {
             match action {
                 ContextMenuAction::HidePane(pane_idx) => {
-                    ctx.ui_state.hidden_panes.insert(pane_idx);
+                    ctx.ui_state.pane_tree_view.hidden_panes.insert(pane_idx);
                 }
                 ContextMenuAction::ShowPane(pane_idx) => {
-                    ctx.ui_state.hidden_panes.remove(&pane_idx);
+                    ctx.ui_state.pane_tree_view.hidden_panes.remove(&pane_idx);
                 }
                 ContextMenuAction::Action(ui_action) => {
                     ctx.ui_state.pending_action = Some(ui_action);
@@ -336,7 +337,9 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     ctx.ui_state.material_editor.is_editor_visible = true;
                 }
 
-                if ctx.ui_state.selected_pane.is_some() && ui.button("Pane Editor").clicked() {
+                if ctx.ui_state.pane_tree_view.selected_pane.is_some()
+                    && ui.button("Pane Editor").clicked()
+                {
                     ctx.ui_state.pane_editor.is_editor_visible = true;
                 };
             }
@@ -388,9 +391,11 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     );
                     ui.separator();
 
-                    let flat_nodes = ctx.bflyt_view.as_ref().map(|v| v.tree.flatten());
-                    let total_rows = flat_nodes.as_ref().map_or(1, |nodes| nodes.len());
+                    ctx.ui_state
+                        .pane_tree_view
+                        .show(ui, ctx.bflyt_view.as_deref());
 
+                    /*
                     egui::ScrollArea::vertical().auto_shrink(false).show_rows(
                         ui,
                         24.0,
@@ -465,6 +470,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                             }
                         },
                     );
+                     */
                 }
             }
         });
@@ -493,7 +499,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     SidebarRightTab::Properties => {
                         if let Some(ref mut view) = ctx.bflyt_view {
                             ui.vertical(|ui| {
-                                if let Some(idx) = ctx.ui_state.selected_pane {
+                                if let Some(idx) = ctx.ui_state.pane_tree_view.selected_pane {
                                     let changed = {
                                         if let Some(node) = view.tree.find_by_idx_mut(idx) {
                                             draw_pane_properties(ui, node)
@@ -694,7 +700,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
             }
         }
 
-        if let Some(idx) = ctx.ui_state.selected_pane
+        if let Some(idx) = ctx.ui_state.pane_tree_view.selected_pane
             && let Some(node) = view.tree.find_by_idx_mut(idx)
         {
             ctx.ui_state.pane_editor.draw_with(ui, node);
@@ -715,21 +721,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
     }
 }
 
-fn hide_pane_recursive(idx: usize, view: &BflytView, hidden_set: &mut HashSet<usize>) {
-    hidden_set.insert(idx);
-    for child in view.descendants(idx) {
-        hidden_set.insert(child);
-    }
-}
-
-fn show_pane_recursive(idx: usize, view: &BflytView, hidden_set: &mut HashSet<usize>) {
-    hidden_set.remove(&idx);
-    for child in view.descendants(idx) {
-        hidden_set.remove(&child);
-    }
-}
-
-fn draw_pane_properties(ui: &mut Ui, pane: &mut crate::pane_tree::PaneNode) -> bool {
+fn draw_pane_properties(ui: &mut Ui, pane: &mut PaneNode) -> bool {
     let mut changed = false;
     egui::ScrollArea::vertical()
         .id_salt("pane_properties_scroll")

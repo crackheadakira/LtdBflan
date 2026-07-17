@@ -216,6 +216,19 @@ impl PaneNode {
         PaneIter { stack: vec![self] }
     }
 
+    pub fn descendants(&self) -> Vec<usize> {
+        fn collect_all(node: &PaneNode, out: &mut Vec<usize>) {
+            for child in &node.children {
+                out.push(child.pane_idx);
+                collect_all(child, out);
+            }
+        }
+
+        let mut out = Vec::new();
+        collect_all(self, &mut out);
+        out
+    }
+
     pub fn mark_transform_dirty(&mut self) {
         self.dirty
             .insert(DirtyFlags::TRANSFORM | DirtyFlags::VERTICES);
@@ -669,20 +682,9 @@ impl PaneTree {
     }
 
     pub fn descendants(&self, pane_idx: usize) -> Vec<usize> {
-        puffin::profile_function!();
-        fn collect_all(node: &PaneNode, out: &mut Vec<usize>) {
-            for child in &node.children {
-                out.push(child.pane_idx);
-                collect_all(child, out);
-            }
-        }
-
-        let mut out = Vec::new();
-        if let Some(target_node) = self.find_by_idx(pane_idx) {
-            collect_all(target_node, &mut out);
-        }
-
-        out
+        self.find_by_idx(pane_idx)
+            .map(|node| node.descendants())
+            .unwrap_or_default()
     }
 
     pub fn insert_node(&mut self, parent_idx: Option<usize>, node: PaneNode) -> usize {
@@ -1248,28 +1250,30 @@ impl<'a> Builder<'a> {
                 });
 
                 if let Some(sub_bflyt) = bflyt_res {
-                    if !self.active_sarc_bntxs_parsed {
-                        puffin::profile_scope!("parts_parse_bntxs");
-                        let parsed_bntxs: Vec<_> = assets
-                            .par_iter()
-                            .filter_map(|asset| {
-                                if let MagicFiles::Bntx(bntx_data) = asset {
-                                    match Bntx::parse(bntx_data) {
-                                        Ok(bntx) => Some(bntx),
-                                        Err(e) => {
-                                            log::error!("TextureCache: failed to parse BNTX: {e}");
-                                            None
-                                        }
-                                    }
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
+                    // TODO: make this work properly
+                    // if !self.active_sarc_bntxs_parsed {
+                    puffin::profile_scope!("parts_parse_bntxs");
 
-                        self.discovered_bntxs.extend(parsed_bntxs);
-                        self.active_sarc_bntxs_parsed = true;
-                    }
+                    let parsed_bntxs: Vec<_> = assets
+                        .par_iter()
+                        .filter_map(|asset| {
+                            if let MagicFiles::Bntx(bntx_data) = asset {
+                                match Bntx::parse(bntx_data) {
+                                    Ok(bntx) => Some(bntx),
+                                    Err(e) => {
+                                        log::error!("TextureCache: failed to parse BNTX: {e}");
+                                        None
+                                    }
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    self.discovered_bntxs.extend(parsed_bntxs);
+                    self.active_sarc_bntxs_parsed = true;
+                    // }
 
                     self.blarc_cache
                         .insert(layout_name.to_string(), Some(sub_bflyt));

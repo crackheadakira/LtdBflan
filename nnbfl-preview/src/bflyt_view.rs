@@ -30,10 +30,6 @@ impl BflytView {
 
         self.tree.recompute_dirty();
     }
-
-    pub fn descendants(&self, pane_idx: usize) -> Vec<usize> {
-        self.tree.descendants(pane_idx)
-    }
 }
 
 pub fn build_view(

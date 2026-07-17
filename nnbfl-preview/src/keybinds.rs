@@ -148,7 +148,7 @@ fn apply(action: Action, state: &mut UiState) {
         }
 
         Action::Deselect => {
-            state.selected_pane = None;
+            state.pane_tree_view.selected_pane = None;
             state.context_menu.is_open = false;
         }
 
@@ -158,13 +158,13 @@ fn apply(action: Action, state: &mut UiState) {
         }
 
         Action::DeleteSelected => {
-            if let Some(pane_idx) = state.selected_pane {
+            if let Some(pane_idx) = state.pane_tree_view.selected_pane {
                 state.pending_action = Some(UiAction::DeletePane(pane_idx));
             }
         }
 
         Action::DuplicateSelected => {
-            if let Some(pane_idx) = state.selected_pane {
+            if let Some(pane_idx) = state.pane_tree_view.selected_pane {
                 state.pending_action = Some(UiAction::DuplicatePane(pane_idx));
             }
         }
