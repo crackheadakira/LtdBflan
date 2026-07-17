@@ -1,5 +1,5 @@
 use nnbfl::{
-    bflyt::pane::PANE_NAME_LEN,
+    bflyt::{file::BflytSection, pane::PANE_NAME_LEN},
     ui2d::{
         systemdata::{LayoutData, PaneData, SystemData},
         userdata::{UserData, UserDataContent},
@@ -48,6 +48,14 @@ impl DrawUiWith<&mut PaneNode> for PaneEditor {
                         changed |= user_data.draw(ui);
 
                         ui.add_space(8.0);
+                    }
+                }
+
+                if let BflytSection::PicturePane(pic) = &mut pane.section {
+                    ui.label(format!("Picture Material Index {}", pic.material_index));
+
+                    if let Some(tq) = &mut pane.textured_quad {
+                        ui.label(format!("Quad Material Index {}", tq.material_idx));
                     }
                 }
             });

@@ -169,6 +169,7 @@ pub struct PaneNode {
     pub depth: usize,
     pub visible: bool,
     pub parts_source: Option<String>,
+    pub is_parts_overridden: bool,
     pub pane_idx: usize,
 
     pub world_pos: Vector2f,
@@ -409,34 +410,40 @@ impl PaneNode {
         if self.dirty.contains(DirtyFlags::MATERIAL)
             && let Some(quad) = &mut self.textured_quad
             && let BflytSection::PicturePane(pic) = &self.section
-            && let Some(mat) = material_list.materials.get(pic.material_index as usize)
-            && let Some(tq) = TexturedQuad::derive_from_material(
-                MaterialPaneData {
-                    base_section: &pic.base,
-                    corner_tints: vertex_corners_color_to_corner_tints(
-                        &pic.top_left_vertex_color,
-                        &pic.top_right_vertex_color,
-                        &pic.bottom_left_vertex_color,
-                        &pic.bottom_right_vertex_color,
-                    ),
-                    piece_id: quad.piece_id,
-                    material_idx: pic.material_index,
-                    texture_uvs: &pic.texture_uvs,
-                },
-                mat,
-                Vector2f::new(quad.x, quad.y),
-                Vector2f::new(quad.width, quad.height),
-                quad.corners,
-                self.visible,
-                self.pane_idx,
-            )
         {
-            *quad = tq;
+            let should_recompute = self.parts_source.is_none()
+                || (self.is_parts_overridden && self.parts_source.is_some());
 
-            if let Some(base_quad) = &mut self.base_textured_quad {
-                *base_quad = quad.clone();
-            }
-        };
+            if should_recompute
+                && let Some(mat) = material_list.materials.get(pic.material_index as usize)
+                && let Some(tq) = TexturedQuad::derive_from_material(
+                    MaterialPaneData {
+                        base_section: &pic.base,
+                        corner_tints: vertex_corners_color_to_corner_tints(
+                            &pic.top_left_vertex_color,
+                            &pic.top_right_vertex_color,
+                            &pic.bottom_left_vertex_color,
+                            &pic.bottom_right_vertex_color,
+                        ),
+                        piece_id: quad.piece_id,
+                        material_idx: pic.material_index,
+                        texture_uvs: &pic.texture_uvs,
+                    },
+                    mat,
+                    Vector2f::new(quad.x, quad.y),
+                    Vector2f::new(quad.width, quad.height),
+                    quad.corners,
+                    self.visible,
+                    self.pane_idx,
+                )
+            {
+                *quad = tq;
+
+                if let Some(base_quad) = &mut self.base_textured_quad {
+                    *base_quad = quad.clone();
+                }
+            };
+        }
 
         if self.dirty.contains(DirtyFlags::MATERIAL)
             && let BflytSection::WindowPane(win) = &self.section
@@ -1082,6 +1089,7 @@ impl<'a> Builder<'a> {
             depth,
             visible: is_visible,
             parts_source: self.parts_source.clone(),
+            is_parts_overridden: false,
             pane_idx,
             world_pos: pos,
             world_size: size,
@@ -1262,6 +1270,9 @@ impl<'a> Builder<'a> {
             ) {
                 for node in nodes.iter_mut() {
                     if node.label.trim_end_matches('\0') == prop_name {
+                        node.section = override_section.clone();
+                        node.is_parts_overridden = true;
+
                         if let BflytSection::PicturePane(pic) = override_section {
                             let tq = builder.build_textured_quad(
                                 pic,
@@ -1466,6 +1477,8 @@ pub fn apply_basic_info_override(
     flags: &BasePaneUsageFlags,
     info: &PartsPaneBasicInfo,
 ) {
+    node.is_parts_overridden = true;
+
     if flags.is_visible_set {
         node.visible = flags.is_visible_true;
     }

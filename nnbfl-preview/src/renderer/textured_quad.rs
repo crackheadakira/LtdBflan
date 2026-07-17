@@ -547,6 +547,8 @@ enum BatchKey {
     Textured {
         texture_name: String,
         sampler: WgpuSamplerSettings,
+        texture_name1: Option<String>,
+        texture_name2: Option<String>,
         material_idx: u16,
         combine_mode: u32,
         combine_mode2: u32,
@@ -803,6 +805,8 @@ impl PaneRenderer {
                 // helps avoid bad collisions.
                 BatchKey::Textured {
                     texture_name: tq.texture_name.clone(),
+                    texture_name1: tq.texture_name1.clone(),
+                    texture_name2: tq.texture_name2.clone(),
                     sampler: tq.sampler_0,
                     material_idx: tq.material_idx,
                     combine_mode: tq.standard_material.combine_mode,
@@ -1224,6 +1228,8 @@ impl PaneRenderer {
         for batch in &mut self.batches {
             let BatchKey::Textured {
                 texture_name,
+                texture_name1,
+                texture_name2,
                 sampler,
                 ..
             } = &mut batch.key
@@ -1242,19 +1248,30 @@ impl PaneRenderer {
             let tex0_name = &tq.texture_name;
             let current_samplers = (*sampler, tq.sampler_1, tq.sampler_2);
 
-            if texture_name == tex0_name && batch.cached_sampler_settings == Some(current_samplers)
+            if texture_name == tex0_name
+                && texture_name1 == &tq.texture_name1
+                && texture_name2 == &tq.texture_name2
+                && batch.cached_sampler_settings == Some(current_samplers)
             {
                 continue;
             }
 
-            let tex1_name = tq.texture_name1.as_deref().unwrap_or(tex0_name);
-            let tex2_name = tq.texture_name2.as_deref().unwrap_or(tex0_name);
+            let gpu_tex0 = texture_cache.get(tex0_name);
+            let view0 = gpu_tex0.map(|t| &t.view).unwrap_or(&self.placeholder_view);
 
-            let Some(gpu_tex0) = texture_cache.get(tex0_name) else {
-                continue;
-            };
-            let gpu_tex1 = texture_cache.get(tex1_name).unwrap_or(gpu_tex0);
-            let gpu_tex2 = texture_cache.get(tex2_name).unwrap_or(gpu_tex0);
+            let view1 = tq
+                .texture_name1
+                .as_deref()
+                .and_then(|n| texture_cache.get(n))
+                .map(|t| &t.view)
+                .unwrap_or(view0);
+
+            let view2 = tq
+                .texture_name2
+                .as_deref()
+                .and_then(|n| texture_cache.get(n))
+                .map(|t| &t.view)
+                .unwrap_or(view0);
 
             let make_sampler = |sampler_settings: WgpuSamplerSettings| -> wgpu::Sampler {
                 device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1288,7 +1305,7 @@ impl PaneRenderer {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&gpu_tex0.view),
+                        resource: wgpu::BindingResource::TextureView(&view0),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -1296,7 +1313,7 @@ impl PaneRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&gpu_tex1.view),
+                        resource: wgpu::BindingResource::TextureView(&view1),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
@@ -1304,7 +1321,7 @@ impl PaneRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&gpu_tex2.view),
+                        resource: wgpu::BindingResource::TextureView(&view2),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
@@ -1324,7 +1341,10 @@ impl PaneRenderer {
             batch.detailed_buffer = Some(detailed_buf);
             batch.cached_sampler_settings = Some(current_samplers);
             batch.cached_detailed_material = None;
+
             *texture_name = tex0_name.clone();
+            *texture_name1 = tq.texture_name1.clone();
+            *texture_name2 = tq.texture_name2.clone();
         }
     }
 
