@@ -246,6 +246,7 @@ pub struct SarcFile {
     pub data: Vec<u8>,
 }
 
+#[derive(Clone)]
 pub enum MagicFiles {
     Bflyt(Vec<u8>),
     Bflan(Vec<u8>),

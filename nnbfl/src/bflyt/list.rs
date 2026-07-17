@@ -187,8 +187,8 @@ impl Clone for MaterialTextureMap {
         Self {
             texture_index: AtomicU16::new(self.texture_index.load(Ordering::Relaxed)),
             texture_name: self.texture_name.clone(),
-            u_options: self.u_options.clone(),
-            v_options: self.v_options.clone(),
+            u_options: self.u_options,
+            v_options: self.v_options,
         }
     }
 }

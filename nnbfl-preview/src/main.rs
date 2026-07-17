@@ -1251,7 +1251,6 @@ impl ApplicationHandler for App {
                         self.egui_ctx.input(|i| {
                             if i.key_down(egui::Key::Space) {
                                 self.camera.start_pan(pos);
-                                return;
                             }
                         });
 

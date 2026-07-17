@@ -23,9 +23,7 @@ use tomolib::formats::bntx::Bntx;
 
 use crate::{
     anim_state::transform_uv_srt,
-    archive_browser::{
-        ArchiveEntry, resolve_nested_file_bytes_by_idx, resolve_nested_package_bytes,
-    },
+    archive_browser::{ArchiveEntry, resolve_nested_package_bytes},
     decompress_if_needed, extract_all_files_recursive,
     renderer::{
         quad::Quad,
@@ -863,6 +861,8 @@ impl PaneTree {
             parts_depth: 0,
             parts_source: None,
             next_pane_idx: 0,
+            active_all_files: Vec::new(),
+            active_sarc_key: None,
         };
 
         let layout_center = Vector2f {
@@ -989,6 +989,9 @@ struct Builder<'a> {
     parts_depth: usize,
     parts_source: Option<String>,
     next_pane_idx: usize,
+
+    pub active_sarc_key: Option<(std::path::PathBuf, Vec<usize>)>,
+    pub active_all_files: Vec<MagicFiles>,
 }
 
 const MAX_PARTS_DEPTH: usize = 8;
@@ -1062,6 +1065,7 @@ impl<'a> Builder<'a> {
         parent_visible: bool,
         depth: usize,
     ) -> Option<PaneNode> {
+        puffin::profile_function!();
         let base = section.get_base_pane()?;
 
         let is_visible = parent_visible && base.pane_flags.is_visible;
@@ -1165,26 +1169,38 @@ impl<'a> Builder<'a> {
         Some(node)
     }
 
-    fn load_bflyt_from_archive_index(&self, layout_name: &str) -> Option<Vec<MagicFiles>> {
-        let entries = self.archive_entries?;
+    fn load_bflyt_from_archive_index(&mut self, layout_name: &str) -> Option<Vec<MagicFiles>> {
+        puffin::profile_function!();
+        let entries = self.archive_entries.as_ref()?;
         let entry = entries
             .iter()
             .find(|e| e.matches_layout_name(layout_name))?;
 
-        let bytes = std::fs::read(&entry.path).ok()?;
+        let current_key = (entry.path.clone(), entry.nested_path.clone());
 
-        let target_bflyt_bytes =
-            resolve_nested_file_bytes_by_idx(&bytes, &entry.nested_path, entry.file_idx)?;
+        if self.active_sarc_key.as_ref() != Some(&current_key) || self.active_all_files.is_empty() {
+            puffin::profile_scope!("sarc_heavy_extraction_once");
 
-        let parent_package_bytes = resolve_nested_package_bytes(&bytes, &entry.nested_path)?;
-        let mut all_files = Vec::new();
-        extract_all_files_recursive(parent_package_bytes, &mut all_files);
+            let bytes = std::fs::read(&entry.path).ok()?;
+            let parent_package_bytes = resolve_nested_package_bytes(&bytes, &entry.nested_path)?;
 
-        let mut final_files = vec![MagicFiles::Bflyt(target_bflyt_bytes)];
+            let mut all_files = Vec::new();
+            extract_all_files_recursive(parent_package_bytes, &mut all_files);
 
-        for file in all_files {
+            self.active_sarc_key = Some(current_key);
+            self.active_all_files = all_files;
+        }
+
+        let target_bflyt = match self.active_all_files.get(entry.file_idx)? {
+            MagicFiles::Bflyt(b) => b.clone(),
+            _ => return None,
+        };
+
+        let mut final_files = vec![MagicFiles::Bflyt(target_bflyt)];
+
+        for file in &self.active_all_files {
             if !matches!(file, MagicFiles::Bflyt(_)) {
-                final_files.push(file);
+                final_files.push(file.clone());
             }
         }
 
@@ -1198,6 +1214,7 @@ impl<'a> Builder<'a> {
         parent_visible: bool,
     ) {
         if self.parts_depth >= MAX_PARTS_DEPTH {
+            log::warn!("PartsPane: Depth went beyond max");
             return;
         }
 
@@ -1369,6 +1386,7 @@ impl<'a> Builder<'a> {
         is_visible: bool,
         pane_idx: usize,
     ) -> Option<TexturedQuad> {
+        puffin::profile_function!();
         if !self.has_bntx {
             return None;
         }
@@ -1416,6 +1434,7 @@ impl<'a> Builder<'a> {
         is_visible: bool,
         pane_idx: usize,
     ) -> Vec<TexturedQuad> {
+        puffin::profile_function!();
         if !self.has_bntx {
             return Vec::new();
         }
@@ -1494,6 +1513,7 @@ fn resolve_rect(
 }
 
 fn load_bflyt_from_blarc_dir(blarc_dir: &Path, layout_name: &str) -> Option<Vec<MagicFiles>> {
+    puffin::profile_function!();
     let entry_path = std::fs::read_dir(blarc_dir).ok()?.find_map(|e| {
         let e = e.ok()?;
         let path = e.path();

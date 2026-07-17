@@ -261,33 +261,31 @@ fn unwrap_compression(data: &[u8], origin: &Path, depth: u32) -> Result<Vec<u8>,
         return Err(UnwrappedError::MaxDepthExceeded);
     }
 
-    loop {
-        match peek_magic_kind(&data) {
-            MagicKind::Zstd => {
-                let mut decompressed = Vec::new();
-                if tomolib::formats::zs::decompress(&data[..], &mut decompressed).is_err() {
-                    log::warn!(
-                        "Archive scan: Zstd decompress failed in {}",
-                        origin.display()
-                    );
+    match peek_magic_kind(data) {
+        MagicKind::Zstd => {
+            let mut decompressed = Vec::new();
+            if tomolib::formats::zs::decompress(data, &mut decompressed).is_err() {
+                log::warn!(
+                    "Archive scan: Zstd decompress failed in {}",
+                    origin.display()
+                );
 
-                    return Err(UnwrappedError::DecompressionFailed);
-                }
-                return Ok(decompressed);
+                return Err(UnwrappedError::DecompressionFailed);
             }
-
-            MagicKind::Yaz0 => match szs::decode(&data) {
-                Ok(decompressed) => return Ok(decompressed),
-                Err(err) => {
-                    log::warn!(
-                        "Archive scan: Yaz0 decode failed in {}: {err}",
-                        origin.display()
-                    );
-                    return Err(UnwrappedError::DecompressionFailed);
-                }
-            },
-            _ => return Err(UnwrappedError::DataAlreadyUncompressed),
+            return Ok(decompressed);
         }
+
+        MagicKind::Yaz0 => match szs::decode(data) {
+            Ok(decompressed) => return Ok(decompressed),
+            Err(err) => {
+                log::warn!(
+                    "Archive scan: Yaz0 decode failed in {}: {err}",
+                    origin.display()
+                );
+                return Err(UnwrappedError::DecompressionFailed);
+            }
+        },
+        _ => return Err(UnwrappedError::DataAlreadyUncompressed),
     }
 }
 
@@ -438,29 +436,6 @@ pub fn resolve_nested_package_bytes(
     }
 
     Some(current_data.to_vec())
-}
-
-/// Resolves one specific package identified by [`ArchiveEntry::nested_path`] and [`ArchiveEntry::file_idx`].
-pub fn resolve_nested_file_bytes_by_idx(
-    top_level_bytes: &[u8],
-    nested_path: &[usize],
-    target_file_idx: usize,
-) -> Option<Vec<u8>> {
-    let parent_sarc_bytes = resolve_nested_package_bytes(top_level_bytes, nested_path)?;
-
-    let mut final_sarc = Sarc::parse_file(&parent_sarc_bytes).ok()?;
-
-    if target_file_idx >= final_sarc.files.len() {
-        return None;
-    }
-
-    let target_file = final_sarc.files.remove(target_file_idx);
-
-    match unwrap_compression(&target_file.data, Path::new(""), 0) {
-        Ok(decompressed) => Some(decompressed),
-        Err(UnwrappedError::DataAlreadyUncompressed) => Some(target_file.data),
-        Err(_) => None,
-    }
 }
 
 fn calculate_sarc_hash(filename: &str, multiplier: u32) -> u32 {
