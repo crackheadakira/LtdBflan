@@ -156,8 +156,8 @@ impl GpuState {
         egui_state: &mut egui_winit::State,
         mut ctx: RenderContext<'_>,
     ) {
-        puffin::profile_function!();
         puffin::GlobalProfiler::lock().new_frame();
+        puffin::profile_function!();
 
         if ctx.ui_state.material_editor.pending_upload
             && let Some(ref mut bflyt_view) = ctx.bflyt_view
@@ -210,7 +210,12 @@ impl GpuState {
             }
         }
 
-        let output = match self.surface.get_current_texture() {
+        let surface_texture = {
+            puffin::profile_scope!("wgpu_surface_wait_for_vsync");
+            self.surface.get_current_texture()
+        };
+
+        let output = match surface_texture {
             CurrentSurfaceTexture::Success(o) => o,
             CurrentSurfaceTexture::Suboptimal(o) => {
                 self.surface.configure(&self.device, &self.config);
@@ -246,6 +251,7 @@ impl GpuState {
         egui_state.handle_platform_output(window, full_output.platform_output.clone());
 
         if let Some(ref mut bflyt_view) = ctx.bflyt_view {
+            puffin::profile_scope!("pane_renderer_logic");
             match ctx
                 .ui_state
                 .selected_pane

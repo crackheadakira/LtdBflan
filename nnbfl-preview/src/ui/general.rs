@@ -133,6 +133,7 @@ pub enum UiAction {
 }
 
 pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h: f32) {
+    puffin::profile_function!();
     crate::keybinds::handle(ui.ctx(), ctx.ui_state);
 
     if let Some(ref mut view) = ctx.bflyt_view {
@@ -387,18 +388,17 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     );
                     ui.separator();
 
-                    let total_rows = ctx
-                        .bflyt_view
-                        .as_ref()
-                        .map_or(1, |v| v.tree.flatten().len());
+                    let flat_nodes = ctx.bflyt_view.as_ref().map(|v| v.tree.flatten());
+                    let total_rows = flat_nodes.as_ref().map_or(1, |nodes| nodes.len());
+
                     egui::ScrollArea::vertical().auto_shrink(false).show_rows(
                         ui,
                         24.0,
                         total_rows,
                         |ui, row_range| {
-                            if let Some(ref view) = ctx.bflyt_view {
-                                let nodes = view.tree.flatten();
-
+                            if let Some(ref view) = ctx.bflyt_view
+                                && let Some(ref nodes) = flat_nodes
+                            {
                                 for idx in row_range {
                                     let node = nodes[idx];
                                     let i = node.pane_idx;

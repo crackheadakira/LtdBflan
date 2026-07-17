@@ -78,6 +78,7 @@ impl GridRenderer {
         camera: &Camera,
         config: &SurfaceConfiguration,
     ) {
+        puffin::profile_function!();
         let width = config.width as f32;
         let height = config.height as f32;
         let matrix = camera.build_matrix(width, height);

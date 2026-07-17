@@ -60,6 +60,7 @@ impl Camera {
     }
 
     pub fn build_matrix(&self, viewport_w: f32, viewport_h: f32) -> [[f32; 4]; 4] {
+        puffin::profile_function!();
         let sx = 2.0 / viewport_w;
         let sy = -2.0 / viewport_h;
 

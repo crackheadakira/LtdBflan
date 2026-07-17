@@ -106,6 +106,7 @@ impl SelectionRenderer {
     }
 
     pub fn update_projection(&self, queue: &wgpu::Queue, matrix: [[f32; 4]; 4]) {
+        puffin::profile_function!();
         queue.write_buffer(
             &self.pipeline.uniform_buffer,
             0,
