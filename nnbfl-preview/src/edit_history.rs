@@ -19,11 +19,15 @@ pub enum PaneEdit {
     Duplicate {
         source_idx: usize,
     },
-    #[allow(dead_code)]
     Insert {
         parent_idx: Option<usize>,
         position: usize,
         node: Box<PaneNode>,
+    },
+    Move {
+        source_idx: usize,
+        new_parent: Option<usize>,
+        position: usize,
     },
 }
 
@@ -53,6 +57,21 @@ impl PaneEdit {
                 let idx = tree.insert_node_at(parent_idx, position, *node);
                 Some(AppliedCommand::Inserted(idx))
             }
+
+            PaneEdit::Move {
+                source_idx,
+                new_parent,
+                position,
+            } => {
+                let (old_parent, old_position, _, _) =
+                    tree.move_node(source_idx, new_parent, position)?;
+
+                Some(AppliedCommand::Moved {
+                    pane_idx: source_idx,
+                    old_parent,
+                    old_position,
+                })
+            }
         }
     }
 }
@@ -70,6 +89,11 @@ pub enum AppliedCommand {
         pane_idx: usize,
         before: PaneTransform,
         after: PaneTransform,
+    },
+    Moved {
+        pane_idx: usize,
+        old_parent: Option<usize>,
+        old_position: usize,
     },
 }
 
@@ -112,6 +136,20 @@ impl AppliedCommand {
                     after: before,
                 })
             }
+            AppliedCommand::Moved {
+                pane_idx,
+                old_parent,
+                old_position,
+            } => {
+                let (prev_parent, prev_position, _, _) =
+                    tree.move_node(pane_idx, old_parent, old_position)?;
+
+                Some(AppliedCommand::Moved {
+                    pane_idx,
+                    old_parent: prev_parent,
+                    old_position: prev_position,
+                })
+            }
         }
     }
 
@@ -120,6 +158,7 @@ impl AppliedCommand {
             AppliedCommand::Inserted(idx) => Some(*idx),
             AppliedCommand::Removed(_) => None,
             AppliedCommand::Transformed { pane_idx, .. } => Some(*pane_idx),
+            AppliedCommand::Moved { pane_idx, .. } => Some(*pane_idx),
         }
     }
 }

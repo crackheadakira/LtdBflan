@@ -856,7 +856,9 @@ impl App {
             edit_history::PaneEdit::Delete { target_idx } => Some(*target_idx),
             edit_history::PaneEdit::Duplicate { source_idx } => Some(*source_idx),
             edit_history::PaneEdit::Insert { .. } => None,
+            edit_history::PaneEdit::Move { source_idx, .. } => Some(*source_idx),
         };
+
         if let Some(idx) = target_idx
             && view
                 .tree
@@ -1209,6 +1211,16 @@ impl ApplicationHandler for App {
                 UiAction::DuplicatePane(source_idx) => {
                     self.perform_pane_edit(edit_history::PaneEdit::Duplicate { source_idx })
                 }
+
+                UiAction::MovePane {
+                    source_idx,
+                    new_parent,
+                    position,
+                } => self.perform_pane_edit(edit_history::PaneEdit::Move {
+                    source_idx,
+                    new_parent,
+                    position,
+                }),
 
                 UiAction::Undo => {
                     if let Some(view) = &mut self.bflyt_view {

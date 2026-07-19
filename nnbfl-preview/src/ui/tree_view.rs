@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use egui_ltreeview::{Action, NodeBuilder, TreeViewBuilder, TreeViewSettings, TreeViewState};
 use nnbfl::bflyt::file::BflytSection;
 
-use crate::{bflyt_view::BflytView, pane_tree::PaneNode};
+use crate::{bflyt_view::BflytView, pane_tree::PaneNode, ui::general::UiAction};
 
 #[derive(Default)]
 pub struct TreeView {
@@ -27,7 +27,9 @@ impl TreeView {
         self.tree_state.set_selected(Vec::new())
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, view: Option<&mut BflytView>) {
+    pub fn show(&mut self, ui: &mut egui::Ui, view: Option<&mut BflytView>) -> Option<UiAction> {
+        let mut out_action = None;
+
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
@@ -52,7 +54,27 @@ impl TreeView {
                             Action::SetSelected(items) => {
                                 self.selected_pane = items.first().cloned()
                             }
-                            // Action::Move(drag_and_drop) => {}
+
+                            Action::Drag(drag) => {
+                                if !Self::is_valid_move(view, drag) {
+                                    drag.remove_drop_marker(ui);
+                                }
+                            }
+
+                            Action::Move(drag) => {
+                                if let Some(source_idx) = drag.source.first().copied()
+                                    && Self::is_valid_move(view, drag)
+                                    && let Some((new_parent, position)) =
+                                        view.tree.resolve_drop_position(drag.target, &drag.position)
+                                {
+                                    out_action = Some(UiAction::MovePane {
+                                        source_idx,
+                                        new_parent,
+                                        position,
+                                    });
+                                }
+                            }
+
                             _ => {}
                         }
                     }
@@ -60,6 +82,39 @@ impl TreeView {
                     ui.label("No .bflyt loaded...");
                 }
             });
+
+        out_action
+    }
+
+    fn is_valid_move(view: &BflytView, drag: &egui_ltreeview::DragAndDrop<usize>) -> bool {
+        let Some(&source_idx) = drag.source.first() else {
+            return false;
+        };
+
+        if drag.source.len() != 1 {
+            return false;
+        }
+
+        if view
+            .tree
+            .find_by_idx(source_idx)
+            .is_some_and(|n| n.parts_source.is_some())
+        {
+            return false;
+        }
+
+        let Some((new_parent, _)) = view.tree.resolve_drop_position(drag.target, &drag.position)
+        else {
+            return false;
+        };
+
+        if let Some(target_parent) = new_parent
+            && view.tree.is_ancestor_or_self(target_parent, source_idx)
+        {
+            return false;
+        }
+
+        true
     }
 
     fn draw_pane_node(

@@ -752,6 +752,84 @@ impl PaneTree {
         removed_node
     }
 
+    pub fn is_ancestor_or_self(&self, node_idx: usize, candidate: usize) -> bool {
+        if node_idx == candidate {
+            return true;
+        }
+
+        let mut current = self.parent_map.get(&node_idx).copied().flatten();
+        while let Some(idx) = current {
+            if idx == candidate {
+                return true;
+            }
+
+            current = self.parent_map.get(&idx).copied().flatten();
+        }
+
+        false
+    }
+
+    pub fn resolve_drop_position(
+        &self,
+        target: usize,
+        position: &egui_ltreeview::DirPosition<usize>,
+    ) -> Option<(Option<usize>, usize)> {
+        use egui_ltreeview::DirPosition;
+
+        // TODO: there's a bug with nodes sometimes becoming children when they shouldn't be
+        // & sometimes them just magically dissappearing & deleting. But the general architecture is good
+        // so i'll leave it here for now.
+
+        match position {
+            DirPosition::First => Some((Some(target), 0)),
+            DirPosition::Last => {
+                let count = self.find_by_idx(target)?.children.len();
+                Some((Some(target), count))
+            }
+            DirPosition::After(sibling) => {
+                let (parent, pos) = self.sibling_position(*sibling)?;
+                Some((parent, pos + 1))
+            }
+            DirPosition::Before(sibling) => {
+                let (parent, pos) = self.sibling_position(*sibling)?;
+                Some((parent, pos))
+            }
+        }
+    }
+
+    pub fn move_node(
+        &mut self,
+        source_idx: usize,
+        new_parent: Option<usize>,
+        position: usize,
+    ) -> Option<(Option<usize>, usize, Option<usize>, usize)> {
+        if let Some(target_parent) = new_parent
+            && self.is_ancestor_or_self(target_parent, source_idx)
+        {
+            return None;
+        }
+
+        let node = self.find_by_idx(source_idx)?;
+        if node.parts_source.is_some() {
+            return None;
+        }
+
+        let (old_parent, old_position) = self.sibling_position(source_idx)?;
+
+        let mut target_position = position;
+        if old_parent == new_parent && old_position < target_position {
+            target_position -= 1;
+        }
+
+        let mut node = self.remove_node(source_idx)?;
+        node.mark_transform_dirty();
+
+        self.insert_node_at(new_parent, target_position, node);
+        let (final_parent, final_position) = self.sibling_position(source_idx)?;
+
+        Some((old_parent, old_position, final_parent, final_position))
+    }
+
     fn sync_indices_and_maps(&mut self) {
         puffin::profile_function!();
 

@@ -125,6 +125,13 @@ pub enum UiAction {
 
     DeletePane(usize),
     DuplicatePane(usize),
+
+    MovePane {
+        source_idx: usize,
+        new_parent: Option<usize>,
+        position: usize,
+    },
+
     Undo,
     Redo,
 }
@@ -389,9 +396,13 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
 
                     ui.separator();
 
-                    ctx.ui_state
+                    if let Some(ui_action) = ctx
+                        .ui_state
                         .pane_tree_view
-                        .show(ui, ctx.bflyt_view.as_deref_mut());
+                        .show(ui, ctx.bflyt_view.as_deref_mut())
+                    {
+                        ctx.ui_state.pending_action = Some(ui_action);
+                    }
                 }
             }
         });
