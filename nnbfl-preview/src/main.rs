@@ -798,7 +798,7 @@ impl App {
 
             let render_quads = view.tree.collect_render_quads();
 
-            for bntx in &view.tree.discovered_bntxs {
+            for bntx in view.tree.all_bntxs() {
                 gpu.texture_cache
                     .load_from_bntx(&gpu.device, &gpu.queue, bntx);
             }

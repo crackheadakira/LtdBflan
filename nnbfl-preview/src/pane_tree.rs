@@ -269,7 +269,7 @@ impl PaneNode {
         parent_size: Vector2f,
         parent_scale: Vector2f,
         parent_rotation: Vector3f,
-        bntxs: &[Bntx],
+        bntxs: &[&Bntx],
     ) {
         let child_scale;
 
@@ -418,7 +418,7 @@ impl PaneNode {
         });
     }
 
-    pub fn recompute_dirty_material(&mut self, material_list: &MaterialList, bntxs: &[Bntx]) {
+    pub fn recompute_dirty_material(&mut self, material_list: &MaterialList, bntxs: &[&Bntx]) {
         if self.dirty.contains(DirtyFlags::MATERIAL)
             && let Some(quad) = &mut self.textured_quad
             && let BflytSection::PicturePane(pic) = &self.section
@@ -545,7 +545,8 @@ pub struct PaneTree {
     pub group: GroupElement,
 
     pub file_name: String,
-    pub discovered_bntxs: Vec<Bntx>,
+    pub main_bntx: Option<Bntx>,
+    pub sub_bntxs: Vec<Bntx>,
 
     pub parent_map: HashMap<usize, Option<usize>>,
     pub label_map: HashMap<String, usize>,
@@ -582,6 +583,10 @@ impl PaneTree {
         }
     }
 
+    pub fn all_bntxs(&self) -> impl Iterator<Item = &Bntx> {
+        self.main_bntx.iter().chain(self.sub_bntxs.iter())
+    }
+
     pub fn recompute_dirty(&mut self) {
         puffin::profile_function!();
         let layout_center = Vector2f {
@@ -589,29 +594,38 @@ impl PaneTree {
             y: self.layout_size.y * 0.5,
         };
 
-        self.roots.par_iter_mut().for_each(|root| {
+        let mut roots = std::mem::take(&mut self.roots);
+        let bntx_refs: Vec<_> = self.all_bntxs().collect();
+
+        roots.par_iter_mut().for_each(|root| {
             root.recompute(
                 layout_center,
                 self.layout_size,
                 Vector2f { x: 1.0, y: 1.0 },
                 Vector3f::default(),
-                &self.discovered_bntxs,
+                &bntx_refs,
             );
         });
+
+        self.roots = roots;
     }
 
     pub fn recompute_dirty_materials(&mut self) {
         let material_list = std::mem::take(&mut self.material_list);
-        let bntxs = std::mem::take(&mut self.discovered_bntxs);
+        let main_bntx = std::mem::take(&mut self.main_bntx);
+        let sub_bntxs = std::mem::take(&mut self.sub_bntxs);
+
+        let bntx_refs: Vec<_> = main_bntx.iter().chain(sub_bntxs.iter()).collect();
 
         if let Some(ref list) = material_list {
             self.for_each_mut(|node| {
-                node.recompute_dirty_material(list, &bntxs);
+                node.recompute_dirty_material(list, &bntx_refs);
             });
         }
 
         self.material_list = material_list;
-        self.discovered_bntxs = bntxs;
+        self.main_bntx = main_bntx;
+        self.sub_bntxs = sub_bntxs;
     }
 
     pub fn collect_render_quads(&self) -> Vec<PaneQuadData> {
@@ -916,13 +930,24 @@ impl PaneTree {
         file_name: String,
         has_bntx: bool,
         archive_entries: Option<&[ArchiveEntry]>,
-        mut discovered_bntxs: Vec<Bntx>,
+        discovered_bntxs: Vec<Bntx>,
     ) -> Self {
         puffin::profile_function!();
         let layout_size = Vector2f {
             x: file.layout.width,
             y: file.layout.height,
         };
+
+        let mut root_bntxs = discovered_bntxs.into_iter();
+        let main_bntx = root_bntxs.next();
+        let mut sub_bntxs: Vec<Bntx> = root_bntxs.collect();
+
+        if !sub_bntxs.is_empty() {
+            log::warn!(
+                "'{file_name}' bundles {} extra BNTX beyond the first, only the first is treated as the editable main texture file.",
+                sub_bntxs.len()
+            );
+        }
 
         let mut blarc_cache: HashMap<String, Option<Bflyt>> = HashMap::new();
 
@@ -932,7 +957,8 @@ impl PaneTree {
             archive_entries,
             blarc_dir,
             blarc_cache: &mut blarc_cache,
-            discovered_bntxs: &mut discovered_bntxs,
+            main_bntx: main_bntx.as_ref(),
+            sub_bntxs: &mut sub_bntxs,
             has_bntx,
             parts_depth: 0,
             parts_source: None,
@@ -1018,7 +1044,8 @@ impl PaneTree {
             layout_size,
             material_list: file.material_list,
             file_name,
-            discovered_bntxs,
+            main_bntx,
+            sub_bntxs,
             parent_map,
             label_map,
             max_pane_idx,
@@ -1061,7 +1088,8 @@ struct Builder<'a> {
     blarc_dir: Option<&'a Path>,
     archive_entries: Option<&'a [ArchiveEntry]>,
     blarc_cache: &'a mut HashMap<String, Option<Bflyt>>,
-    discovered_bntxs: &'a mut Vec<Bntx>,
+    main_bntx: Option<&'a Bntx>,
+    sub_bntxs: &'a mut Vec<Bntx>,
     has_bntx: bool,
     parts_depth: usize,
     parts_source: Option<String>,
@@ -1345,7 +1373,7 @@ impl<'a> Builder<'a> {
                         })
                         .collect();
 
-                    self.discovered_bntxs.extend(parsed_bntxs);
+                    self.sub_bntxs.extend(parsed_bntxs);
                     self.active_sarc_bntxs_parsed = true;
                     // }
 
@@ -1546,13 +1574,19 @@ impl<'a> Builder<'a> {
             rotation,
         );
 
+        let bntx_refs: Vec<_> = self
+            .main_bntx
+            .into_iter()
+            .chain(self.sub_bntxs.iter())
+            .collect();
+
         derive_from_window(
             win,
             material_list,
             corners.to_array(),
             is_visible,
             pane_idx,
-            self.discovered_bntxs,
+            &bntx_refs,
         )
     }
 }

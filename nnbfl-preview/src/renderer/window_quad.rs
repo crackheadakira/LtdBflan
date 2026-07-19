@@ -476,7 +476,7 @@ pub fn derive_from_window(
     corners: [[f32; 2]; 4],
     is_visible: bool,
     pane_idx: usize,
-    bntxs: &[Bntx],
+    bntxs: &[&Bntx],
 ) -> Vec<TexturedQuad> {
     let mut out = Vec::new();
 
