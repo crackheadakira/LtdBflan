@@ -928,7 +928,6 @@ impl PaneTree {
         file: Bflyt,
         blarc_dir: Option<&Path>,
         file_name: String,
-        has_bntx: bool,
         archive_entries: Option<&[ArchiveEntry]>,
         discovered_bntxs: Vec<Bntx>,
     ) -> Self {
@@ -959,7 +958,6 @@ impl PaneTree {
             blarc_cache: &mut blarc_cache,
             main_bntx: main_bntx.as_ref(),
             sub_bntxs: &mut sub_bntxs,
-            has_bntx,
             parts_depth: 0,
             parts_source: None,
             next_pane_idx: 0,
@@ -1090,7 +1088,6 @@ struct Builder<'a> {
     blarc_cache: &'a mut HashMap<String, Option<Bflyt>>,
     main_bntx: Option<&'a Bntx>,
     sub_bntxs: &'a mut Vec<Bntx>,
-    has_bntx: bool,
     parts_depth: usize,
     parts_source: Option<String>,
     next_pane_idx: usize,
@@ -1510,7 +1507,7 @@ impl<'a> Builder<'a> {
         pane_idx: usize,
     ) -> Option<TexturedQuad> {
         puffin::profile_function!();
-        if !self.has_bntx {
+        if self.main_bntx.is_none() && self.sub_bntxs.is_empty() {
             return None;
         }
 
@@ -1558,7 +1555,7 @@ impl<'a> Builder<'a> {
         pane_idx: usize,
     ) -> Vec<TexturedQuad> {
         puffin::profile_function!();
-        if !self.has_bntx {
+        if self.main_bntx.is_none() && self.sub_bntxs.is_empty() {
             return Vec::new();
         }
 

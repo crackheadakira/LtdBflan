@@ -41,7 +41,10 @@ use bflyt_view::{BflytView, build_view};
 use crate::{
     anim_state::AnimPlayer,
     archive_browser::ArchiveScan,
-    renderer::selection::{Handle, SelectionRenderer, point_in_quad},
+    renderer::{
+        selection::{Handle, SelectionRenderer, point_in_quad},
+        texture::{TexturePreviewData, TexturePreviewPipeline},
+    },
     traits::Displaying,
     ui::general::{SUPPORTED_SARC_EXTENSIONS, UiAction, UiState, draw_ui},
 };
@@ -123,8 +126,14 @@ impl GpuState {
         let texture_cache = TextureCache::new();
         let pane_renderer = PaneRenderer::new(&device, &queue, surface_format);
 
-        let egui_renderer =
+        let mut egui_renderer =
             egui_wgpu::Renderer::new(&device, surface_format, RendererOptions::default());
+
+        let preview_pipeline = TexturePreviewPipeline::new(&device, surface_format);
+        egui_renderer.callback_resources.insert(TexturePreviewData {
+            pipeline: preview_pipeline,
+            bind_groups: std::collections::HashMap::new(),
+        });
 
         Self {
             surface,
@@ -341,6 +350,32 @@ impl GpuState {
             &paint_jobs,
             &screen_descriptor,
         );
+
+        if let Some(preview_data) = self
+            .egui_renderer
+            .callback_resources
+            .get_mut::<TexturePreviewData>()
+            && let Some(ref name) = ctx.ui_state.texture_editor.selected_texture
+            && !preview_data.bind_groups.contains_key(name)
+            && let Some(gpu_tex) = self.texture_cache.get(name)
+        {
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("Preview Bind Group: {}", name)),
+                layout: &preview_data.pipeline.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&gpu_tex.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&preview_data.pipeline.sampler),
+                    },
+                ],
+            });
+
+            preview_data.bind_groups.insert(name.clone(), bind_group);
+        }
 
         {
             let mut rpass = render_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -720,8 +755,6 @@ impl App {
 
         self.ui_state.error_message = None;
 
-        let has_textures = all_files.iter().any(|f| matches!(f, MagicFiles::Bntx(_)));
-
         self.ui_state.timeline.anim_player = AnimPlayer::new();
 
         let (discovered_bntxs, discovered_bflans): (Vec<_>, Vec<_>) = all_files
@@ -764,7 +797,6 @@ impl App {
             bflyt,
             self.ui_state.archive_browser.layout_dir.as_deref(),
             layout_name.clone(),
-            has_textures,
             self.ui_state
                 .archive_browser
                 .archive_scan
@@ -797,6 +829,9 @@ impl App {
             let view = self.bflyt_view.as_mut().unwrap();
 
             let render_quads = view.tree.collect_render_quads();
+
+            self.ui_state.texture_editor.selected_texture = None;
+            gpu.texture_cache.clear();
 
             for bntx in view.tree.all_bntxs() {
                 gpu.texture_cache

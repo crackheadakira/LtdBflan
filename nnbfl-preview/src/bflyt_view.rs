@@ -36,7 +36,6 @@ pub fn build_view(
     file: Bflyt,
     blarc_dir: Option<&Path>,
     file_name: String,
-    has_bntx: bool,
     archive_entries: Option<&[ArchiveEntry]>,
     discovered_bntxs: Vec<Bntx>,
 ) -> BflytView {
@@ -51,7 +50,6 @@ pub fn build_view(
         file,
         blarc_dir,
         file_name.clone(),
-        has_bntx,
         archive_entries,
         discovered_bntxs,
     );

@@ -18,7 +18,7 @@ use crate::{
         DrawUi, DrawUiWith,
         archive_browser::ArchiveBrowser,
         context_menu::{ContextMenu, ContextMenuAction, ContextMenuState},
-        editors::{GroupEditor, MaterialEditor, PaneEditor},
+        editors::{GroupEditor, MaterialEditor, PaneEditor, TextureEditor},
         shortcuts::Shortcuts,
         timeline::TimelineState,
         tree_view::TreeView,
@@ -55,6 +55,7 @@ pub struct UiState {
     pub material_editor: MaterialEditor,
     pub pane_editor: PaneEditor,
     pub group_editor: GroupEditor,
+    pub texture_editor: TextureEditor,
     pub enable_puffin: bool,
 }
 
@@ -339,6 +340,10 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
 
                 if view.tree.material_list.is_some() && ui.button("Material Editor").clicked() {
                     ctx.ui_state.material_editor.is_editor_visible = true;
+                }
+
+                if view.tree.main_bntx.is_some() && ui.button("Texture Editor").clicked() {
+                    ctx.ui_state.texture_editor.is_editor_visible = true;
                 }
 
                 if ctx.ui_state.pane_tree_view.selected_pane.is_some()
@@ -637,6 +642,10 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         {
             ctx.ui_state.pane_editor.draw_with(ui, node);
         }
+
+        ctx.ui_state
+            .texture_editor
+            .draw_with(ui, view.tree.main_bntx.as_ref());
 
         ctx.ui_state.group_editor.draw_with(ui, &mut view.tree);
     }
