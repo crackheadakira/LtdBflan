@@ -697,32 +697,7 @@ impl PaneTree {
         position: usize,
         node: PaneNode,
     ) -> usize {
-        let idx = node.pane_idx;
-
-        fn register_subtree(
-            n: &PaneNode,
-            parent: Option<usize>,
-            p_map: &mut HashMap<usize, Option<usize>>,
-            l_map: &mut HashMap<String, usize>,
-            max_idx: &mut usize,
-        ) {
-            let i = n.pane_idx;
-            *max_idx = (*max_idx).max(i);
-            p_map.insert(i, parent);
-            l_map.insert(n.label.trim_end_matches('\0').to_string(), i);
-
-            for child in &n.children {
-                register_subtree(child, Some(i), p_map, l_map, max_idx);
-            }
-        }
-
-        register_subtree(
-            &node,
-            parent_idx,
-            &mut self.parent_map,
-            &mut self.label_map,
-            &mut self.max_pane_idx,
-        );
+        let old_idx = node.pane_idx;
 
         match parent_idx {
             Some(pid) => {
@@ -736,9 +711,10 @@ impl PaneTree {
                 self.roots.insert(pos, node);
             }
         }
-        self.rebuild_path_map();
 
-        idx
+        self.sync_indices_and_maps();
+
+        old_idx
     }
 
     pub fn sibling_position(&self, target_idx: usize) -> Option<(Option<usize>, usize)> {
@@ -769,33 +745,53 @@ impl PaneTree {
             }
         };
 
-        if let Some(ref node) = removed_node {
-            fn unregister_subtree(
-                n: &PaneNode,
-                p_map: &mut HashMap<usize, Option<usize>>,
-                l_map: &mut HashMap<String, usize>,
-                path_map: &mut HashMap<usize, Vec<usize>>,
-            ) {
-                p_map.remove(&n.pane_idx);
-                l_map.remove(n.label.trim_end_matches('\0'));
-                path_map.remove(&n.pane_idx);
-
-                for child in &n.children {
-                    unregister_subtree(child, p_map, l_map, path_map);
-                }
-            }
-
-            unregister_subtree(
-                node,
-                &mut self.parent_map,
-                &mut self.label_map,
-                &mut self.path_map,
-            );
-
-            self.rebuild_path_map();
+        if removed_node.is_some() {
+            self.sync_indices_and_maps();
         }
 
         removed_node
+    }
+
+    fn sync_indices_and_maps(&mut self) {
+        puffin::profile_function!();
+
+        self.parent_map.clear();
+        self.label_map.clear();
+
+        let mut next_idx = 0;
+
+        fn walk_and_index(
+            node: &mut PaneNode,
+            parent: Option<usize>,
+            next_idx: &mut usize,
+            p_map: &mut HashMap<usize, Option<usize>>,
+            l_map: &mut HashMap<String, usize>,
+        ) {
+            let current_idx = *next_idx;
+            *next_idx += 1;
+
+            node.pane_idx = current_idx;
+
+            p_map.insert(current_idx, parent);
+            l_map.insert(node.label.trim_end_matches('\0').to_string(), current_idx);
+
+            for child in &mut node.children {
+                walk_and_index(child, Some(current_idx), next_idx, p_map, l_map);
+            }
+        }
+
+        for root in &mut self.roots {
+            walk_and_index(
+                root,
+                None,
+                &mut next_idx,
+                &mut self.parent_map,
+                &mut self.label_map,
+            );
+        }
+
+        self.max_pane_idx = next_idx.saturating_sub(1);
+        self.rebuild_path_map();
     }
 
     pub fn next_pane_idx(&self) -> usize {

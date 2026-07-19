@@ -17,13 +17,17 @@ impl TreeView {
         if let Some(pane_idx) = pane_idx {
             self.tree_state.set_one_selected(pane_idx);
         } else {
-            self.tree_state.set_selected(Vec::new());
+            self.deselect_from_view();
         }
 
         self.selected_pane = pane_idx;
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, view: Option<&BflytView>) {
+    pub fn deselect_from_view(&mut self) {
+        self.tree_state.set_selected(Vec::new())
+    }
+
+    pub fn show(&mut self, ui: &mut egui::Ui, view: Option<&mut BflytView>) {
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
@@ -34,7 +38,7 @@ impl TreeView {
                                 override_indent: Some(12.0),
                                 override_striped: Some(true),
                                 allow_multi_select: false,
-                                allow_drag_and_drop: false,
+                                allow_drag_and_drop: true,
                                 ..Default::default()
                             })
                             .show_state(ui, &mut self.tree_state, |builder| {
@@ -48,7 +52,8 @@ impl TreeView {
                             Action::SetSelected(items) => {
                                 self.selected_pane = items.first().cloned()
                             }
-                            _ => {} // Action::Move(drag_and_drop) => todo!(),
+                            // Action::Move(drag_and_drop) => {}
+                            _ => {}
                         }
                     }
                 } else {
@@ -81,14 +86,12 @@ impl TreeView {
             egui::RichText::new(label_text)
         };
 
-        let is_parts = is_parts_content || is_parts_section;
-
         if !node.children.is_empty() {
             builder.node(
                 NodeBuilder::dir(i)
-                    .default_open(!is_parts)
-                    .drop_allowed(!is_parts)
-                    .activatable(!is_parts)
+                    .default_open(!(is_parts_content || is_parts_section))
+                    .drop_allowed(!is_parts_content)
+                    .activatable(!is_parts_content)
                     .height(24.0)
                     .context_menu(|ui| {
                         Self::draw_pane_context_menu(ui, node, hidden_panes);
@@ -110,8 +113,8 @@ impl TreeView {
         } else {
             builder.node(
                 NodeBuilder::leaf(i)
-                    .activatable(!is_parts)
-                    .drop_allowed(!is_parts)
+                    .activatable(!is_parts_content)
+                    .drop_allowed(!is_parts_content)
                     .height(24.0)
                     .context_menu(|ui| {
                         Self::draw_pane_context_menu(ui, node, hidden_panes);

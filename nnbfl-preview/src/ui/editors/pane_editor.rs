@@ -52,6 +52,19 @@ impl DrawUiWith<&mut PaneNode> for PaneEditor {
                 }
 
                 if let BflytSection::PicturePane(pic) = &mut pane.section {
+                    changed |= pic
+                        .top_left_vertex_color
+                        .draw_with(ui, "Top Left Vertex Color");
+                    changed |= pic
+                        .top_right_vertex_color
+                        .draw_with(ui, "Top Right Vertex Color");
+                    changed |= pic
+                        .bottom_left_vertex_color
+                        .draw_with(ui, "Bottom Left Vertex Color");
+                    changed |= pic
+                        .bottom_right_vertex_color
+                        .draw_with(ui, "Bottom Right Vertex Color");
+
                     ui.label(format!("Picture Material Index {}", pic.material_index));
 
                     if let Some(tq) = &mut pane.textured_quad {

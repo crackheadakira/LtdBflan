@@ -419,11 +419,7 @@ fn cascade_visibility(view: &mut BflytView, pane_idx: usize, visible: bool) {
             [0.0; 4]
         };
 
-        if let Some(tq) = &mut node.textured_quad {
-            tq.standard_material.visible = visible as u32;
-        }
-
-        for tq in &mut node.window_quads {
+        for tq in all_quads_mut(node) {
             tq.standard_material.visible = visible as u32;
         }
 

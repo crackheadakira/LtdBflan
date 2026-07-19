@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use egui::Ui;
 use nnbfl::{
     bflyt::{
@@ -14,7 +12,6 @@ use nnbfl::{
 use crate::{
     RenderContext,
     anim_state::all_quads_mut,
-    bflyt_view::BflytView,
     pane_tree::{DirtyFlags, PaneNode},
     traits::Displaying,
     ui::{
@@ -389,88 +386,12 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                         &mut ctx.ui_state.visiblity_flags.no_textured,
                         "Draw only pane outlines",
                     );
+
                     ui.separator();
 
                     ctx.ui_state
                         .pane_tree_view
-                        .show(ui, ctx.bflyt_view.as_deref());
-
-                    /*
-                    egui::ScrollArea::vertical().auto_shrink(false).show_rows(
-                        ui,
-                        24.0,
-                        total_rows,
-                        |ui, row_range| {
-                            if let Some(ref view) = ctx.bflyt_view
-                                && let Some(ref nodes) = flat_nodes
-                            {
-                                for idx in row_range {
-                                    let node = nodes[idx];
-                                    let i = node.pane_idx;
-
-                                    let indent = node.depth as f32 * 12.0;
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(indent);
-
-                                        let selected = ctx.ui_state.selected_pane == Some(i);
-                                        let is_parts_content = node.parts_source.is_some();
-
-                                        let label_text = if is_parts_content {
-                                            format!("[{}] {} (linked)", node.kind, node.label)
-                                        } else {
-                                            format!("[{}] {}", node.kind, node.label)
-                                        };
-                                        let label = if is_parts_content {
-                                            egui::RichText::new(label_text).weak()
-                                        } else {
-                                            egui::RichText::new(label_text)
-                                        };
-
-                                        let is_hidden = ctx.ui_state.hidden_panes.contains(&i);
-
-                                        let response = ui.selectable_label(selected, label);
-                                        response.context_menu(|ui| {
-                                            if !is_hidden && ui.button("Hide").clicked() {
-                                                ctx.ui_state.hidden_panes.insert(i);
-                                                ui.close();
-                                            }
-                                            if !is_hidden && ui.button("Hide All").clicked() {
-                                                hide_pane_recursive(
-                                                    i,
-                                                    view,
-                                                    &mut ctx.ui_state.hidden_panes,
-                                                );
-                                                ui.close();
-                                            }
-                                            if is_hidden && ui.button("Show").clicked() {
-                                                ctx.ui_state.hidden_panes.remove(&i);
-                                                ui.close();
-                                            }
-                                            if is_hidden && ui.button("Show All").clicked() {
-                                                show_pane_recursive(
-                                                    i,
-                                                    view,
-                                                    &mut ctx.ui_state.hidden_panes,
-                                                );
-                                                ui.close();
-                                            }
-                                        });
-
-                                        if response.clicked() {
-                                            ctx.ui_state.selected_pane = Some(i);
-                                        }
-
-                                        if is_hidden {
-                                            ui.label("Hidden");
-                                        }
-                                    });
-                                }
-                            } else {
-                                ui.label("No .bflyt file loaded");
-                            }
-                        },
-                    );
-                     */
+                        .show(ui, ctx.bflyt_view.as_deref_mut());
                 }
             }
         });

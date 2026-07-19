@@ -494,6 +494,8 @@ impl App {
             None => return false,
         };
 
+        self.ui_state.pane_tree_view.deselect_from_view();
+
         let base = node.section.get_base_pane();
         let translation = base.map(|b| b.translation).unwrap_or_default();
 
