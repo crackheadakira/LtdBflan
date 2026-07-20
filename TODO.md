@@ -36,3 +36,4 @@
 - [ ] Scissor pane support
 - [ ] Captor pane support? (is this something rendering specific for in-game, or is it also used in bflyts)
 - [ ] Pop-up when loading from a SARC asking for which bflyt file to load
+- [ ] Tab system

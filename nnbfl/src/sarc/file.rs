@@ -130,6 +130,9 @@ impl ReadWriteable for Sarc {
 
     fn write(&self, writer: &mut Writer) {
         let mut sorted_files = self.files.clone();
+        sorted_files
+            .iter_mut()
+            .for_each(|file| file.calculate_hash(self.hash_multiplier));
         sorted_files.sort_by_key(|file| file.hash);
 
         let num_files = sorted_files.len() as u16;
@@ -244,6 +247,23 @@ pub struct SarcFile {
     pub name: Option<String>,
     pub hash: u32,
     pub data: Vec<u8>,
+}
+
+impl SarcFile {
+    pub fn calculate_hash(&mut self, multiplier: u32) {
+        let Some(name) = &self.name else { return };
+        self.hash = Self::calculate_filename_hash(name, multiplier);
+    }
+
+    pub fn calculate_filename_hash(filename: &str, multiplier: u32) -> u32 {
+        let mut hash: u32 = 0;
+
+        for &byte in filename.as_bytes() {
+            hash = hash.wrapping_mul(multiplier).wrapping_add(byte as u32);
+        }
+
+        hash
+    }
 }
 
 #[derive(Clone)]

@@ -1,6 +1,9 @@
 use egui::{Context, Key, Modifiers};
 
-use crate::ui::general::{UiAction, UiState};
+use crate::ui::{
+    general::{UiAction, UiState},
+    timeline::TimelineState,
+};
 
 #[derive(Clone, Copy)]
 pub struct KeyBind {
@@ -108,7 +111,7 @@ pub const BINDINGS: &[KeyBind] = &[
     },
 ];
 
-pub fn handle(ctx: &Context, state: &mut UiState) {
+pub fn handle(ctx: &Context, state: &mut UiState, timeline: Option<&mut TimelineState>) {
     let mut action_to_apply = None;
 
     ctx.input_mut(|i| {
@@ -132,16 +135,17 @@ pub fn handle(ctx: &Context, state: &mut UiState) {
                 return;
             }
 
-            apply(bind.action, state);
+            apply(bind.action, state, timeline);
         }
     }
 }
 
-fn apply(action: Action, state: &mut UiState) {
+fn apply(action: Action, state: &mut UiState, timeline: Option<&mut TimelineState>) {
     match action {
         Action::TogglePlayback => {
-            if let Some(idx) = state.timeline.anim_player.active
-                && let Some(anim) = state.timeline.anim_player.anims.get_mut(idx)
+            if let Some(timeline) = timeline
+                && let Some(idx) = timeline.anim_player.active
+                && let Some(anim) = timeline.anim_player.anims.get_mut(idx)
             {
                 anim.playing = !anim.playing;
             }
@@ -153,8 +157,10 @@ fn apply(action: Action, state: &mut UiState) {
         }
 
         Action::FitTimeline => {
-            state.timeline.zoom = 1.0;
-            state.timeline.pan_frame = 0.0;
+            if let Some(timeline) = timeline {
+                timeline.zoom = 1.0;
+                timeline.pan_frame = 0.0;
+            }
         }
 
         Action::DeleteSelected => {

@@ -20,7 +20,6 @@ use crate::{
         context_menu::{ContextMenu, ContextMenuAction, ContextMenuState},
         editors::{GroupEditor, MaterialEditor, PaneEditor, TextureEditor},
         shortcuts::Shortcuts,
-        timeline::TimelineState,
         tree_view::TreeView,
     },
 };
@@ -51,7 +50,6 @@ pub struct UiState {
     pub archive_browser: ArchiveBrowser,
     pub shortcuts_window: Shortcuts,
 
-    pub timeline: TimelineState,
     pub material_editor: MaterialEditor,
     pub pane_editor: PaneEditor,
     pub group_editor: GroupEditor,
@@ -124,6 +122,9 @@ pub enum UiAction {
     LoadArchiveEntry(crate::archive_browser::ArchiveEntry),
     SaveFile,
 
+    SwitchActiveTab,
+    PurgeUnusedTexturesAndSwitch,
+
     DeletePane(usize),
     DuplicatePane(usize),
 
@@ -139,13 +140,17 @@ pub enum UiAction {
 
 pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h: f32) {
     puffin::profile_function!();
-    crate::keybinds::handle(ui.ctx(), ctx.ui_state);
+    crate::keybinds::handle(
+        ui.ctx(),
+        ctx.ui_state,
+        ctx.layout_tabs.active_timeline_mut(),
+    );
 
-    if let Some(ref mut view) = ctx.bflyt_view {
+    if let Some(layout) = ctx.layout_tabs.active_mut() {
         let viewport_rect = ui.content_rect();
         let painter = ui.painter().with_clip_rect(viewport_rect);
 
-        for node in view.tree.iter() {
+        for node in layout.view.tree.iter() {
             let i = node.pane_idx;
 
             if let BflytSection::TextBoxPane(text_box) = &node.section
@@ -256,8 +261,9 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         }
     }
 
-    if let Some(bflyt_view) = &ctx.bflyt_view
-        && let Some(node) = bflyt_view
+    if let Some(layout) = ctx.layout_tabs.active()
+        && let Some(node) = layout
+            .view
             .tree
             .find_by_idx(ctx.ui_state.context_menu.pane_idx)
     {
@@ -309,7 +315,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                 ctx.ui_state.archive_browser.is_visible = true;
             }
 
-            if let Some(ref view) = ctx.bflyt_view {
+            if let Some(layout) = ctx.layout_tabs.active() {
                 ui.menu_button("Shader Pass", |ui| {
                     let stages = [
                         (0, "Disabled"),
@@ -338,11 +344,13 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     ctx.ui_state.group_editor.is_editor_visible = true;
                 }
 
-                if view.tree.material_list.is_some() && ui.button("Material Editor").clicked() {
+                if layout.view.tree.material_list.is_some()
+                    && ui.button("Material Editor").clicked()
+                {
                     ctx.ui_state.material_editor.is_editor_visible = true;
                 }
 
-                if view.tree.main_bntx.is_some() && ui.button("Texture Editor").clicked() {
+                if layout.view.tree.main_bntx.is_some() && ui.button("Texture Editor").clicked() {
                     ctx.ui_state.texture_editor.is_editor_visible = true;
                 }
 
@@ -366,6 +374,54 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
             }
         })
     });
+
+    if !ctx.layout_tabs.items.is_empty() {
+        egui::Panel::top("tab_bar").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let mut tab_to_close = None;
+                let mut tab_to_select = None;
+
+                for (idx, layout) in ctx.layout_tabs.items.iter().enumerate() {
+                    let is_selected = idx == ctx.layout_tabs.active_index;
+                    let file_name = &layout.view.file_name;
+
+                    ui.push_id(idx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+
+                            let response = ui.selectable_label(is_selected, file_name);
+                            if response.clicked() && !is_selected {
+                                tab_to_select = Some(idx);
+                            }
+
+                            if ui.small_button("x").clicked() {
+                                tab_to_close = Some(idx);
+                            }
+                        });
+                    });
+
+                    ui.separator();
+                }
+
+                if let Some(new_idx) = tab_to_select {
+                    ctx.layout_tabs.active_index = new_idx;
+                    ctx.ui_state.pending_action = Some(UiAction::SwitchActiveTab);
+                }
+
+                if let Some(close_idx) = tab_to_close {
+                    ctx.layout_tabs.items.remove(close_idx);
+
+                    if ctx.layout_tabs.items.is_empty() {
+                        ctx.layout_tabs.active_index = 0;
+                    } else if ctx.layout_tabs.active_index >= ctx.layout_tabs.items.len() {
+                        ctx.layout_tabs.active_index = ctx.layout_tabs.items.len() - 1;
+                    }
+
+                    ctx.ui_state.pending_action = Some(UiAction::PurgeUnusedTexturesAndSwitch);
+                }
+            });
+        });
+    }
 
     egui::Panel::left("pane_tree")
         .default_size(240.0)
@@ -404,7 +460,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     if let Some(ui_action) = ctx
                         .ui_state
                         .pane_tree_view
-                        .show(ui, ctx.bflyt_view.as_deref_mut())
+                        .show(ui, ctx.layout_tabs.active_mut())
                     {
                         ctx.ui_state.pending_action = Some(ui_action);
                     }
@@ -412,7 +468,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
             }
         });
 
-    if ctx.bflyt_view.is_some() {
+    if ctx.layout_tabs.active().is_some() {
         egui::Panel::right("right_control_panel")
             .default_size(300.0)
             .resizable(true)
@@ -424,21 +480,23 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                         "Properties",
                     );
 
-                    ui.selectable_value(
-                        &mut ctx.ui_state.right_sidebar_tab,
-                        SidebarRightTab::Animations,
-                        "Animations",
-                    );
+                    if ctx.layout_tabs.active_timeline().is_some() {
+                        ui.selectable_value(
+                            &mut ctx.ui_state.right_sidebar_tab,
+                            SidebarRightTab::Animations,
+                            "Animations",
+                        );
+                    }
                 });
                 ui.separator();
 
                 match ctx.ui_state.right_sidebar_tab {
                     SidebarRightTab::Properties => {
-                        if let Some(ref mut view) = ctx.bflyt_view {
+                        if let Some(layout) = ctx.layout_tabs.active_mut() {
                             ui.vertical(|ui| {
                                 if let Some(idx) = ctx.ui_state.pane_tree_view.selected_pane {
                                     let changed = {
-                                        if let Some(node) = view.tree.find_by_idx_mut(idx) {
+                                        if let Some(node) = layout.view.tree.find_by_idx_mut(idx) {
                                             draw_pane_properties(ui, node)
                                         } else {
                                             false
@@ -446,10 +504,11 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                                     };
 
                                     if changed {
-                                        if let Some(node) = view.tree.find_by_idx_mut(idx) {
+                                        if let Some(node) = layout.view.tree.find_by_idx_mut(idx) {
                                             node.mark_transform_dirty();
                                         }
-                                        view.tree.recompute_dirty();
+
+                                        layout.view.tree.recompute_dirty();
                                     }
                                 } else {
                                     ui.centered_and_justified(|ui| {
@@ -464,126 +523,133 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     SidebarRightTab::Animations => {
                         ui.vertical(|ui| {
                             ui.heading("Animations");
-                            ui.horizontal(|ui| {
-                                if ctx.ui_state.timeline.anim_player.is_playing() {
-                                    ui.label(
-                                        egui::RichText::new("Playing")
-                                            .color(egui::Color32::GREEN)
-                                            .strong(),
-                                    );
-                                } else if ctx.ui_state.timeline.anim_player.active.is_some() {
-                                    ui.label(
-                                        egui::RichText::new("Paused").color(egui::Color32::GOLD),
-                                    );
-                                } else {
-                                    ui.label(
-                                        egui::RichText::new("Idle").color(egui::Color32::GRAY),
-                                    );
-                                }
-                            });
-
-                            ui.checkbox(
-                                &mut ctx.ui_state.timeline.anim_player.limit_to_group,
-                                "Hide non-group panes",
-                            );
-
-                            ui.separator();
-
-                            if let Some(idx) = ctx.ui_state.timeline.anim_player.active
-                                && let Some(anim) =
-                                    ctx.ui_state.timeline.anim_player.anims.get_mut(idx)
-                            {
-                                ui.group(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new(&anim.name).strong());
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                ui.small(format!(
-                                                    "F: {:.1} / {:.0}",
-                                                    anim.frame,
-                                                    anim.frame_count()
-                                                ));
-                                            },
+                            if let Some(timeline) = ctx.layout_tabs.active_timeline_mut() {
+                                ui.horizontal(|ui| {
+                                    if timeline.anim_player.is_playing() {
+                                        ui.label(
+                                            egui::RichText::new("Playing")
+                                                .color(egui::Color32::GREEN)
+                                                .strong(),
                                         );
-                                    });
+                                    } else if timeline.anim_player.active.is_some() {
+                                        ui.label(
+                                            egui::RichText::new("Paused")
+                                                .color(egui::Color32::GOLD),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            egui::RichText::new("Idle").color(egui::Color32::GRAY),
+                                        );
+                                    }
+                                });
 
-                                    ui.horizontal(|ui| {
-                                        let play_toggle =
-                                            if anim.playing { "Pause" } else { "Play" };
-                                        if ui.button(play_toggle).clicked() {
-                                            anim.playing = !anim.playing;
-                                            anim.autoplay = !anim.autoplay;
+                                ui.checkbox(
+                                    &mut timeline.anim_player.limit_to_group,
+                                    "Hide non-group panes",
+                                );
+
+                                ui.separator();
+
+                                if let Some(idx) = timeline.anim_player.active
+                                    && let Some(anim) = timeline.anim_player.anims.get_mut(idx)
+                                {
+                                    ui.group(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(egui::RichText::new(&anim.name).strong());
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    ui.small(format!(
+                                                        "F: {:.1} / {:.0}",
+                                                        anim.frame,
+                                                        anim.frame_count()
+                                                    ));
+                                                },
+                                            );
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                            let play_toggle =
+                                                if anim.playing { "Pause" } else { "Play" };
+                                            if ui.button(play_toggle).clicked() {
+                                                anim.playing = !anim.playing;
+                                                anim.autoplay = !anim.autoplay;
+                                            }
+
+                                            if ui.button("Stop").clicked() {
+                                                anim.frame = 0.0;
+                                                anim.playing = false;
+                                                anim.autoplay = false;
+                                            }
+
+                                            if ui.button("Loop").clicked() {
+                                                anim.toggle_looping();
+                                                anim.frame = 0.0;
+                                                anim.playing = true;
+                                            }
+                                        });
+
+                                        let max_frame = anim.frame_count();
+                                        let mut temporary_frame = anim.frame;
+                                        let slider_res = ui.add(
+                                            egui::Slider::new(
+                                                &mut temporary_frame,
+                                                0.0..=max_frame,
+                                            )
+                                            .show_value(false)
+                                            .trailing_fill(true),
+                                        );
+
+                                        if slider_res.changed() {
+                                            anim.frame = temporary_frame;
+                                            if slider_res.dragged() {
+                                                anim.playing = false;
+                                            }
                                         }
 
-                                        if ui.button("Stop").clicked() {
-                                            anim.frame = 0.0;
-                                            anim.playing = false;
-                                            anim.autoplay = false;
-                                        }
-
-                                        if ui.button("Loop").clicked() {
-                                            anim.toggle_looping();
-                                            anim.frame = 0.0;
+                                        if slider_res.drag_stopped() && anim.autoplay {
                                             anim.playing = true;
                                         }
                                     });
+                                }
 
-                                    let max_frame = anim.frame_count();
-                                    let mut temporary_frame = anim.frame;
-                                    let slider_res = ui.add(
-                                        egui::Slider::new(&mut temporary_frame, 0.0..=max_frame)
-                                            .show_value(false)
-                                            .trailing_fill(true),
-                                    );
+                                ui.add_space(8.0);
 
-                                    if slider_res.changed() {
-                                        anim.frame = temporary_frame;
-                                        if slider_res.dragged() {
-                                            anim.playing = false;
-                                        }
-                                    }
+                                if !ctx.ui_state.anim_names.is_empty() {
+                                    ui.weak(format!(
+                                        "{} total animations",
+                                        ctx.ui_state.anim_names.len()
+                                    ));
 
-                                    if slider_res.drag_stopped() && anim.autoplay {
-                                        anim.playing = true;
-                                    }
-                                });
-                            }
+                                    let row_height = ui.text_style_height(&egui::TextStyle::Body)
+                                        + ui.spacing().button_padding.y * 2.0;
 
-                            ui.add_space(8.0);
+                                    egui::ScrollArea::vertical()
+                                        .id_salt("anim_selection_grid")
+                                        .auto_shrink(false)
+                                        .show_rows(
+                                            ui,
+                                            row_height,
+                                            ctx.ui_state.anim_names.len(),
+                                            |ui, row_range| {
+                                                for idx in row_range {
+                                                    let name = ctx.ui_state.anim_names[idx].clone();
 
-                            if !ctx.ui_state.anim_names.is_empty() {
-                                ui.weak(format!(
-                                    "{} total animations",
-                                    ctx.ui_state.anim_names.len()
-                                ));
+                                                    let is_active =
+                                                        timeline.anim_player.active == Some(idx);
 
-                                let row_height = ui.text_style_height(&egui::TextStyle::Body)
-                                    + ui.spacing().button_padding.y * 2.0;
-
-                                egui::ScrollArea::vertical()
-                                    .id_salt("anim_selection_grid")
-                                    .auto_shrink(false)
-                                    .show_rows(
-                                        ui,
-                                        row_height,
-                                        ctx.ui_state.anim_names.len(),
-                                        |ui, row_range| {
-                                            for idx in row_range {
-                                                let name = ctx.ui_state.anim_names[idx].clone();
-
-                                                let is_active =
-                                                    ctx.ui_state.timeline.anim_player.active
-                                                        == Some(idx);
-
-                                                if ui.selectable_label(is_active, name).clicked() {
-                                                    ctx.ui_state.pending_play_anim = Some(idx);
+                                                    if ui
+                                                        .selectable_label(is_active, name)
+                                                        .clicked()
+                                                    {
+                                                        ctx.ui_state.pending_play_anim = Some(idx);
+                                                    }
                                                 }
-                                            }
-                                        },
-                                    );
-                            } else {
-                                ui.label("No animations found.");
+                                            },
+                                        );
+                                } else {
+                                    ui.label("No animations found.");
+                                }
                             }
                         });
                     }
@@ -604,14 +670,14 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
             });
     };
 
-    if let Some(ref mut view) = ctx.bflyt_view {
-        if let Some(material_list) = view.tree.material_list.as_mut() {
+    if let Some(layout) = ctx.layout_tabs.active_mut() {
+        if let Some(material_list) = layout.view.tree.material_list.as_mut() {
             let changed = ctx.ui_state.material_editor.draw_with(ui, material_list);
 
             // TODO: clean this up perchance?
 
             if changed {
-                view.tree.for_each_mut(|node| {
+                layout.view.tree.for_each_mut(|node| {
                     let mut is_dirty = false;
 
                     for tq in all_quads_mut(node) {
@@ -627,30 +693,26 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     }
                 });
             }
-
-            if changed {
-                view.tree.for_each_mut(|node| {
-                    node.dirty.insert(DirtyFlags::MATERIAL);
-                });
-
-                ctx.ui_state.material_editor.pending_upload = true;
-            }
         }
 
         if let Some(idx) = ctx.ui_state.pane_tree_view.selected_pane
-            && let Some(node) = view.tree.find_by_idx_mut(idx)
+            && let Some(node) = layout.view.tree.find_by_idx_mut(idx)
         {
             ctx.ui_state.pane_editor.draw_with(ui, node);
         }
 
         ctx.ui_state
             .texture_editor
-            .draw_with(ui, view.tree.main_bntx.as_ref());
+            .draw_with(ui, layout.view.tree.main_bntx.as_ref());
 
-        ctx.ui_state.group_editor.draw_with(ui, &mut view.tree);
+        ctx.ui_state
+            .group_editor
+            .draw_with(ui, &mut layout.view.tree);
     }
 
-    ctx.ui_state.timeline.draw(ui);
+    if let Some(timeline) = ctx.layout_tabs.active_timeline_mut() {
+        timeline.draw(ui);
+    }
 
     if let Some(action) = ctx.ui_state.archive_browser.draw(ui) {
         ctx.ui_state.pending_action = Some(action);

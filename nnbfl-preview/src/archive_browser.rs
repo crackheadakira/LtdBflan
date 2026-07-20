@@ -53,7 +53,7 @@ impl ArchiveEntry {
         }
 
         if self.hash_multiplier != 0 {
-            let target_hash_blyt = calculate_sarc_hash(
+            let target_hash_blyt = SarcFile::calculate_filename_hash(
                 &format!("blyt/{requested_name}.bflyt"),
                 self.hash_multiplier,
             );
@@ -272,20 +272,22 @@ fn unwrap_compression(data: &[u8], origin: &Path, depth: u32) -> Result<Vec<u8>,
 
                 return Err(UnwrappedError::DecompressionFailed);
             }
-            return Ok(decompressed);
+
+            Ok(decompressed)
         }
 
         MagicKind::Yaz0 => match szs::decode(data) {
-            Ok(decompressed) => return Ok(decompressed),
+            Ok(decompressed) => Ok(decompressed),
             Err(err) => {
                 log::warn!(
                     "Archive scan: Yaz0 decode failed in {}: {err}",
                     origin.display()
                 );
-                return Err(UnwrappedError::DecompressionFailed);
+
+                Err(UnwrappedError::DecompressionFailed)
             }
         },
-        _ => return Err(UnwrappedError::DataAlreadyUncompressed),
+        _ => Err(UnwrappedError::DataAlreadyUncompressed),
     }
 }
 
@@ -436,16 +438,6 @@ pub fn resolve_nested_package_bytes(
     }
 
     Some(current_data.to_vec())
-}
-
-fn calculate_sarc_hash(filename: &str, multiplier: u32) -> u32 {
-    let mut hash: u32 = 0;
-
-    for &byte in filename.as_bytes() {
-        hash = hash.wrapping_mul(multiplier).wrapping_add(byte as u32);
-    }
-
-    hash
 }
 
 pub enum MagicKind {

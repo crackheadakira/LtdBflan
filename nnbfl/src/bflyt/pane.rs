@@ -190,16 +190,85 @@ pub enum PerCharacterTransformLoopType {
     Loop,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct LineTransform {
+    pub line_offset: f32,
+    pub line_width: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LineTransformTable {
+    pub entries: Vec<LineTransform>,
+}
+
+impl ReadWriteable for LineTransformTable {
+    fn parse(cursor: &mut Cursor) -> Result<Self, FormatError> {
+        let count = cursor.read_u8()? as usize;
+
+        if count == 0 {
+            return Ok(Self {
+                entries: Vec::new(),
+            });
+        }
+
+        let mut line_offsets = Vec::with_capacity(count);
+        for _ in 0..count {
+            line_offsets.push(cursor.read_f32()?);
+        }
+
+        let mut line_widths = Vec::with_capacity(count);
+        for _ in 0..count {
+            line_widths.push(cursor.read_f32()?);
+        }
+
+        let entries = line_offsets
+            .into_iter()
+            .zip(line_widths)
+            .map(|(line_offset, line_width)| LineTransform {
+                line_offset,
+                line_width,
+            })
+            .collect();
+
+        Ok(Self { entries })
+    }
+
+    fn write(&self, writer: &mut Writer) {
+        writer.mark("Line Transform Table");
+
+        let count = self.entries.len();
+        writer.write_u8(count as u8);
+
+        for entry in &self.entries {
+            writer.write_f32(entry.line_offset);
+        }
+
+        for entry in &self.entries {
+            writer.write_f32(entry.line_width);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PerCharacterTransform {
+    /// Curve offset
     pub eval_time_offset: f32,
+
+    /// Curve width
     pub eval_time_width: f32,
     pub loop_type: PerCharacterTransformLoopType,
+
+    /// Center of rotation
     pub origin_v: VerticalPosition,
-    pub has_anim_info: u8,
+
+    /// Offset from the center of rotation
     pub origin_v_offset: f32,
+
+    /// Fixed character width
     pub fix_space_width: f32,
-    pub horizontal_position: HorizontalPosition,
+
+    /// Origin anchor for fixed character width or inserted whitespace
+    pub fix_space_or_insert_space_origin: HorizontalPosition,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub anim_info: Option<AnimInfo>,
@@ -216,12 +285,15 @@ impl ReadWriteable for PerCharacterTransform {
 
         let mut origin_v_offset = 0.0;
         let mut fix_space_width = 0.0;
-        let mut horizontal_position = HorizontalPosition::Left;
+        let mut fix_space_or_insert_space_origin = HorizontalPosition::Left;
 
-        if cursor.version.major == 9 {
+        let is_extended =
+            cursor.version.major > 8 || (cursor.version.major == 8 && cursor.version.minor >= 1);
+
+        if is_extended {
             origin_v_offset = cursor.read_f32()?;
             fix_space_width = cursor.read_f32()?;
-            horizontal_position = cursor.read_u8()?.into();
+            fix_space_or_insert_space_origin = cursor.read_u8()?.into();
 
             cursor.seek_relative(11);
         }
@@ -231,14 +303,13 @@ impl ReadWriteable for PerCharacterTransform {
             eval_time_width,
             loop_type,
             origin_v,
-            has_anim_info,
             origin_v_offset,
             fix_space_width,
-            horizontal_position,
+            fix_space_or_insert_space_origin,
             anim_info: None,
         };
 
-        if transform.has_anim_info != 0 {
+        if has_anim_info != 0 {
             cursor.section_start = Some(cursor.pos);
             transform.anim_info = Some(AnimInfo::parse(cursor)?);
             cursor.section_start = None;
@@ -254,13 +325,16 @@ impl ReadWriteable for PerCharacterTransform {
         writer.write_f32(self.eval_time_width);
         writer.write_u8(self.loop_type.into());
         writer.write_u8(self.origin_v.into());
-        writer.write_u8(self.has_anim_info);
+        writer.write_u8(self.anim_info.is_some() as u8);
         writer.write_u8(0);
 
-        if writer.version.major == 9 {
+        let is_extended =
+            writer.version.major > 8 || (writer.version.major == 8 && writer.version.minor >= 1);
+
+        if is_extended {
             writer.write_f32(self.origin_v_offset);
             writer.write_f32(self.fix_space_width);
-            writer.write_u8(self.horizontal_position.into());
+            writer.write_u8(self.fix_space_or_insert_space_origin.into());
 
             for _ in 0..11 {
                 writer.write_u8(0);
@@ -296,13 +370,13 @@ pub struct TextBoxPane {
     pub text_alignment: TextAlignment,
     pub text_flags: TextPaneFlags,
 
-    /// Angle to tilt the font, in radians, ranging from `-60.0` degrees to `60.0` degrees  .
+    /// Angle to tilt the font, in radians, ranging from `-1.0` to `1.0`.
     pub italic_tilt: f32,
 
     pub font_top_color: Color4u8,
     pub font_bottom_color: Color4u8,
 
-    /// When [`TextPaneFlags::is_keeping_font_scale`] is true it stores  the font scale instead.
+    /// When [`TextPaneFlags::is_keeping_font_scale`] is true it stores the font scale instead.
     pub font_size: Vector2f,
     pub character_space: f32,
     pub line_space: f32,
@@ -310,11 +384,12 @@ pub struct TextBoxPane {
     pub shadow_size: Vector2f,
     pub shadow_top_color: Color4u8,
     pub shadow_bottom_color: Color4u8,
+
+    /// Angle to tilt the shadow, in radians, ranging from `-1.0` to `1.0`.
     pub shadow_italic_tilt: f32,
-    pub line_transform_offset: u32,
-    pub per_character_transform_offset: u32,
     pub text: Option<String>,
     pub label: Option<String>,
+    pub line_transforms: Option<LineTransformTable>,
     pub per_character_transform: Option<PerCharacterTransform>,
 }
 
@@ -378,6 +453,20 @@ impl ReadWriteable for TextBoxPane {
             None
         };
 
+        let line_transforms = if text_flags.is_line_transform && line_transform_offset != 0 {
+            let addr = txt1_base + line_transform_offset as usize - 8;
+            let saved = cursor.pos;
+            cursor.seek(addr)?;
+
+            let line = LineTransformTable::parse(cursor)?;
+
+            cursor.seek(saved)?;
+
+            Some(line)
+        } else {
+            None
+        };
+
         let per_character_transform =
             if text_flags.is_per_character_transform && per_character_transform_offset != 0 {
                 let addr = txt1_base + per_character_transform_offset as usize - 8;
@@ -408,8 +497,7 @@ impl ReadWriteable for TextBoxPane {
             shadow_top_color,
             shadow_bottom_color,
             shadow_italic_tilt,
-            line_transform_offset,
-            per_character_transform_offset,
+            line_transforms,
             text,
             label,
             per_character_transform,
@@ -443,7 +531,7 @@ impl ReadWriteable for TextBoxPane {
         self.shadow_top_color.write(writer);
         self.shadow_bottom_color.write(writer);
         writer.write_f32(self.shadow_italic_tilt);
-        writer.write_u32(self.line_transform_offset);
+        let line_transform_offset_pos = writer.write_placeholder_u32();
         let per_char_offset_pos = writer.write_placeholder_u32();
 
         if let Some(text) = &self.text {
@@ -464,6 +552,15 @@ impl ReadWriteable for TextBoxPane {
             writer.write_null_terminated_string(label);
         } else {
             writer.patch_u32(label_offset_pos, 0);
+        }
+
+        if let Some(table) = &self.line_transforms {
+            writer.align(4);
+            let offset = writer.pos() - txt1_base + 8;
+            writer.patch_u32(line_transform_offset_pos, offset as u32);
+            table.write(writer);
+        } else {
+            writer.patch_u32(line_transform_offset_pos, 0);
         }
 
         if let Some(transform) = &self.per_character_transform {

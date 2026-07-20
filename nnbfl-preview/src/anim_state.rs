@@ -239,7 +239,7 @@ impl AnimPlayer {
     pub fn play(
         &mut self,
         anim_idx: Option<usize>,
-        view: Option<&BflytView>,
+        view: &BflytView,
         hidden_panes: &mut HashSet<usize>,
     ) {
         if let Some(idx) = anim_idx {
@@ -254,9 +254,7 @@ impl AnimPlayer {
             self.anims[idx].autoplay = true;
             self.active = Some(idx);
 
-            if self.limit_to_group
-                && let Some(view) = view
-            {
+            if self.limit_to_group {
                 self.anims[idx].resolve_group_visibility(view, hidden_panes);
             }
         }

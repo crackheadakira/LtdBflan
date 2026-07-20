@@ -106,23 +106,23 @@ impl egui_wgpu::CallbackTrait for PreviewCallback {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
-        if let Some(preview_data) = resources.get::<TexturePreviewData>() {
-            if let Some(bind_group) = preview_data.bind_groups.get(&self.texture_name) {
-                let rect = info.viewport;
-                let ppp = info.pixels_per_point;
+        if let Some(preview_data) = resources.get::<TexturePreviewData>()
+            && let Some(bind_group) = preview_data.bind_groups.get(&self.texture_name)
+        {
+            let rect = info.viewport;
+            let ppp = info.pixels_per_point;
 
-                let x = rect.min.x * ppp;
-                let y = rect.min.y * ppp;
-                let width = rect.width() * ppp;
-                let height = rect.height() * ppp;
+            let x = rect.min.x * ppp;
+            let y = rect.min.y * ppp;
+            let width = rect.width() * ppp;
+            let height = rect.height() * ppp;
 
-                render_pass.set_viewport(x, y, width, height, 0.0, 1.0);
+            render_pass.set_viewport(x, y, width, height, 0.0, 1.0);
 
-                render_pass.set_pipeline(&preview_data.pipeline.pipeline);
-                render_pass.set_bind_group(0, bind_group, &[]);
+            render_pass.set_pipeline(&preview_data.pipeline.pipeline);
+            render_pass.set_bind_group(0, bind_group, &[]);
 
-                render_pass.draw(0..3, 0..1);
-            }
+            render_pass.draw(0..3, 0..1);
         }
     }
 }
@@ -198,6 +198,24 @@ impl TextureCache {
     pub fn clear(&mut self) {
         for (_, gpu_tex) in self.textures.drain() {
             gpu_tex._texture.destroy();
+        }
+    }
+
+    pub fn retain_active(&mut self, active_names: &std::collections::HashSet<&str>) {
+        let before_count = self.textures.len();
+
+        self.textures.retain(|name, gpu_tex| {
+            let keep = active_names.contains(name.as_str());
+            if !keep {
+                gpu_tex._texture.destroy();
+            }
+            keep
+        });
+
+        let removed = before_count - self.textures.len();
+
+        if removed > 0 {
+            log::info!("TextureCache: Removed {removed} unused textures.");
         }
     }
 }

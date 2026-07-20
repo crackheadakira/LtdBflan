@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use egui_ltreeview::{Action, NodeBuilder, TreeViewBuilder, TreeViewSettings, TreeViewState};
 use nnbfl::bflyt::file::BflytSection;
 
-use crate::{bflyt_view::BflytView, pane_tree::PaneNode, ui::general::UiAction};
+use crate::{LayoutData, bflyt_view::BflytView, pane_tree::PaneNode, ui::general::UiAction};
 
 #[derive(Default)]
 pub struct TreeView {
@@ -27,13 +27,13 @@ impl TreeView {
         self.tree_state.set_selected(Vec::new())
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, view: Option<&mut BflytView>) -> Option<UiAction> {
+    pub fn show(&mut self, ui: &mut egui::Ui, layout: Option<&mut LayoutData>) -> Option<UiAction> {
         let mut out_action = None;
 
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
-                if let Some(view) = view {
+                if let Some(layout) = layout {
                     let (_, actions) =
                         egui_ltreeview::TreeView::new(ui.make_persistent_id("pane_tree_inspector"))
                             .with_settings(TreeViewSettings {
@@ -44,7 +44,7 @@ impl TreeView {
                                 ..Default::default()
                             })
                             .show_state(ui, &mut self.tree_state, |builder| {
-                                for root in view.tree.roots.iter() {
+                                for root in layout.view.tree.roots.iter() {
                                     Self::draw_pane_node(root, builder, &mut self.hidden_panes);
                                 }
                             });
@@ -56,16 +56,18 @@ impl TreeView {
                             }
 
                             Action::Drag(drag) => {
-                                if !Self::is_valid_move(view, drag) {
+                                if !Self::is_valid_move(&layout.view, drag) {
                                     drag.remove_drop_marker(ui);
                                 }
                             }
 
                             Action::Move(drag) => {
                                 if let Some(source_idx) = drag.source.first().copied()
-                                    && Self::is_valid_move(view, drag)
-                                    && let Some((new_parent, position)) =
-                                        view.tree.resolve_drop_position(drag.target, &drag.position)
+                                    && Self::is_valid_move(&layout.view, drag)
+                                    && let Some((new_parent, position)) = layout
+                                        .view
+                                        .tree
+                                        .resolve_drop_position(drag.target, &drag.position)
                                 {
                                     out_action = Some(UiAction::MovePane {
                                         source_idx,
