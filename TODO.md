@@ -1,0 +1,38 @@
+# TODO
+
+- [x] Better animation graph editor
+    - [ ] Curve easing
+    - [ ] Adding / deleting keyframes
+- [x] Smarter material upload
+- [x] Material creation
+    - [x] Adding entries to material
+    - [ ] Allow modification of TexMap texture index
+    - [ ] Assigning materials to pane
+- [x] Animation group support
+- [x] Group editor
+- [x] Parent rotation affects children
+- [x] Window pane support
+    - [ ] Fix window panes with one corner defined having incorrect UV anchor-point for bottom left & right
+- [x] Space + mouse to drag panes
+- [ ] Config / options system
+    - [ ] Zstd dictionary support
+    - [ ] Game-config system
+- [ ] Font rendering system for text box panes
+    - [x] Bfttf / Bfotf parsing
+    - [ ] Bffnt / Bfcpx(?) support
+- [ ] Detailed pane editor (!!)
+    - [ ] User data editing (!!)
+    - [ ] PartsPane override editing
+- [ ] Texture uploading / replacing
+- [ ] Intuitive selection
+- [ ] Saving file as a packed SARC
+- [ ] Auto-remove orphans?
+- [x] Pane tree view
+    - [x] Fix 'draw only pane outlines'
+    - [ ] Fix 'draw pane outlines for textures'
+    - [ ] Adding new panes
+    - [ ] Multi-select panes
+    - [ ] Reordering panes
+- [ ] Scissor pane support
+- [ ] Captor pane support? (is this something rendering specific for in-game, or is it also used in bflyts)
+- [ ] Pop-up when loading from a SARC asking for which bflyt file to load
