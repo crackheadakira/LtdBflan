@@ -682,10 +682,8 @@ impl PaneTree {
                 for tq in &mut node.glyph_quads {
                     out.push(PaneQuadData::Textured(tq));
                 }
-            } else {
-                if !node.plain_quad.is_parts_root {
-                    out.push(PaneQuadData::Plain(&node.plain_quad));
-                }
+            } else if !node.plain_quad.is_parts_root {
+                out.push(PaneQuadData::Plain(&node.plain_quad));
             }
 
             for child in &mut node.children {

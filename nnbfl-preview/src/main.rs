@@ -259,9 +259,13 @@ impl GpuState {
             }
         };
 
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = {
+            puffin::profile_scope!("surface_view");
+
+            output
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
 
         let raw_input = egui_state.take_egui_input(window);
         let full_output = egui_ctx.run_ui(raw_input, |ui| {
@@ -291,44 +295,19 @@ impl GpuState {
                 None => self.selection_renderer.clear(),
             }
 
-            let layout_w = layout.tree.layout_size.x;
-            let layout_h = layout.tree.layout_size.y;
+            let layout_size = layout.tree.layout_size;
 
             let mut render_quads = layout.tree.collect_render_quads();
 
-            self.pane_renderer.update_anim(
-                &self.queue,
-                &render_quads,
-                &ctx.ui_state.pane_tree_view.hidden_panes,
-                ctx.ui_state.visiblity_flags,
-            );
-
-            self.pane_renderer.update_texture_pattern(
+            self.pane_renderer.update_visuals(
                 &self.device,
-                &render_quads,
-                &self.texture_cache,
-            );
-
-            self.pane_renderer.recompute_proj_mtx(
-                &mut render_quads,
-                &self.texture_cache,
-                layout_w,
-                layout_h,
-            );
-
-            self.pane_renderer.update_selection(
                 &self.queue,
                 &mut render_quads,
                 ctx.ui_state.pane_tree_view.selected_pane,
                 &ctx.ui_state.pane_tree_view.hidden_panes,
                 ctx.ui_state.visiblity_flags,
-                ctx.ui_state.active_debug_stage,
-            );
-
-            self.pane_renderer.flush_mat_buffers(
-                &self.queue,
-                &render_quads,
-                &ctx.ui_state.pane_tree_view.hidden_panes,
+                &self.texture_cache,
+                layout_size,
             );
         }
 
@@ -341,6 +320,7 @@ impl GpuState {
         if let Some(layout) = ctx.layout_tabs.active_mut()
             && let Some(pending_key_edit) = layout.timeline.pending_key_edit.take()
         {
+            puffin::profile_scope!("pending_key_edit");
             layout
                 .timeline
                 .anim_player
@@ -350,6 +330,7 @@ impl GpuState {
         if let Some(layout) = ctx.layout_tabs.active_mut()
             && let Some(pending_slope_edit) = layout.timeline.pending_slope_edit.take()
         {
+            puffin::profile_scope!("pending_slope_edit");
             layout
                 .timeline
                 .anim_player
@@ -357,22 +338,28 @@ impl GpuState {
         }
 
         for (id, delta) in &full_output.textures_delta.set {
+            puffin::profile_scope!("egui_update_texture");
             self.egui_renderer
                 .update_texture(&self.device, &self.queue, *id, delta);
         }
 
         for id in &full_output.textures_delta.free {
+            puffin::profile_scope!("egui_free_texture");
             self.egui_renderer.free_texture(id);
         }
 
         let mut render_encoder = self.device.create_command_encoder(&Default::default());
-        self.egui_renderer.update_buffers(
-            &self.device,
-            &self.queue,
-            &mut render_encoder,
-            &paint_jobs,
-            &screen_descriptor,
-        );
+
+        {
+            puffin::profile_scope!("egui_buffer_update");
+            self.egui_renderer.update_buffers(
+                &self.device,
+                &self.queue,
+                &mut render_encoder,
+                &paint_jobs,
+                &screen_descriptor,
+            );
+        }
 
         if let Some(preview_data) = self
             .egui_renderer
@@ -657,7 +644,7 @@ impl LayoutData {
         let layout_name = bflyt.layout.name.clone();
         log::info!("Preparing to build BflytView for {layout_name}...");
 
-        let version = bflyt.version.clone();
+        let version = bflyt.version;
         let is_centered = bflyt.layout.is_centered;
         let parts_size = Vector2f {
             x: bflyt.layout.parts_width,
@@ -1021,8 +1008,7 @@ impl App {
                 return;
             };
 
-            let layout_w = layout.tree.layout_size.x;
-            let layout_h = layout.tree.layout_size.y;
+            let layout_size = layout.tree.layout_size;
 
             self.ui_state.texture_editor.selected_texture = None;
 
@@ -1037,8 +1023,7 @@ impl App {
                 &gpu.device,
                 &render_quads,
                 &gpu.texture_cache,
-                layout_w,
-                layout_h,
+                layout_size,
             );
 
             if let Some(window) = &self.window {
@@ -1075,8 +1060,7 @@ impl App {
                 return;
             };
 
-            let layout_w = layout.tree.layout_size.x;
-            let layout_h = layout.tree.layout_size.y;
+            let layout_size = layout.tree.layout_size;
 
             for bntx in layout.tree.all_bntxs() {
                 gpu.texture_cache
@@ -1088,8 +1072,7 @@ impl App {
                 &gpu.device,
                 &render_quads,
                 &gpu.texture_cache,
-                layout_w,
-                layout_h,
+                layout_size,
             );
 
             if let Some(window) = &self.window {
@@ -1112,8 +1095,12 @@ impl App {
         self.ui_state.anim_names.clear();
 
         if let Some(gpu) = &mut self.gpu {
-            gpu.pane_renderer
-                .upload_quads(&gpu.device, &[], &gpu.texture_cache, 1280.0, 720.0);
+            gpu.pane_renderer.upload_quads(
+                &gpu.device,
+                &[],
+                &gpu.texture_cache,
+                Vector2f::new(1280.0, 720.0),
+            );
 
             gpu.texture_cache.clear();
         }
@@ -1159,17 +1146,11 @@ impl App {
 
         let Some(gpu) = &mut self.gpu else { return };
 
-        let layout_w = layout.tree.layout_size.x;
-        let layout_h = layout.tree.layout_size.y;
+        let layout_size = layout.tree.layout_size;
         let render_quads = layout.tree.collect_render_quads();
 
-        gpu.pane_renderer.upload_quads(
-            &gpu.device,
-            &render_quads,
-            &gpu.texture_cache,
-            layout_w,
-            layout_h,
-        );
+        gpu.pane_renderer
+            .upload_quads(&gpu.device, &render_quads, &gpu.texture_cache, layout_size);
 
         if let Some(w) = &self.window {
             w.request_redraw();

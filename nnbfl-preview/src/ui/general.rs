@@ -43,7 +43,6 @@ pub struct UiState {
     pub pending_play_anim: Option<usize>,
     pub sidebar_tab: SidebarTab,
     pub right_sidebar_tab: SidebarRightTab,
-    pub active_debug_stage: u32,
 
     pub pane_tree_view: TreeView,
     pub context_menu: ContextMenu,
@@ -77,6 +76,9 @@ pub struct PaneVisibilityFlags {
 
     /// Show the plain outline on top of panes that have a texture.
     pub quad_for_textured: bool,
+
+    /// Where to stop the shader for debugging purposes.
+    pub active_debug_stage: u32,
 }
 
 impl PaneVisibilityFlags {
@@ -329,7 +331,11 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
 
                     for (stage_idx, label) in stages {
                         if ui
-                            .radio_value(&mut ctx.ui_state.active_debug_stage, stage_idx, label)
+                            .radio_value(
+                                &mut ctx.ui_state.visiblity_flags.active_debug_stage,
+                                stage_idx,
+                                label,
+                            )
                             .clicked()
                         {
                             ui.close();

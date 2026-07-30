@@ -279,6 +279,8 @@ impl SelectionRenderer {
             return;
         }
 
+        puffin::profile_function!();
+
         rpass.set_pipeline(&self.pipeline.pipeline);
         rpass.set_bind_group(0, &self.pipeline.bind_group, &[]);
         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));

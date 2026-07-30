@@ -98,6 +98,7 @@ impl GridRenderer {
     }
 
     pub fn render_grid<'rpass>(&'rpass self, rpass: &mut wgpu::RenderPass<'rpass>) {
+        puffin::profile_function!();
         rpass.set_pipeline(&self.grid_pipeline.pipeline);
         rpass.set_bind_group(0, &self.grid_pipeline.bind_group, &[]);
         rpass.draw(0..6, 0..1);

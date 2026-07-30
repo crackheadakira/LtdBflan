@@ -7,7 +7,9 @@ use nnbfl::bflyt::list::{
 };
 use nnbfl::bflyt::pane::{Pane, TextureUv};
 use nnbfl::ui2d::types::{Color4u8, Vector2f, Vector3f};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use wgpu::util::DeviceExt;
+use wgpu::{BindGroupLayout, TextureView};
 
 use super::quad::Quad;
 use super::texture::TextureCache;
@@ -305,8 +307,8 @@ impl TexturedQuad {
         let mut uvs = PaneNode::apply_srt_to_uvs(base_uvs, &mat.tex_srts);
 
         if let Some(glyph) = &glyph_override {
-            for corner in 0..4 {
-                uvs[corner][0] = glyph.uvs[corner];
+            for (idx, corner) in uvs.iter_mut().enumerate() {
+                corner[0] = glyph.uvs[idx];
             }
         }
 
@@ -587,7 +589,7 @@ struct Batch {
     index_buffer: Option<wgpu::Buffer>,
     bind_group: Option<wgpu::BindGroup>,
     mat_buffer: Option<wgpu::Buffer>,
-    #[allow(dead_code)]
+
     detailed_buffer: Option<wgpu::Buffer>,
     num_indices: u32,
 
@@ -601,7 +603,7 @@ struct Batch {
 
     key: BatchKey,
 
-    /// [`TexturedQuad::pane_idx`] & [`TexturedQuad::piece_id]
+    /// [`TexturedQuad::pane_idx`] & [`TexturedQuad::piece_id`]
     piece_keys: Vec<(usize, usize)>,
 }
 
@@ -610,11 +612,11 @@ pub struct PaneRenderer {
     pipeline_detailed: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
-    texture_bgl: wgpu::BindGroupLayout,
+    texture_bgl: BindGroupLayout,
 
     #[allow(dead_code)]
     placeholder_texture: wgpu::Texture,
-    placeholder_view: wgpu::TextureView,
+    placeholder_view: TextureView,
     placeholder_sampler: wgpu::Sampler,
 
     batches: Vec<Batch>,
@@ -848,8 +850,7 @@ impl PaneRenderer {
         device: &wgpu::Device,
         ordered: &[PaneQuadData],
         texture_cache: &TextureCache,
-        layout_w: f32,
-        layout_h: f32,
+        layout_size: Vector2f,
     ) {
         puffin::profile_function!();
         self.batches.clear();
@@ -1045,27 +1046,12 @@ impl PaneRenderer {
                     let view0 = gpu_tex0.map(|t| &t.view).unwrap_or(&self.placeholder_view);
 
                     let mut final_mat = rep_quad.standard_material;
-                    final_mat.proj_mtx0 = Self::calculate_projection_matrix(
-                        rep_quad,
-                        texture_cache,
-                        layout_w,
-                        layout_h,
-                        0,
-                    );
-                    final_mat.proj_mtx1 = Self::calculate_projection_matrix(
-                        rep_quad,
-                        texture_cache,
-                        layout_w,
-                        layout_h,
-                        1,
-                    );
-                    final_mat.proj_mtx2 = Self::calculate_projection_matrix(
-                        rep_quad,
-                        texture_cache,
-                        layout_w,
-                        layout_h,
-                        2,
-                    );
+                    final_mat.proj_mtx0 =
+                        Self::calculate_projection_matrix(rep_quad, texture_cache, layout_size, 0);
+                    final_mat.proj_mtx1 =
+                        Self::calculate_projection_matrix(rep_quad, texture_cache, layout_size, 1);
+                    final_mat.proj_mtx2 =
+                        Self::calculate_projection_matrix(rep_quad, texture_cache, layout_size, 2);
 
                     let mat_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("pane_standard_mat_buf"),
@@ -1156,264 +1142,224 @@ impl PaneRenderer {
             .collect();
     }
 
-    pub fn update_selection(
-        &mut self,
-        queue: &wgpu::Queue,
-        ordered: &mut [PaneQuadData],
+    fn update_selection(
+        batch: &mut Batch,
+        quad_lookup: &HashMap<(usize, usize), usize>,
+        ordered: &[PaneQuadData],
         selected_idx: Option<usize>,
         hidden_panes: &HashSet<usize>,
         flags: PaneVisibilityFlags,
-        active_debug_stage: u32,
-    ) {
-        puffin::profile_function!();
+    ) -> bool {
+        let mut dirty = false;
 
-        for data in ordered.iter_mut() {
-            if let PaneQuadData::Textured(tq) = data {
-                tq.standard_material.debug_stage = active_debug_stage;
-            }
-        }
-
-        for batch in &mut self.batches {
-            let mut dirty = false;
-
-            for (batch_quad_idx, &(pane_idx, piece_id)) in batch.piece_keys.iter().enumerate() {
-                let base = batch_quad_idx * 4;
-                if base + 3 >= batch.vertices.len() {
-                    break;
-                }
-
-                let lookup_key = (pane_idx, if piece_id == 0 { usize::MAX } else { piece_id });
-
-                let Some(data) = self
-                    .quad_lookup
-                    .get(&lookup_key)
-                    .copied()
-                    .or_else(|| self.quad_lookup.get(&(pane_idx, piece_id)).copied())
-                    .and_then(|idx| ordered.get(idx))
-                else {
-                    continue;
-                };
-
-                let hidden = hidden_panes.contains(&pane_idx);
-                let selected = Some(pane_idx) == selected_idx;
-
-                let tint = match data {
-                    PaneQuadData::Plain(q) => {
-                        let base_tint = flags.plain_color(q, hidden);
-
-                        if selected && !hidden {
-                            highlight(base_tint)
-                        } else {
-                            base_tint
-                        }
-                    }
-                    PaneQuadData::Textured(tq) => flags.textured_tint(tq, hidden),
-                };
-
-                for v_offset in 0..4 {
-                    let corner_scale = match data {
-                        PaneQuadData::Plain(_) => [1.0, 1.0, 1.0, 1.0],
-                        PaneQuadData::Textured(tq) => tq.corner_tints[v_offset],
-                    };
-
-                    let target_tint = [
-                        tint[0] * corner_scale[0],
-                        tint[1] * corner_scale[1],
-                        tint[2] * corner_scale[2],
-                        tint[3] * corner_scale[3],
-                    ];
-
-                    let vertex = &mut batch.vertices[base + v_offset];
-
-                    if vertex.tint != target_tint {
-                        vertex.tint = target_tint;
-                        dirty = true;
-                    }
-                }
+        for (batch_quad_idx, &(pane_idx, piece_id)) in batch.piece_keys.iter().enumerate() {
+            let base = batch_quad_idx * 4;
+            if base + 3 >= batch.vertices.len() {
+                break;
             }
 
-            if dirty && let Some(vb) = &batch.vertex_buffer {
-                puffin::profile_scope!("gpu_write_batch_vertices");
-                queue.write_buffer(vb, 0, bytemuck::cast_slice(&batch.vertices));
-            }
-        }
-    }
+            let lookup_key = (pane_idx, if piece_id == 0 { usize::MAX } else { piece_id });
 
-    pub fn update_texture_pattern(
-        &mut self,
-        device: &wgpu::Device,
-        ordered: &[PaneQuadData],
-        texture_cache: &TextureCache,
-    ) {
-        puffin::profile_function!();
-
-        for batch in &mut self.batches {
-            let BatchKey::Textured {
-                texture_name,
-                sampler,
-                ..
-            } = &mut batch.key
+            let Some(data) = quad_lookup
+                .get(&lookup_key)
+                .copied()
+                .or_else(|| quad_lookup.get(&(pane_idx, piece_id)).copied())
+                .and_then(|idx| ordered.get(idx))
             else {
                 continue;
             };
 
-            let Some(&piece_key) = batch.piece_keys.first() else {
-                continue;
+            let hidden = hidden_panes.contains(&pane_idx);
+            let selected = Some(pane_idx) == selected_idx;
+
+            let tint = match data {
+                PaneQuadData::Plain(q) => {
+                    let base_tint = flags.plain_color(q, hidden);
+
+                    if selected && !hidden {
+                        highlight(base_tint)
+                    } else {
+                        base_tint
+                    }
+                }
+                PaneQuadData::Textured(tq) => flags.textured_tint(tq, hidden),
             };
 
-            let Some(data_idx) = self.quad_lookup.get(&piece_key) else {
-                continue;
-            };
+            for v_offset in 0..4 {
+                let corner_scale = match data {
+                    PaneQuadData::Plain(_) => [1.0, 1.0, 1.0, 1.0],
+                    PaneQuadData::Textured(tq) => tq.corner_tints[v_offset],
+                };
 
-            let Some(PaneQuadData::Textured(tq)) = ordered.get(*data_idx) else {
-                continue;
-            };
+                let target_tint = [
+                    tint[0] * corner_scale[0],
+                    tint[1] * corner_scale[1],
+                    tint[2] * corner_scale[2],
+                    tint[3] * corner_scale[3],
+                ];
 
-            let tex0_name = &tq.texture_name;
-            let current_samplers = (*sampler, tq.sampler_1, tq.sampler_2);
+                let vertex = &mut batch.vertices[base + v_offset];
 
-            if texture_name == tex0_name && batch.cached_sampler_settings == Some(current_samplers)
-            {
-                continue;
+                if vertex.tint != target_tint {
+                    vertex.tint = target_tint;
+                    dirty = true;
+                }
             }
-
-            let gpu_tex0 = texture_cache.get(tex0_name);
-            let view0 = gpu_tex0.map(|t| &t.view).unwrap_or(&self.placeholder_view);
-
-            let view1 = tq
-                .texture_name1
-                .as_deref()
-                .and_then(|n| texture_cache.get(n))
-                .map(|t| &t.view)
-                .unwrap_or(view0);
-
-            let view2 = tq
-                .texture_name2
-                .as_deref()
-                .and_then(|n| texture_cache.get(n))
-                .map(|t| &t.view)
-                .unwrap_or(view0);
-
-            let make_sampler = |sampler_settings: WgpuSamplerSettings| -> wgpu::Sampler {
-                device.create_sampler(&wgpu::SamplerDescriptor {
-                    address_mode_u: sampler_settings.address_mode_u,
-                    address_mode_v: sampler_settings.address_mode_v,
-                    address_mode_w: wgpu::AddressMode::ClampToEdge,
-                    min_filter: sampler_settings.min_filter,
-                    mag_filter: sampler_settings.mag_filter,
-                    mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-                    ..Default::default()
-                })
-            };
-
-            let sampler0 = make_sampler(*sampler);
-            let sampler1 = make_sampler(tq.sampler_1);
-            let sampler2 = make_sampler(tq.sampler_2);
-
-            let Some(mat_buf) = &batch.mat_buffer else {
-                continue;
-            };
-
-            let detailed_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("pane_detailed_mat_buf_pat"),
-                contents: bytemuck::bytes_of(&tq.detailed_combiner_material),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-            batch.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("pane_bg_pattern"),
-                layout: &self.texture_bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view0),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler0),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(view1),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&sampler1),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(view2),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: wgpu::BindingResource::Sampler(&sampler2),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: mat_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 7,
-                        resource: detailed_buf.as_entire_binding(),
-                    },
-                ],
-            }));
-
-            batch.detailed_buffer = Some(detailed_buf);
-            batch.cached_sampler_settings = Some(current_samplers);
-            batch.cached_detailed_material = None;
-
-            *texture_name = tex0_name.clone();
         }
+
+        dirty
     }
 
-    pub fn recompute_proj_mtx(
-        &mut self,
-        ordered: &mut [PaneQuadData],
+    fn update_texture_pattern(
+        batch: &mut Batch,
+        device: &wgpu::Device,
+        ordered: &[PaneQuadData],
         texture_cache: &TextureCache,
-        layout_w: f32,
-        layout_h: f32,
+        quad_lookup: &HashMap<(usize, usize), usize>,
+        placeholder_view: &TextureView,
+        texture_bgl: &BindGroupLayout,
     ) {
-        puffin::profile_function!();
+        let BatchKey::Textured {
+            texture_name,
+            sampler,
+            ..
+        } = &mut batch.key
+        else {
+            return;
+        };
 
-        for batch in &self.batches {
-            if !matches!(batch.key, BatchKey::Textured { .. }) {
-                continue;
-            }
+        let Some(&piece_key) = batch.piece_keys.first() else {
+            return;
+        };
 
-            let Some(&first_key) = batch.piece_keys.first() else {
-                continue;
-            };
+        let Some(data_idx) = quad_lookup.get(&piece_key) else {
+            return;
+        };
 
-            let Some(data_idx) = self.quad_lookup.get(&first_key) else {
-                continue;
-            };
+        let Some(PaneQuadData::Textured(tq)) = ordered.get(*data_idx) else {
+            return;
+        };
 
-            let Some(PaneQuadData::Textured(tq)) = ordered.get_mut(*data_idx) else {
-                continue;
-            };
+        let tex0_name = &tq.texture_name;
+        let current_samplers = (*sampler, tq.sampler_1, tq.sampler_2);
 
-            let mode0 = tq.standard_material.tex_gen_mode & 0x3;
-            let mode1 = (tq.standard_material.tex_gen_mode >> 8) & 0x3;
-            let mode2 = (tq.standard_material.tex_gen_mode >> 16) & 0x3;
-            if mode0 != 1 && mode1 != 1 && mode2 != 1 {
-                continue;
-            }
-
-            tq.standard_material.proj_mtx0 =
-                Self::calculate_projection_matrix(tq, texture_cache, layout_w, layout_h, 0);
-            tq.standard_material.proj_mtx1 =
-                Self::calculate_projection_matrix(tq, texture_cache, layout_w, layout_h, 1);
-            tq.standard_material.proj_mtx2 =
-                Self::calculate_projection_matrix(tq, texture_cache, layout_w, layout_h, 2);
+        if texture_name == tex0_name && batch.cached_sampler_settings == Some(current_samplers) {
+            return;
         }
+
+        let gpu_tex0 = texture_cache.get(tex0_name);
+        let view0 = gpu_tex0.map(|t| &t.view).unwrap_or(placeholder_view);
+
+        let view1 = tq
+            .texture_name1
+            .as_deref()
+            .and_then(|n| texture_cache.get(n))
+            .map(|t| &t.view)
+            .unwrap_or(view0);
+
+        let view2 = tq
+            .texture_name2
+            .as_deref()
+            .and_then(|n| texture_cache.get(n))
+            .map(|t| &t.view)
+            .unwrap_or(view0);
+
+        let make_sampler = |sampler_settings: WgpuSamplerSettings| -> wgpu::Sampler {
+            device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: sampler_settings.address_mode_u,
+                address_mode_v: sampler_settings.address_mode_v,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                min_filter: sampler_settings.min_filter,
+                mag_filter: sampler_settings.mag_filter,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                ..Default::default()
+            })
+        };
+
+        let sampler0 = make_sampler(*sampler);
+        let sampler1 = make_sampler(tq.sampler_1);
+        let sampler2 = make_sampler(tq.sampler_2);
+
+        let Some(mat_buf) = &batch.mat_buffer else {
+            return;
+        };
+
+        let detailed_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pane_detailed_mat_buf_pat"),
+            contents: bytemuck::bytes_of(&tq.detailed_combiner_material),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        batch.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pane_bg_pattern"),
+            layout: texture_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view0),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler0),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(view1),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler1),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(view2),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&sampler2),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: mat_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: detailed_buf.as_entire_binding(),
+                },
+            ],
+        }));
+
+        batch.detailed_buffer = Some(detailed_buf);
+        batch.cached_sampler_settings = Some(current_samplers);
+        batch.cached_detailed_material = None;
+
+        *texture_name = tex0_name.clone();
+    }
+
+    fn recompute_proj_mtx(
+        tq: &mut TexturedQuad,
+        texture_cache: &TextureCache,
+        layout_size: Vector2f,
+    ) {
+        let mode0 = tq.standard_material.tex_gen_mode & 0x3;
+        let mode1 = (tq.standard_material.tex_gen_mode >> 8) & 0x3;
+        let mode2 = (tq.standard_material.tex_gen_mode >> 16) & 0x3;
+        if mode0 != 1 && mode1 != 1 && mode2 != 1 {
+            return;
+        }
+
+        tq.standard_material.proj_mtx0 =
+            Self::calculate_projection_matrix(tq, texture_cache, layout_size, 0);
+        tq.standard_material.proj_mtx1 =
+            Self::calculate_projection_matrix(tq, texture_cache, layout_size, 1);
+        tq.standard_material.proj_mtx2 =
+            Self::calculate_projection_matrix(tq, texture_cache, layout_size, 2);
     }
 
     fn calculate_projection_matrix(
         quad: &TexturedQuad,
         texture_cache: &TextureCache,
-        layout_w: f32,
-        layout_h: f32,
+        layout_size: Vector2f,
         layer_idx: usize,
     ) -> [[f32; 4]; 2] {
         let pane_cx = quad.x + quad.width * 0.5;
@@ -1433,7 +1379,7 @@ impl PaneRenderer {
         let orthogonal = (packed & (1 << 5)) != 0;
 
         let (base_w, base_h) = if fitting_layout_size {
-            (layout_w, layout_h)
+            (layout_size.x, layout_size.y)
         } else if fitting_pane_size {
             (quad.width, quad.height)
         } else {
@@ -1444,7 +1390,7 @@ impl PaneRenderer {
         };
 
         let (cx, cy) = if orthogonal {
-            (layout_w * 0.5, layout_h * 0.5)
+            (layout_size.x * 0.5, layout_size.y * 0.5)
         } else {
             (pane_cx, pane_cy)
         };
@@ -1521,113 +1467,166 @@ impl PaneRenderer {
             .map(|t| (t.width, t.height))
     }
 
-    pub fn update_anim(
+    pub fn update_visuals(
         &mut self,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
-        ordered: &[PaneQuadData],
+        ordered: &mut [PaneQuadData],
+        selected_idx: Option<usize>,
         hidden_panes: &HashSet<usize>,
         flags: PaneVisibilityFlags,
+        texture_cache: &TextureCache,
+        layout_size: Vector2f,
     ) {
         puffin::profile_function!();
 
-        for batch in &mut self.batches {
-            let mut dirty = false;
-
-            for (batch_quad_idx, &piece_key) in batch.piece_keys.iter().enumerate() {
-                let base = batch_quad_idx * 4;
-
-                let Some(data) = self
-                    .quad_lookup
-                    .get(&piece_key)
-                    .and_then(|&idx| ordered.get(idx))
-                else {
-                    continue;
+        {
+            puffin::profile_scope!("first_pass");
+            ordered.par_iter_mut().for_each(|quad| {
+                let PaneQuadData::Textured(tq) = quad else {
+                    return;
                 };
 
-                let hidden = hidden_panes.contains(&piece_key.0);
-                let tint = match data {
-                    PaneQuadData::Plain(q) => flags.plain_color(q, hidden),
-                    PaneQuadData::Textured(tq) => flags.textured_tint(tq, hidden),
-                };
+                tq.standard_material.debug_stage = flags.active_debug_stage;
 
-                for v_offset in 0..4 {
-                    let new_vertex = corner_vertex(data, v_offset, tint);
-                    let current_vertex = &mut batch.vertices[base + v_offset];
+                Self::recompute_proj_mtx(tq, texture_cache, layout_size);
+            });
+        }
 
-                    if current_vertex != &new_vertex {
-                        *current_vertex = new_vertex;
-                        dirty = true;
-                    }
+        {
+            puffin::profile_scope!("second_pass");
+            self.batches.par_iter_mut().for_each(|batch| {
+                let mut dirty = false;
+
+                dirty |= Self::update_anim(&self.quad_lookup, batch, ordered, hidden_panes, flags);
+
+                Self::update_texture_pattern(
+                    batch,
+                    device,
+                    ordered,
+                    texture_cache,
+                    &self.quad_lookup,
+                    &self.placeholder_view,
+                    &self.texture_bgl,
+                );
+
+                dirty |= Self::update_selection(
+                    batch,
+                    &self.quad_lookup,
+                    ordered,
+                    selected_idx,
+                    hidden_panes,
+                    flags,
+                );
+
+                Self::flush_mat_buffers(batch, &self.quad_lookup, queue, ordered, hidden_panes);
+
+                if dirty && let Some(vb) = &batch.vertex_buffer {
+                    queue.write_buffer(vb, 0, bytemuck::cast_slice(&batch.vertices));
                 }
-            }
-
-            if dirty && let Some(vb) = &batch.vertex_buffer {
-                queue.write_buffer(vb, 0, bytemuck::cast_slice(&batch.vertices));
-            }
+            });
         }
     }
 
-    pub fn flush_mat_buffers(
-        &mut self,
+    fn update_anim(
+        quad_lookup: &HashMap<(usize, usize), usize>,
+        batch: &mut Batch,
+        ordered: &[PaneQuadData],
+        hidden_panes: &HashSet<usize>,
+        flags: PaneVisibilityFlags,
+    ) -> bool {
+        let mut dirty = false;
+        let has_hidden = !hidden_panes.is_empty();
+
+        for (batch_quad_idx, &piece_key) in batch.piece_keys.iter().enumerate() {
+            let base = batch_quad_idx * 4;
+
+            let Some(data) = quad_lookup
+                .get(&piece_key)
+                .and_then(|&idx| ordered.get(idx))
+            else {
+                continue;
+            };
+
+            let hidden = has_hidden && hidden_panes.contains(&data.pane_idx());
+            let tint = match data {
+                PaneQuadData::Plain(q) => flags.plain_color(q, hidden),
+                PaneQuadData::Textured(tq) => flags.textured_tint(tq, hidden),
+            };
+
+            for v_offset in 0..4 {
+                let new_vertex = corner_vertex(data, v_offset, tint);
+                let current_vertex = &mut batch.vertices[base + v_offset];
+
+                if current_vertex != &new_vertex {
+                    *current_vertex = new_vertex;
+                    dirty = true;
+                }
+            }
+        }
+
+        dirty
+    }
+
+    fn flush_mat_buffers(
+        batch: &mut Batch,
+        quad_lookup: &HashMap<(usize, usize), usize>,
         queue: &wgpu::Queue,
         ordered: &[PaneQuadData],
         hidden_panes: &HashSet<usize>,
     ) {
-        puffin::profile_function!();
+        if !matches!(batch.key, BatchKey::Textured { .. }) {
+            return;
+        }
 
-        for batch in &mut self.batches {
-            if !matches!(batch.key, BatchKey::Textured { .. }) {
-                continue;
+        let Some(&first_key) = batch.piece_keys.first() else {
+            return;
+        };
+
+        let Some(data_idx) = quad_lookup.get(&first_key) else {
+            return;
+        };
+
+        let Some(PaneQuadData::Textured(tq)) = ordered.get(*data_idx) else {
+            return;
+        };
+
+        if let Some(mb) = &batch.mat_buffer {
+            let mut mat = tq.standard_material;
+            if hidden_panes.contains(&first_key.0) && mat.visible != 0 {
+                mat.visible = 0;
             }
 
-            let Some(&first_key) = batch.piece_keys.first() else {
-                continue;
+            let needs_update = match &batch.cached_material {
+                Some(cached) => cached != &mat,
+                None => true,
             };
 
-            let Some(data_idx) = self.quad_lookup.get(&first_key) else {
-                continue;
-            };
-
-            let Some(PaneQuadData::Textured(tq)) = ordered.get(*data_idx) else {
-                continue;
-            };
-
-            if let Some(mb) = &batch.mat_buffer {
-                let mut mat = tq.standard_material;
-                if hidden_panes.contains(&first_key.0) {
-                    mat.visible = 0;
-                }
-
-                let needs_update = match &batch.cached_material {
-                    Some(cached) => cached != &mat,
-                    None => true,
-                };
-
-                if needs_update {
-                    puffin::profile_scope!("gpu_write_standard_material");
-                    queue.write_buffer(mb, 0, bytemuck::bytes_of(&mat));
-                    batch.cached_material = Some(mat);
-                }
+            if needs_update {
+                puffin::profile_scope!("gpu_write_standard_material");
+                queue.write_buffer(mb, 0, bytemuck::bytes_of(&mat));
+                batch.cached_material = Some(mat);
             }
+        }
 
-            if let Some(db) = &batch.detailed_buffer {
-                let detailed_mat = &tq.detailed_combiner_material;
+        if let Some(db) = &batch.detailed_buffer {
+            let detailed_mat = &tq.detailed_combiner_material;
 
-                let detailed_needs_update = match &batch.cached_detailed_material {
-                    Some(cached) => cached != detailed_mat,
-                    None => true,
-                };
+            let detailed_needs_update = match &batch.cached_detailed_material {
+                Some(cached) => cached != detailed_mat,
+                None => true,
+            };
 
-                if detailed_needs_update {
-                    puffin::profile_scope!("gpu_write_detailed_material");
-                    queue.write_buffer(db, 0, bytemuck::bytes_of(detailed_mat));
-                    batch.cached_detailed_material = Some(*detailed_mat);
-                }
+            if detailed_needs_update {
+                puffin::profile_scope!("gpu_write_detailed_material");
+                queue.write_buffer(db, 0, bytemuck::bytes_of(detailed_mat));
+                batch.cached_detailed_material = Some(*detailed_mat);
             }
         }
     }
 
     pub fn render<'rpass>(&'rpass self, rpass: &mut wgpu::RenderPass<'rpass>) {
+        puffin::profile_function!();
         rpass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
         for batch in &self.batches {
