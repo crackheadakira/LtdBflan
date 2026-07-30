@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use nnbfl::bfcpx::file::Bfcpx;
 use nnbfl::bfttf::file::{Bfotf, Bfttf};
 use std::ffi::OsStr;
 use std::fs;
@@ -27,6 +28,12 @@ enum Format {
 
     /// Work with BFLYT (Layout) files
     Bflyt {
+        #[command(subcommand)]
+        action: JsonAction,
+    },
+
+    /// Work with BFCPX (Font Descriptor) files
+    Bfcpx {
         #[command(subcommand)]
         action: JsonAction,
     },
@@ -109,6 +116,7 @@ impl Format {
         match &self {
             Self::Bflan { action } => action.handle::<Bflan>(),
             Self::Bflyt { action } => action.handle::<Bflyt>(),
+            Self::Bfcpx { action } => action.handle::<Bfcpx>(),
             Self::Bfttf { action } => action.handle::<Bfttf>(),
             Self::Bfotf { action } => action.handle::<Bfotf>(),
         }
