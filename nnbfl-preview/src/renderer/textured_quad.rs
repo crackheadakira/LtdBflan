@@ -1183,12 +1183,13 @@ impl PaneRenderer {
                 }
 
                 let lookup_key = (pane_idx, if piece_id == 0 { usize::MAX } else { piece_id });
+
                 let Some(data) = self
                     .quad_lookup
                     .get(&lookup_key)
                     .copied()
                     .or_else(|| self.quad_lookup.get(&(pane_idx, piece_id)).copied())
-                    .map(|idx| &ordered[idx])
+                    .and_then(|idx| ordered.get(idx))
                 else {
                     continue;
                 };
@@ -1264,7 +1265,7 @@ impl PaneRenderer {
                 continue;
             };
 
-            let PaneQuadData::Textured(tq) = &ordered[*data_idx] else {
+            let Some(PaneQuadData::Textured(tq)) = ordered.get(*data_idx) else {
                 continue;
             };
 
@@ -1388,7 +1389,7 @@ impl PaneRenderer {
                 continue;
             };
 
-            let PaneQuadData::Textured(tq) = &mut ordered[*data_idx] else {
+            let Some(PaneQuadData::Textured(tq)) = ordered.get_mut(*data_idx) else {
                 continue;
             };
 
@@ -1535,7 +1536,11 @@ impl PaneRenderer {
             for (batch_quad_idx, &piece_key) in batch.piece_keys.iter().enumerate() {
                 let base = batch_quad_idx * 4;
 
-                let Some(data) = self.quad_lookup.get(&piece_key).map(|idx| &ordered[*idx]) else {
+                let Some(data) = self
+                    .quad_lookup
+                    .get(&piece_key)
+                    .and_then(|&idx| ordered.get(idx))
+                else {
                     continue;
                 };
 
@@ -1583,7 +1588,7 @@ impl PaneRenderer {
                 continue;
             };
 
-            let PaneQuadData::Textured(tq) = &ordered[*data_idx] else {
+            let Some(PaneQuadData::Textured(tq)) = ordered.get(*data_idx) else {
                 continue;
             };
 

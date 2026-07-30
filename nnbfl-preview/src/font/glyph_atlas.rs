@@ -170,8 +170,8 @@ impl GlyphAtlas {
 
     pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, cache: &mut TextureCache) {
         puffin::profile_function!();
+
         if !self.dirty {
-            log::warn!("GlyphAtlas: Upload skipped because not dirty");
             return;
         }
 
