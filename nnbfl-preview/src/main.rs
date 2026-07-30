@@ -5,6 +5,7 @@ mod chinese_font;
 mod edit_history;
 mod error;
 mod font;
+mod game_config;
 mod keybinds;
 mod pane_tree;
 mod renderer;
@@ -1222,15 +1223,7 @@ pub fn extract_all_files_recursive(data: Vec<u8>, out_files: &mut Vec<MagicFiles
             }
         }
 
-        MagicFiles::Bflyt(bytes) => out_files.push(MagicFiles::Bflyt(bytes)),
-        MagicFiles::Bflan(bytes) => out_files.push(MagicFiles::Bflan(bytes)),
-        MagicFiles::Bntx(bytes) => out_files.push(MagicFiles::Bntx(bytes)),
-        MagicFiles::Msbt(bytes) => out_files.push(MagicFiles::Msbt(bytes)),
-        MagicFiles::Msbp(bytes) => out_files.push(MagicFiles::Msbp(bytes)),
-
-        MagicFiles::Unknown(bytes) => {
-            out_files.push(MagicFiles::Unknown(bytes));
-        }
+        file => out_files.push(file),
     }
 }
 

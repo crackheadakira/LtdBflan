@@ -273,6 +273,7 @@ pub enum MagicFiles {
     Bflyt(Vec<u8>),
     Bflan(Vec<u8>),
     Bntx(Vec<u8>),
+    Bfcpx(Vec<u8>),
     Msbp(Vec<u8>),
     Msbt(Vec<u8>),
     Sarc(Vec<u8>),
@@ -298,6 +299,7 @@ impl SarcFile {
         match &self.data[0..4] {
             b"FLYT" => MagicFiles::Bflyt(self.data),
             b"FLAN" => MagicFiles::Bflan(self.data),
+            b"FCPX" => MagicFiles::Bfcpx(self.data),
             b"BNTX" => MagicFiles::Bntx(self.data),
             b"SARC" => MagicFiles::Sarc(self.data),
             b"Yaz0" => MagicFiles::Yaz0(self.data),
