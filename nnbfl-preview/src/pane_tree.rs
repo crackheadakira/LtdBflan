@@ -8,7 +8,7 @@ use nnbfl::{
         list::{CaptureTextureList, FontList, MaterialList, MaterialTextureSrt, TextureList},
         pane::{
             BasePaneUsageFlags, HorizontalPosition, Pane, PartsPane, PartsPaneBasicInfo,
-            PicturePane, TextureUv, VerticalPosition, WindowPane,
+            PicturePane, TextAlignment, TextBoxPane, TextureUv, VerticalPosition, WindowPane,
         },
     },
     core::FileReadWriteable,
@@ -25,11 +25,13 @@ use crate::{
     anim_state::transform_uv_srt,
     archive_browser::{ArchiveEntry, resolve_nested_package_bytes},
     decompress_if_needed, extract_all_files_recursive,
+    font::glyph_atlas::{FontFace, GLYPH_ATLAS_TEXTURE_NAME, GlyphData},
     renderer::{
         quad::Quad,
         selection::HandleCapability,
         textured_quad::{
-            MaterialPaneData, PaneQuadData, TexturedQuad, vertex_corners_color_to_corner_tints,
+            GlyphQuadOverride, MaterialPaneData, PaneQuadData, TexturedQuad,
+            vertex_corners_color_to_corner_tints,
         },
         window_quad::{calculate_scaled_frame_uvs, calculate_window_layout, derive_from_window},
     },
@@ -91,40 +93,11 @@ impl Corners {
         let bl = Vector2f::new(lx, ly + size.y);
         let br = Vector2f::new(lx + size.x, ly + size.y);
 
-        let transform = |p: Vector2f| -> Vector2f {
-            if rotation.x == 0.0 && rotation.y == 0.0 && rotation.z == 0.0 {
-                return Vector2f {
-                    x: center.x + p.x,
-                    y: center.y + p.y,
-                };
-            }
-
-            let (px, py, pz) = (p.x, p.y, 0.0f32);
-
-            let rx = -rotation.x.to_radians();
-            let ry = -rotation.y.to_radians();
-            let rz = -rotation.z.to_radians();
-
-            let (sz, cz) = rz.sin_cos();
-            let (x1, y1, z1) = (px * cz - py * sz, px * sz + py * cz, pz);
-
-            let (sy, cy) = ry.sin_cos();
-            let (x2, y2, z2) = (x1 * cy + z1 * sy, y1, -x1 * sy + z1 * cy);
-
-            let (sx, cx) = rx.sin_cos();
-            let (x3, y3, _z3) = (x2, y2 * cx - z2 * sx, y2 * sx + z2 * cx);
-
-            Vector2f {
-                x: center.x + x3,
-                y: center.y + y3,
-            }
-        };
-
         Self {
-            top_left: transform(tl),
-            top_right: transform(tr),
-            bottom_left: transform(bl),
-            bottom_right: transform(br),
+            top_left: Self::rotate_point(tl, center, rotation),
+            top_right: Self::rotate_point(tr, center, rotation),
+            bottom_left: Self::rotate_point(bl, center, rotation),
+            bottom_right: Self::rotate_point(br, center, rotation),
         }
     }
 
@@ -157,6 +130,35 @@ impl Corners {
             },
         }
     }
+
+    pub fn rotate_point(point: Vector2f, center: Vector2f, rotation: Vector3f) -> Vector2f {
+        if rotation.x == 0.0 && rotation.y == 0.0 && rotation.z == 0.0 {
+            return center + point;
+        }
+
+        let (point_x, point_y, point_z) = (point.x, point.y, 0.0f32);
+
+        let rotation_x = -rotation.x.to_radians();
+        let rotation_y = -rotation.y.to_radians();
+        let rotation_z = -rotation.z.to_radians();
+
+        let (rot_x_sin, rot_x_cos) = rotation_x.sin_cos();
+        let (rot_y_sin, rot_y_cos) = rotation_y.sin_cos();
+        let (rot_z_sin, rot_z_cos) = rotation_z.sin_cos();
+
+        let x1 = point_x * rot_z_cos - point_y * rot_z_sin;
+        let y1 = point_x * rot_z_sin + point_y * rot_z_cos;
+
+        let x2 = x1 * rot_y_cos + point_z * rot_y_sin;
+        let z2 = -x1 * rot_y_sin + point_z * rot_y_cos;
+
+        let y3 = y1 * rot_x_cos - z2 * rot_x_sin;
+
+        Vector2f {
+            x: center.x + x2,
+            y: center.y + y3,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -181,6 +183,7 @@ pub struct PaneNode {
     pub textured_quad: Option<TexturedQuad>,
     pub base_textured_quad: Option<TexturedQuad>,
     pub window_quads: Vec<TexturedQuad>,
+    pub glyph_quads: Vec<TexturedQuad>,
 
     pub dirty: DirtyFlags,
     pub children: Vec<PaneNode>,
@@ -235,6 +238,33 @@ impl PaneNode {
 
         for child in &mut self.children {
             child.mark_transform_dirty();
+        }
+    }
+
+    pub fn recompute_glyphs(
+        &mut self,
+        font_list: Option<&FontList>,
+        material_list: Option<&MaterialList>,
+        glyphs: &mut GlyphData,
+    ) {
+        self.glyph_quads = if let BflytSection::TextBoxPane(txt) = &self.section {
+            build_text_glyph_quads(
+                txt,
+                self.world_center,
+                self.world_size,
+                self.world_rotation,
+                self.visible,
+                self.pane_idx,
+                font_list,
+                material_list,
+                glyphs,
+            )
+        } else {
+            Vec::new()
+        };
+
+        for child in &mut self.children {
+            child.recompute_glyphs(font_list, material_list, glyphs);
         }
     }
 
@@ -448,6 +478,7 @@ impl PaneNode {
                     quad.corners,
                     self.visible,
                     self.pane_idx,
+                    None,
                 )
             {
                 *quad = tq;
@@ -587,7 +618,7 @@ impl PaneTree {
         self.main_bntx.iter().chain(self.sub_bntxs.iter())
     }
 
-    pub fn recompute_dirty(&mut self) {
+    pub fn recompute_dirty(&mut self /*fonts: &mut FontCache, atlas: &mut GlyphAtlas*/) {
         puffin::profile_function!();
         let layout_center = Vector2f {
             x: self.layout_size.x * 0.5,
@@ -597,7 +628,7 @@ impl PaneTree {
         let mut roots = std::mem::take(&mut self.roots);
         let bntx_refs: Vec<_> = self.all_bntxs().collect();
 
-        roots.par_iter_mut().for_each(|root| {
+        roots.par_iter_mut().for_each(|root: &mut PaneNode| {
             root.recompute(
                 layout_center,
                 self.layout_size,
@@ -608,6 +639,15 @@ impl PaneTree {
         });
 
         self.roots = roots;
+
+        /*
+        let font_list = self.font_list.as_ref();
+        let material_list = self.material_list.as_ref();
+
+        for root in &mut self.roots {
+            root.recompute_glyphs(font_list, material_list, fonts, atlas);
+        }
+        */
     }
 
     pub fn recompute_dirty_materials(&mut self) {
@@ -628,28 +668,33 @@ impl PaneTree {
         self.sub_bntxs = sub_bntxs;
     }
 
-    pub fn collect_render_quads(&self) -> Vec<PaneQuadData> {
+    pub fn collect_render_quads<'a>(&'a mut self) -> Vec<PaneQuadData<'a>> {
         puffin::profile_function!();
-        fn collect_recursive(node: &PaneNode, out: &mut Vec<PaneQuadData>) {
-            if let Some(tq) = &node.textured_quad {
-                out.push(PaneQuadData::Textured(Box::new(tq.clone())));
+
+        fn collect_recursive<'a>(node: &'a mut PaneNode, out: &mut Vec<PaneQuadData<'a>>) {
+            if let Some(tq) = &mut node.textured_quad {
+                out.push(PaneQuadData::Textured(tq));
             } else if !node.window_quads.is_empty() {
-                for tq in &node.window_quads {
-                    out.push(PaneQuadData::Textured(Box::new(tq.clone())));
+                for tq in &mut node.window_quads {
+                    out.push(PaneQuadData::Textured(tq));
+                }
+            } else if !node.glyph_quads.is_empty() {
+                for tq in &mut node.glyph_quads {
+                    out.push(PaneQuadData::Textured(tq));
                 }
             } else {
                 if !node.plain_quad.is_parts_root {
-                    out.push(PaneQuadData::Plain(node.plain_quad.clone()));
+                    out.push(PaneQuadData::Plain(&node.plain_quad));
                 }
             }
 
-            for child in &node.children {
+            for child in &mut node.children {
                 collect_recursive(child, out);
             }
         }
 
-        let mut out = Vec::with_capacity(self.roots.len() * 4);
-        for root in &self.roots {
+        let mut out = Vec::with_capacity(self.max_pane_idx);
+        for root in &mut self.roots {
             collect_recursive(root, &mut out);
         }
 
@@ -930,6 +975,7 @@ impl PaneTree {
         file_name: String,
         archive_entries: Option<&[ArchiveEntry]>,
         discovered_bntxs: Vec<Bntx>,
+        glyphs: &mut GlyphData,
     ) -> Self {
         puffin::profile_function!();
         let layout_size = Vector2f {
@@ -953,6 +999,7 @@ impl PaneTree {
         let mut builder = Builder {
             material_list: file.material_list.as_ref(),
             sub_material_list: None,
+            font_list: file.font_list.as_ref(),
             archive_entries,
             blarc_dir,
             blarc_cache: &mut blarc_cache,
@@ -964,6 +1011,7 @@ impl PaneTree {
             active_all_files: Vec::new(),
             active_sarc_key: None,
             active_sarc_bntxs_parsed: false,
+            glyphs,
         };
 
         let layout_center = Vector2f {
@@ -1083,6 +1131,7 @@ impl PaneTree {
 struct Builder<'a> {
     material_list: Option<&'a MaterialList>,
     sub_material_list: Option<MaterialList>,
+    font_list: Option<&'a FontList>,
     blarc_dir: Option<&'a Path>,
     archive_entries: Option<&'a [ArchiveEntry]>,
     blarc_cache: &'a mut HashMap<String, Option<Bflyt>>,
@@ -1095,6 +1144,8 @@ struct Builder<'a> {
     active_sarc_key: Option<(std::path::PathBuf, Vec<usize>)>,
     active_all_files: Vec<MagicFiles>,
     active_sarc_bntxs_parsed: bool,
+
+    glyphs: &'a mut GlyphData,
 }
 
 const MAX_PARTS_DEPTH: usize = 8;
@@ -1201,6 +1252,22 @@ impl<'a> Builder<'a> {
             Vec::new()
         };
 
+        let glyph_quads = if let BflytSection::TextBoxPane(txt) = section {
+            build_text_glyph_quads(
+                txt,
+                center,
+                size,
+                base.rotation,
+                is_visible,
+                pane_idx,
+                self.font_list,
+                self.sub_material_list.as_ref().or(self.material_list),
+                self.glyphs,
+            )
+        } else {
+            Vec::new()
+        };
+
         let color = if is_visible {
             section.section_color()
         } else {
@@ -1216,7 +1283,9 @@ impl<'a> Builder<'a> {
             color,
             has_textured: matches!(
                 section,
-                BflytSection::PicturePane(_) | BflytSection::WindowPane(_)
+                BflytSection::PicturePane(_)
+                    | BflytSection::WindowPane(_)
+                    | BflytSection::TextBoxPane(_)
             ),
             is_parts_root,
             pane_idx,
@@ -1258,6 +1327,7 @@ impl<'a> Builder<'a> {
             textured_quad: textured_quad.clone(),
             base_textured_quad: textured_quad,
             window_quads,
+            glyph_quads,
             plain_quad,
             dirty: DirtyFlags::empty(),
             children: Vec::new(),
@@ -1542,6 +1612,7 @@ impl<'a> Builder<'a> {
             corners.to_array(),
             is_visible,
             pane_idx,
+            None,
         )
     }
 
@@ -1716,4 +1787,209 @@ pub fn apply_basic_info_override(
     }
 
     node.mark_transform_dirty();
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_text_glyph_quads(
+    txt: &TextBoxPane,
+    world_center: Vector2f,
+    world_size: Vector2f,
+    world_rotation: Vector3f,
+    is_visible: bool,
+    pane_idx: usize,
+    font_list: Option<&FontList>,
+    material_list: Option<&MaterialList>,
+    glyphs: &mut GlyphData,
+) -> Vec<TexturedQuad> {
+    puffin::profile_function!();
+    let mut quads = Vec::new();
+
+    let Some(text) = txt.text.as_deref().filter(|t| !t.is_empty()) else {
+        return quads;
+    };
+
+    let Some(mat) = material_list.and_then(|list| list.materials.get(txt.material_index as usize))
+    else {
+        return quads;
+    };
+
+    let font_name = font_list
+        .and_then(|list| list.fonts.get(txt.font_index as usize))
+        .map(String::as_str)
+        .unwrap_or("");
+
+    let Some((font_id, font)) = glyphs.fonts.get_or_load(font_name) else {
+        return quads;
+    };
+
+    const FONT_SCALE_BASE_SIZE: f32 = 36.0;
+    let font_size_px = if txt.text_flags.is_keeping_font_scale {
+        FONT_SCALE_BASE_SIZE * txt.font_size.y
+    } else {
+        txt.font_size.y
+    };
+
+    let scale = font_size_px / font.units_per_em.max(1.0);
+    let line_height =
+        (font.ascender - font.descender + font.line_gap) * font_size_px + txt.line_space;
+
+    let box_w = world_size.x;
+    let box_h = world_size.y;
+    let box_lx = match txt.base.position.position_x {
+        HorizontalPosition::Center => -box_w * 0.5,
+        HorizontalPosition::Left => 0.0,
+        HorizontalPosition::Right => -box_w,
+    };
+    let box_ly = match txt.base.position.position_y {
+        VerticalPosition::Center => -box_h * 0.5,
+        VerticalPosition::Top => 0.0,
+        VerticalPosition::Bottom => -box_h,
+    };
+
+    let lines: Vec<_> = text.split('\n').collect();
+    let line_widths: Vec<_> = lines
+        .iter()
+        .map(|line| measure_line_width(font, line, font_size_px, txt.character_space))
+        .collect();
+
+    let total_text_height = line_height * lines.len() as f32;
+    let start_y = box_ly
+        + match txt.text_origin.vertical {
+            VerticalPosition::Top => 0.0,
+            VerticalPosition::Center => (box_h - total_text_height) * 0.5,
+            VerticalPosition::Bottom => box_h - total_text_height,
+        };
+
+    let corner_tints = vertex_corners_color_to_corner_tints(
+        &txt.font_top_color,
+        &txt.font_top_color,
+        &txt.font_bottom_color,
+        &txt.font_bottom_color,
+    );
+
+    let mut next_piece_id: usize = 1;
+
+    for (line_idx, line) in lines.iter().enumerate() {
+        let start_x = box_lx
+            + match txt.text_alignment {
+                TextAlignment::Left | TextAlignment::Synchronous => 0.0,
+                TextAlignment::Center => (box_w - line_widths[line_idx]) * 0.5,
+                TextAlignment::Right => box_w - line_widths[line_idx],
+            };
+
+        let mut pen_x = start_x;
+        let pen_y = start_y + line_idx as f32 * line_height + font.ascender * scale;
+        let mut prev_glyph = None;
+
+        for ch in line.chars() {
+            let Some(glyph_id) = font.glyph_id_for_char(ch) else {
+                prev_glyph = None;
+                continue;
+            };
+
+            if ch != ' '
+                && let Some(atlas_glyph) = glyphs.atlas.glyph(font, font_id, glyph_id, font_size_px)
+                && atlas_glyph.width > 0.0
+                && atlas_glyph.height > 0.0
+            {
+                let local_left = pen_x + atlas_glyph.bearing_x;
+                let local_top = pen_y - atlas_glyph.bearing_y - atlas_glyph.height;
+                let local_right = local_left + atlas_glyph.width;
+                let local_bottom = local_top + atlas_glyph.height;
+
+                let corners = [
+                    Corners::rotate_point(
+                        Vector2f::new(local_left, local_top),
+                        world_center,
+                        world_rotation,
+                    ),
+                    Corners::rotate_point(
+                        Vector2f::new(local_right, local_top),
+                        world_center,
+                        world_rotation,
+                    ),
+                    Corners::rotate_point(
+                        Vector2f::new(local_left, local_bottom),
+                        world_center,
+                        world_rotation,
+                    ),
+                    Corners::rotate_point(
+                        Vector2f::new(local_right, local_bottom),
+                        world_center,
+                        world_rotation,
+                    ),
+                ];
+
+                let piece_id = next_piece_id;
+                next_piece_id += 1;
+
+                if let Some(tq) = TexturedQuad::derive_from_material(
+                    MaterialPaneData {
+                        base_section: &txt.base,
+                        corner_tints,
+                        piece_id,
+                        material_idx: txt.material_index,
+                        texture_uvs: &[],
+                        rotation: world_rotation,
+                    },
+                    mat,
+                    Vector2f::new(local_left, local_top),
+                    Vector2f::new(atlas_glyph.width, atlas_glyph.height),
+                    corners.map(|c| c.into()),
+                    is_visible,
+                    pane_idx,
+                    Some(GlyphQuadOverride {
+                        texture_name: GLYPH_ATLAS_TEXTURE_NAME,
+                        uvs: [
+                            atlas_glyph.uv_min,
+                            [atlas_glyph.uv_max[0], atlas_glyph.uv_min[1]],
+                            [atlas_glyph.uv_min[0], atlas_glyph.uv_max[1]],
+                            atlas_glyph.uv_max,
+                        ],
+                    }),
+                ) {
+                    quads.push(tq);
+                }
+            }
+
+            let advance = font.advance_width(glyph_id, font_size_px)
+                + prev_glyph
+                    .map(|prev| font.kerning(prev, glyph_id, font_size_px))
+                    .unwrap_or(0.0)
+                + txt.character_space;
+
+            pen_x += advance;
+            prev_glyph = Some(glyph_id);
+        }
+    }
+
+    quads
+}
+
+fn measure_line_width(font: &FontFace, line: &str, font_size_px: f32, character_space: f32) -> f32 {
+    let mut width = 0.0;
+    let mut prev_glyph = None;
+    let mut any_glyph = false;
+
+    for ch in line.chars() {
+        let Some(glyph_id) = font.glyph_id_for_char(ch) else {
+            prev_glyph = None;
+            continue;
+        };
+
+        width += font.advance_width(glyph_id, font_size_px)
+            + prev_glyph
+                .map(|prev| font.kerning(prev, glyph_id, font_size_px))
+                .unwrap_or(0.0)
+            + character_space;
+
+        prev_glyph = Some(glyph_id);
+        any_glyph = true;
+    }
+
+    if any_glyph {
+        width -= character_space;
+    }
+
+    width.max(0.0)
 }

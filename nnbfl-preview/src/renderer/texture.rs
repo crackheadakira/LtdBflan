@@ -7,6 +7,8 @@ use tomolib::formats::bntx::{
 };
 use wgpu::util::DeviceExt;
 
+use crate::font::glyph_atlas::GLYPH_ATLAS_TEXTURE_NAME;
+
 pub struct TexturePreviewData {
     pub pipeline: TexturePreviewPipeline,
     pub bind_groups: HashMap<String, wgpu::BindGroup>,
@@ -179,10 +181,7 @@ impl TextureCache {
         for (name, result) in decoded_textures {
             match result {
                 Ok(rgba) => {
-                    let gpu_tex =
-                        upload_rgba(device, queue, &rgba.data, rgba.width, rgba.height, name);
-
-                    self.textures.insert(name.clone(), gpu_tex);
+                    self.insert_rgba(device, queue, name, &rgba.data, rgba.width, rgba.height)
                 }
                 Err(e) => {
                     log::warn!("TextureCache: failed to decode '{name}': {e}");
@@ -195,17 +194,63 @@ impl TextureCache {
         self.textures.get(name)
     }
 
+    pub fn insert_rgba(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        name: &str,
+        data: &[u8],
+        width: u32,
+        height: u32,
+    ) {
+        let _texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some(name),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            data,
+        );
+
+        let view = _texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let gpu_tex = GpuTexture {
+            _texture,
+            view,
+            width,
+            height,
+        };
+
+        self.textures.insert(name.to_string(), gpu_tex);
+    }
+
     pub fn clear(&mut self) {
-        for (_, gpu_tex) in self.textures.drain() {
-            gpu_tex._texture.destroy();
-        }
+        self.textures.retain(|name, gpu_tex| {
+            if name == GLYPH_ATLAS_TEXTURE_NAME {
+                true
+            } else {
+                gpu_tex._texture.destroy();
+                false
+            }
+        });
     }
 
     pub fn retain_active(&mut self, active_names: &std::collections::HashSet<&str>) {
         let before_count = self.textures.len();
 
         self.textures.retain(|name, gpu_tex| {
-            let keep = active_names.contains(name.as_str());
+            let keep = name == GLYPH_ATLAS_TEXTURE_NAME || active_names.contains(name.as_str());
             if !keep {
                 gpu_tex._texture.destroy();
             }
@@ -217,43 +262,5 @@ impl TextureCache {
         if removed > 0 {
             log::info!("TextureCache: Removed {removed} unused textures.");
         }
-    }
-}
-
-fn upload_rgba(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    data: &[u8],
-    width: u32,
-    height: u32,
-    label: &str,
-) -> GpuTexture {
-    let _texture = device.create_texture_with_data(
-        queue,
-        &wgpu::TextureDescriptor {
-            label: Some(label),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        },
-        wgpu::util::TextureDataOrder::LayerMajor,
-        data,
-    );
-
-    let view = _texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-    GpuTexture {
-        _texture,
-        view,
-        width,
-        height,
     }
 }

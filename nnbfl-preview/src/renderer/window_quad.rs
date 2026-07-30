@@ -526,6 +526,7 @@ pub fn derive_from_window(
             geom.corners,
             is_visible,
             pane_idx,
+            None,
         ) {
             out.push(tq);
         }
@@ -628,6 +629,7 @@ pub fn derive_from_window(
             geom.corners,
             is_visible,
             pane_idx,
+            None,
         ) {
             out.push(tq);
         }

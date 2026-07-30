@@ -14,8 +14,7 @@ use nnbfl::{
     ui2d::types::Vector2f,
 };
 
-use crate::bflyt_view::BflytView;
-use crate::pane_tree::DirtyFlags;
+use crate::pane_tree::{DirtyFlags, PaneTree};
 use crate::renderer::textured_quad::TexturedQuad;
 use crate::traits::Displaying;
 use crate::ui::timeline::{PendingKeyEdit, PendingSlopeEdit, TimelineTrack};
@@ -133,18 +132,17 @@ impl AnimInstance {
         Some(&mut targets.get_mut(track.target_idx)?.curve)
     }
 
-    pub fn get_active_group_pane_indices(&self, view: &BflytView) -> HashSet<usize> {
+    pub fn get_active_group_pane_indices(&self, pane_tree: &PaneTree) -> HashSet<usize> {
         let mut active_indices = HashSet::new();
 
         if self.bflan.anim_tag.groups.is_empty() {
             return active_indices;
         }
 
-        let label_to_idx = view.tree.label_to_idx();
+        let label_to_idx = pane_tree.label_to_idx();
 
         for group_name in &self.bflan.anim_tag.groups {
-            if let Some(layout_group) = view
-                .tree
+            if let Some(layout_group) = pane_tree
                 .group
                 .children
                 .iter()
@@ -163,19 +161,23 @@ impl AnimInstance {
         active_indices
     }
 
-    pub fn resolve_group_visibility(&self, view: &BflytView, hidden_panes: &mut HashSet<usize>) {
+    pub fn resolve_group_visibility(
+        &self,
+        pane_tree: &PaneTree,
+        hidden_panes: &mut HashSet<usize>,
+    ) {
         hidden_panes.clear();
 
         if self.bflan.anim_tag.groups.is_empty() {
             return;
         }
 
-        let explicit_active_indices = self.get_active_group_pane_indices(view);
-        let label_to_idx = view.tree.label_to_idx();
+        let explicit_active_indices = self.get_active_group_pane_indices(pane_tree);
+        let label_to_idx = pane_tree.label_to_idx();
 
         let mut fully_allowed_indices = explicit_active_indices.clone();
         for &pane_idx in &explicit_active_indices {
-            fully_allowed_indices.extend(view.tree.descendants(pane_idx));
+            fully_allowed_indices.extend(pane_tree.descendants(pane_idx));
         }
 
         let active_groups: HashSet<&str> = self
@@ -186,7 +188,7 @@ impl AnimInstance {
             .map(|s| s.as_str())
             .collect();
 
-        for group in &view.tree.group.children {
+        for group in pane_tree.group.children.iter() {
             if active_groups.contains(group.group_name.as_str()) {
                 continue;
             }
@@ -239,7 +241,7 @@ impl AnimPlayer {
     pub fn play(
         &mut self,
         anim_idx: Option<usize>,
-        view: &BflytView,
+        pane_tree: &PaneTree,
         hidden_panes: &mut HashSet<usize>,
     ) {
         if let Some(idx) = anim_idx {
@@ -255,7 +257,7 @@ impl AnimPlayer {
             self.active = Some(idx);
 
             if self.limit_to_group {
-                self.anims[idx].resolve_group_visibility(view, hidden_panes);
+                self.anims[idx].resolve_group_visibility(pane_tree, hidden_panes);
             }
         }
     }
@@ -281,11 +283,11 @@ impl AnimPlayer {
         None
     }
 
-    pub fn apply(&self, view: &mut BflytView) {
+    pub fn apply(&self, pane_tree: &mut PaneTree) {
         let Some(idx) = self.active else { return };
         let anim = &self.anims[idx];
 
-        apply_anim(&anim.bflan.anim_info, anim.frame, view);
+        apply_anim(&anim.bflan.anim_info, anim.frame, pane_tree);
     }
 
     pub fn is_playing(&self) -> bool {
@@ -407,8 +409,8 @@ fn apply_tex_srts(tq: &mut TexturedQuad) {
     }
 }
 
-fn cascade_visibility(view: &mut BflytView, pane_idx: usize, visible: bool) {
-    view.tree.for_each_descendant_mut(pane_idx, |node| {
+fn cascade_visibility(pane_tree: &mut PaneTree, pane_idx: usize, visible: bool) {
+    pane_tree.for_each_descendant_mut(pane_idx, |node| {
         node.visible = visible;
 
         node.plain_quad.color = if visible {
@@ -425,8 +427,8 @@ fn cascade_visibility(view: &mut BflytView, pane_idx: usize, visible: bool) {
     });
 }
 
-fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
-    let pane_by_name = view.tree.label_to_idx();
+fn apply_anim(pai: &PaneAnimInfo, frame: f32, pane_tree: &mut PaneTree) {
+    let pane_by_name = pane_tree.label_to_idx();
 
     for content in &pai.contents {
         let name = content.name.trim_end_matches('\0');
@@ -449,7 +451,7 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
             match anim_type {
                 AnimInfoType::PaneSrtAnim => {
                     let (base_translation, base_size, base_rotation, base_scale) = {
-                        let Some(node) = view.tree.find_by_idx(pane_idx) else {
+                        let Some(node) = pane_tree.find_by_idx(pane_idx) else {
                             continue;
                         };
                         let base = node.section.get_base_pane();
@@ -489,7 +491,7 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                         }
                     }
 
-                    if let Some(node) = view.tree.find_by_idx_mut(pane_idx)
+                    if let Some(node) = pane_tree.find_by_idx_mut(pane_idx)
                         && let Some(base) = node.section.get_base_pane_mut()
                     {
                         base.translation = new_translation;
@@ -503,12 +505,12 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                 AnimInfoType::VisibilityAnim => {
                     for t in targets {
                         let visible = eval_curve_step_u16(&t.curve, frame) != 0;
-                        cascade_visibility(view, pane_idx, visible);
+                        cascade_visibility(pane_tree, pane_idx, visible);
                     }
                 }
 
                 AnimInfoType::TextureSrtAnim => {
-                    let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
+                    let Some(node) = pane_tree.find_by_idx_mut(pane_idx) else {
                         continue;
                     };
 
@@ -545,7 +547,7 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                 }
 
                 AnimInfoType::IndirectSrtAnim => {
-                    let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
+                    let Some(node) = pane_tree.find_by_idx_mut(pane_idx) else {
                         continue;
                     };
 
@@ -576,7 +578,7 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                 }
 
                 AnimInfoType::TexturePatternAnim => {
-                    let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
+                    let Some(node) = pane_tree.find_by_idx_mut(pane_idx) else {
                         continue;
                     };
 
@@ -597,7 +599,7 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                 }
 
                 AnimInfoType::AlphaCompareAnim => {
-                    let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
+                    let Some(node) = pane_tree.find_by_idx_mut(pane_idx) else {
                         continue;
                     };
 
@@ -615,7 +617,7 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                 }
 
                 AnimInfoType::MaterialColorAnim => {
-                    let Some(node) = view.tree.find_by_idx_mut(pane_idx) else {
+                    let Some(node) = pane_tree.find_by_idx_mut(pane_idx) else {
                         continue;
                     };
 
@@ -682,7 +684,7 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
 
                         match &t.target {
                             TargetIndex::VertexColor(VertexColorTarget::PaneAlpha) => {
-                                if let Some(node) = view.tree.find_by_idx_mut(pane_idx) {
+                                if let Some(node) = pane_tree.find_by_idx_mut(pane_idx) {
                                     for tq in all_quads_mut(node) {
                                         tq.tint[3] = v;
 
@@ -692,8 +694,8 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                                     }
                                 }
 
-                                for descendant_idx in view.tree.descendants(pane_idx) {
-                                    if let Some(node) = view.tree.find_by_idx_mut(descendant_idx) {
+                                for descendant_idx in pane_tree.descendants(pane_idx) {
+                                    if let Some(node) = pane_tree.find_by_idx_mut(descendant_idx) {
                                         for tq in all_quads_mut(node) {
                                             tq.tint[3] = v;
 
@@ -705,7 +707,7 @@ fn apply_anim(pai: &PaneAnimInfo, frame: f32, view: &mut BflytView) {
                                 }
                             }
                             _ => {
-                                if let Some(node) = view.tree.find_by_idx_mut(pane_idx) {
+                                if let Some(node) = pane_tree.find_by_idx_mut(pane_idx) {
                                     for tq in all_quads_mut(node) {
                                         match &t.target {
                                             TargetIndex::VertexColor(

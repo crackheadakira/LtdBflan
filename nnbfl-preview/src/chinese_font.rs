@@ -102,7 +102,7 @@ pub fn setup_chinese_fonts(ctx: &Context) -> Result<(), FontError> {
 }
 
 /// Load Chinese font data from system
-fn load_chinese_font() -> Result<FontData, FontError> {
+pub fn load_chinese_font() -> Result<FontData, FontError> {
     #[cfg(target_os = "windows")]
     {
         load_windows_chinese_font()

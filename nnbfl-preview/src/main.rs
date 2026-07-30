@@ -1,10 +1,10 @@
 mod anim_state;
 mod archive_browser;
-mod bflyt_view;
 mod camera;
 mod chinese_font;
 mod edit_history;
 mod error;
+mod font;
 mod keybinds;
 mod pane_tree;
 mod renderer;
@@ -23,7 +23,7 @@ use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use nnbfl::{
     bflan::file::Bflan,
     bflyt::{file::Bflyt, list::Layout},
-    core::FileReadWriteable,
+    core::{FileReadWriteable, VersionFormat},
     sarc::file::{MagicFiles, Sarc, SarcFile},
     ui2d::types::{Vector2f, Vector3f},
 };
@@ -41,11 +41,12 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use bflyt_view::{BflytView, build_view};
-
 use crate::{
     archive_browser::{ArchiveEntry, ArchiveScan},
+    edit_history::EditHistory,
     error::LoadError,
+    font::glyph_atlas::{GLYPH_ATLAS_TEXTURE_NAME, GlyphData},
+    pane_tree::{DirtyFlags, PaneTree},
     renderer::{
         selection::{Handle, SelectionRenderer, point_in_quad},
         texture::{TexturePreviewData, TexturePreviewPipeline},
@@ -181,8 +182,15 @@ impl GpuState {
         {
             puffin::profile_scope!("material_recompute");
             ctx.ui_state.material_editor.pending_upload = false;
-            layout.view.tree.recompute_dirty_materials();
+            layout.tree.recompute_dirty_materials();
         }
+
+        if ctx.layout_tabs.glyphs.atlas.is_dirty() {
+            ctx.layout_tabs
+                .glyphs
+                .atlas
+                .upload(&self.device, &self.queue, &mut self.texture_cache);
+        };
 
         self.grid_renderer
             .update_projection(&self.queue, ctx.camera, &self.config);
@@ -209,8 +217,8 @@ impl GpuState {
 
             let ndc_x0 = trans_x;
             let ndc_y0 = trans_y;
-            let ndc_x1 = layout.view.tree.layout_size.x * scale_x + trans_x;
-            let ndc_y1 = layout.view.tree.layout_size.y * scale_y + trans_y;
+            let ndc_x1 = layout.tree.layout_size.x * scale_x + trans_x;
+            let ndc_y1 = layout.tree.layout_size.y * scale_y + trans_y;
 
             let x0 = ((ndc_x0 + 1.0) * 0.5 * screen_w).clamp(0.0, screen_w);
             let y0 = ((1.0 - ndc_y0) * 0.5 * screen_h).clamp(0.0, screen_h);
@@ -267,13 +275,13 @@ impl GpuState {
 
         egui_state.handle_platform_output(window, full_output.platform_output.clone());
 
-        if let Some(layout) = ctx.layout_tabs.active() {
+        if let Some(layout) = ctx.layout_tabs.active_mut() {
             puffin::profile_scope!("pane_renderer_logic");
             match ctx
                 .ui_state
                 .pane_tree_view
                 .selected_pane
-                .and_then(|idx| layout.view.tree.find_by_idx(idx))
+                .and_then(|idx| layout.tree.find_by_idx(idx))
             {
                 Some(node) => self.selection_renderer.update(
                     &self.device,
@@ -283,7 +291,10 @@ impl GpuState {
                 None => self.selection_renderer.clear(),
             }
 
-            let mut render_quads = layout.view.tree.collect_render_quads();
+            let layout_w = layout.tree.layout_size.x;
+            let layout_h = layout.tree.layout_size.y;
+
+            let mut render_quads = layout.tree.collect_render_quads();
 
             self.pane_renderer.update_anim(
                 &self.queue,
@@ -301,8 +312,8 @@ impl GpuState {
             self.pane_renderer.recompute_proj_mtx(
                 &mut render_quads,
                 &self.texture_cache,
-                layout.view.tree.layout_size.x,
-                layout.view.tree.layout_size.y,
+                layout_w,
+                layout_h,
             );
 
             self.pane_renderer.update_selection(
@@ -368,7 +379,7 @@ impl GpuState {
             .callback_resources
             .get_mut::<TexturePreviewData>()
             && let Some(ref name) = ctx.ui_state.texture_editor.selected_texture
-            && !preview_data.bind_groups.contains_key(name)
+            && (!preview_data.bind_groups.contains_key(name) || name == GLYPH_ATLAS_TEXTURE_NAME)
             && let Some(gpu_tex) = self.texture_cache.get(name)
         {
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -451,10 +462,10 @@ struct DragState {
     rotate_z: f32,
 }
 
-#[derive(Default)]
 pub struct LayoutTabs {
     pub items: Vec<LayoutData>,
     pub active_index: usize,
+    pub glyphs: GlyphData,
 }
 
 impl LayoutTabs {
@@ -462,6 +473,7 @@ impl LayoutTabs {
         Self {
             items: Vec::new(),
             active_index: 0,
+            glyphs: GlyphData::new(),
         }
     }
 
@@ -503,7 +515,7 @@ impl LayoutTabs {
         let mut active_textures = std::collections::HashSet::new();
 
         for layout in &self.items {
-            for bntx in layout.view.tree.all_bntxs() {
+            for bntx in layout.tree.all_bntxs() {
                 for tex in &bntx.textures {
                     active_textures.insert(tex.name.as_str());
                 }
@@ -535,58 +547,54 @@ impl LayoutTabs {
 }
 
 pub struct LayoutData {
-    pub view: BflytView,
+    pub tree: PaneTree,
+    pub is_centered: bool,
+    pub parts_size: Vector2f,
+    pub file_name: String,
+    pub version: VersionFormat,
+    pub history: EditHistory,
+
     pub timeline: TimelineState,
 }
 
 impl LayoutData {
+    const EDIT_HISTORY_LIMIT: usize = 20;
+
     pub fn bake_bflyt(&self) -> Bflyt {
         let mut nodes = Vec::new();
-        for root_node in &self.view.tree.roots {
+        for root_node in &self.tree.roots {
             root_node.flatten_to_bflyt_nodes(&mut nodes);
         }
 
         let layout_header = Layout {
-            is_centered: self.view.is_centered,
-            width: self.view.tree.layout_size.x,
-            height: self.view.tree.layout_size.y,
-            parts_width: self.view.parts_size.x,
-            parts_height: self.view.parts_size.y,
-            name: self.view.file_name.clone(),
+            is_centered: self.is_centered,
+            width: self.tree.layout_size.x,
+            height: self.tree.layout_size.y,
+            parts_width: self.parts_size.x,
+            parts_height: self.parts_size.y,
+            name: self.file_name.clone(),
         };
 
         Bflyt {
             endianness: 0xFEFF,
-            version: self.view.version,
+            version: self.version,
             layout: layout_header,
-            user_data: self.view.tree.user_data.clone(),
-            texture_list: self.view.tree.texture_list.clone(),
-            font_list: self.view.tree.font_list.clone(),
-            material_list: self.view.tree.material_list.clone(),
-            capture_texture_list: self.view.tree.capture_texture_list.clone(),
+            user_data: self.tree.user_data.clone(),
+            texture_list: self.tree.texture_list.clone(),
+            font_list: self.tree.font_list.clone(),
+            material_list: self.tree.material_list.clone(),
+            capture_texture_list: self.tree.capture_texture_list.clone(),
             nodes,
-            root_group: self.view.tree.group.clone(),
-            control_source: self.view.tree.control_source.clone(),
+            root_group: self.tree.group.clone(),
+            control_source: self.tree.control_source.clone(),
         }
-    }
-
-    pub fn load_from_path(
-        path: PathBuf,
-        layout_dir: Option<&Path>,
-        archive_scan_entries: Option<&[ArchiveEntry]>,
-    ) -> Result<(Self, Vec<String>), LoadError> {
-        let bytes = std::fs::read(&path)?;
-
-        let mut detected_files = Vec::new();
-        extract_all_files_recursive(bytes, &mut detected_files);
-
-        Self::load_from_buffer(detected_files, layout_dir, archive_scan_entries)
     }
 
     pub fn load_from_buffer(
         all_files: Vec<MagicFiles>,
         layout_dir: Option<&Path>,
         archive_scan_entries: Option<&[ArchiveEntry]>,
+        glyphs: &mut GlyphData,
     ) -> Result<(Self, Vec<String>), LoadError> {
         let bflyt_bytes = all_files
             .iter()
@@ -649,17 +657,43 @@ impl LayoutData {
         let layout_name = bflyt.layout.name.clone();
         log::info!("Preparing to build BflytView for {layout_name}...");
 
-        let view = build_view(
+        let version = bflyt.version.clone();
+        let is_centered = bflyt.layout.is_centered;
+        let parts_size = Vector2f {
+            x: bflyt.layout.parts_width,
+            y: bflyt.layout.parts_height,
+        };
+
+        let tree = PaneTree::from_bflyt(
             bflyt,
             layout_dir,
             layout_name.clone(),
             archive_scan_entries,
             discovered_bntxs,
+            glyphs,
         );
 
-        let layout_data = Self { view, timeline };
+        let layout_data = Self {
+            tree,
+            timeline,
+            is_centered,
+            parts_size,
+            file_name: layout_name,
+            version,
+            history: EditHistory::new(Self::EDIT_HISTORY_LIMIT),
+        };
 
         Ok((layout_data, anim_names))
+    }
+
+    pub fn reset_to_base(&mut self) {
+        self.tree.for_each_mut(|node| {
+            node.textured_quad = node.base_textured_quad.clone();
+            node.dirty
+                .insert(DirtyFlags::TRANSFORM | DirtyFlags::MATERIAL | DirtyFlags::VERTICES);
+        });
+
+        self.tree.recompute_dirty();
     }
 }
 
@@ -701,7 +735,7 @@ impl App {
             return false;
         };
 
-        let Some(node) = layout.view.tree.find_by_idx(idx) else {
+        let Some(node) = layout.tree.find_by_idx(idx) else {
             return false;
         };
 
@@ -753,7 +787,7 @@ impl App {
         let dx = world_pos[0] - drag.start_world[0];
         let dy = world_pos[1] - drag.start_world[1];
 
-        let Some(node) = layout.view.tree.find_by_idx_mut(drag.pane_idx) else {
+        let Some(node) = layout.tree.find_by_idx_mut(drag.pane_idx) else {
             return;
         };
 
@@ -842,7 +876,7 @@ impl App {
         }
 
         node.mark_transform_dirty();
-        layout.view.tree.recompute_dirty();
+        layout.tree.recompute_dirty();
     }
 
     fn end_drag(&mut self) {
@@ -854,7 +888,7 @@ impl App {
             return;
         };
 
-        let Some(node) = layout.view.tree.find_by_idx_mut(drag.pane_idx) else {
+        let Some(node) = layout.tree.find_by_idx_mut(drag.pane_idx) else {
             return;
         };
 
@@ -875,7 +909,6 @@ impl App {
         };
 
         layout
-            .view
             .history
             .record_transform(drag.pane_idx, before, after);
     }
@@ -891,7 +924,7 @@ impl App {
 
         let mut best = None;
 
-        for node in layout.view.tree.iter() {
+        for node in layout.tree.iter() {
             if !node.visible
                 || self
                     .ui_state
@@ -953,7 +986,12 @@ impl App {
             .as_ref()
             .map(|s| s.entries.as_slice());
 
-        match LayoutData::load_from_buffer(all_files, layout_dir, archive_scan_entries) {
+        match LayoutData::load_from_buffer(
+            all_files,
+            layout_dir,
+            archive_scan_entries,
+            &mut self.tabs.glyphs,
+        ) {
             Ok((layout, anim_names)) => {
                 self.ui_state.error_message = None;
                 self.ui_state.anim_names = anim_names;
@@ -973,85 +1011,97 @@ impl App {
     }
 
     fn sync_gpu_layout(&mut self) {
-        let Some(layout) = self.tabs.active() else {
-            return;
-        };
-
-        let view = &layout.view;
-
         if let Some(gpu) = &mut self.gpu {
-            let render_quads = view.tree.collect_render_quads();
+            self.tabs
+                .glyphs
+                .atlas
+                .upload(&gpu.device, &gpu.queue, &mut gpu.texture_cache);
+
+            let Some(layout) = self.tabs.active_mut() else {
+                return;
+            };
+
+            let layout_w = layout.tree.layout_size.x;
+            let layout_h = layout.tree.layout_size.y;
 
             self.ui_state.texture_editor.selected_texture = None;
 
-            for bntx in view.tree.all_bntxs() {
+            for bntx in layout.tree.all_bntxs() {
                 gpu.texture_cache
                     .load_from_bntx(&gpu.device, &gpu.queue, bntx);
             }
+
+            let render_quads = layout.tree.collect_render_quads();
 
             gpu.pane_renderer.upload_quads(
                 &gpu.device,
                 &render_quads,
                 &gpu.texture_cache,
-                view.tree.layout_size.x,
-                view.tree.layout_size.y,
+                layout_w,
+                layout_h,
             );
 
             if let Some(window) = &self.window {
                 let size = window.inner_size();
                 self.camera.fit(
-                    view.tree.layout_size.x,
-                    view.tree.layout_size.y,
+                    layout.tree.layout_size.x,
+                    layout.tree.layout_size.y,
                     size.width as f32,
                     size.height as f32,
                 );
 
-                window.set_title(&format!("nnbfl-preview - {}", view.file_name));
+                window.set_title(&format!("nnbfl-preview - {}", layout.file_name));
             }
-        }
 
-        log::info!(
-            "Synced GPU state: loaded {} panes from {}",
-            view.tree.iter().count(),
-            view.file_name
-        );
+            log::info!(
+                "Synced GPU state: loaded {} panes from {}",
+                layout.tree.iter().count(),
+                layout.file_name
+            );
+        }
     }
 
     fn switch_active_tab(&mut self) {
         self.ui_state.anim_names = self.tabs.active_anim_names();
 
-        let Some(layout) = self.tabs.active() else {
-            self.clear_active_view();
-            return;
-        };
-
-        let view = &layout.view;
-
         if let Some(gpu) = &mut self.gpu {
-            for bntx in view.tree.all_bntxs() {
+            self.tabs
+                .glyphs
+                .atlas
+                .upload(&gpu.device, &gpu.queue, &mut gpu.texture_cache);
+
+            let Some(layout) = self.tabs.active_mut() else {
+                self.clear_active_view();
+                return;
+            };
+
+            let layout_w = layout.tree.layout_size.x;
+            let layout_h = layout.tree.layout_size.y;
+
+            for bntx in layout.tree.all_bntxs() {
                 gpu.texture_cache
                     .load_from_bntx(&gpu.device, &gpu.queue, bntx);
             }
 
-            let render_quads = view.tree.collect_render_quads();
+            let render_quads = layout.tree.collect_render_quads();
             gpu.pane_renderer.upload_quads(
                 &gpu.device,
                 &render_quads,
                 &gpu.texture_cache,
-                view.tree.layout_size.x,
-                view.tree.layout_size.y,
+                layout_w,
+                layout_h,
             );
 
             if let Some(window) = &self.window {
                 let size = window.inner_size();
                 self.camera.fit(
-                    view.tree.layout_size.x,
-                    view.tree.layout_size.y,
+                    layout.tree.layout_size.x,
+                    layout.tree.layout_size.y,
                     size.width as f32,
                     size.height as f32,
                 );
 
-                window.set_title(&format!("nnbfl-preview - {}", view.file_name));
+                window.set_title(&format!("nnbfl-preview - {}", layout.file_name));
             }
         }
     }
@@ -1087,7 +1137,6 @@ impl App {
 
         if let Some(idx) = target_idx
             && layout
-                .view
                 .tree
                 .find_by_idx(idx)
                 .is_some_and(|n| n.parts_source.is_some())
@@ -1095,7 +1144,7 @@ impl App {
             return;
         }
 
-        let resulting_idx = layout.view.history.perform(&mut layout.view.tree, edit);
+        let resulting_idx = layout.history.perform(&mut layout.tree, edit);
         self.ui_state.pane_tree_view.select(resulting_idx);
 
         self.after_structural_edit();
@@ -1106,17 +1155,20 @@ impl App {
             return;
         };
 
-        layout.view.tree.recompute_dirty();
+        layout.tree.recompute_dirty();
 
         let Some(gpu) = &mut self.gpu else { return };
-        let render_quads = layout.view.tree.collect_render_quads();
+
+        let layout_w = layout.tree.layout_size.x;
+        let layout_h = layout.tree.layout_size.y;
+        let render_quads = layout.tree.collect_render_quads();
 
         gpu.pane_renderer.upload_quads(
             &gpu.device,
             &render_quads,
             &gpu.texture_cache,
-            layout.view.tree.layout_size.x,
-            layout.view.tree.layout_size.y,
+            layout_w,
+            layout_h,
         );
 
         if let Some(w) = &self.window {
@@ -1222,7 +1274,7 @@ impl ApplicationHandler for App {
         }
 
         let title_path = if let Some(layout) = self.tabs.active() {
-            &layout.view.file_name
+            &layout.file_name
         } else {
             "No file loaded"
         };
@@ -1376,7 +1428,7 @@ impl ApplicationHandler for App {
                             .set_title("Save as .bflyt")
                             .add_filter("BFLYT Layout", &["bflyt"]);
 
-                        dialog = dialog.set_file_name(&layout.view.file_name);
+                        dialog = dialog.set_file_name(&layout.file_name);
 
                         if let Some(target_path) = dialog.save_file() {
                             let baked_bflyt = layout.bake_bflyt();
@@ -1475,7 +1527,7 @@ impl ApplicationHandler for App {
 
                 UiAction::Undo => {
                     if let Some(layout) = self.tabs.active_mut() {
-                        let resulting_idx = layout.view.history.undo(&mut layout.view.tree);
+                        let resulting_idx = layout.history.undo(&mut layout.tree);
                         self.ui_state.pane_tree_view.select(resulting_idx);
                         self.after_structural_edit();
                     }
@@ -1483,7 +1535,7 @@ impl ApplicationHandler for App {
 
                 UiAction::Redo => {
                     if let Some(layout) = self.tabs.active_mut() {
-                        let resulting_idx = layout.view.history.redo(&mut layout.view.tree);
+                        let resulting_idx = layout.history.redo(&mut layout.tree);
                         self.ui_state.pane_tree_view.select(resulting_idx);
                         self.after_structural_edit();
                     }
@@ -1586,8 +1638,8 @@ impl ApplicationHandler for App {
 
                 if let Some(layout) = self.tabs.active() {
                     self.camera.fit(
-                        layout.view.tree.layout_size.x,
-                        layout.view.tree.layout_size.y,
+                        layout.tree.layout_size.x,
+                        layout.tree.layout_size.y,
                         size.width as f32,
                         size.height as f32,
                     );
@@ -1626,7 +1678,7 @@ impl ApplicationHandler for App {
 
                                 layout.timeline.anim_player.play(
                                     anim_idx,
-                                    &layout.view,
+                                    &layout.tree,
                                     &mut self.ui_state.pane_tree_view.hidden_panes,
                                 );
                             }
@@ -1634,14 +1686,14 @@ impl ApplicationHandler for App {
                             if let Some(anim_idx) = self.ui_state.pending_play_anim.take() {
                                 layout.timeline.anim_player.play(
                                     Some(anim_idx),
-                                    &layout.view,
+                                    &layout.tree,
                                     &mut self.ui_state.pane_tree_view.hidden_panes,
                                 );
                             }
 
                             if layout.timeline.anim_player.is_playing() {
-                                layout.view.reset_to_base();
-                                layout.timeline.anim_player.apply(&mut layout.view);
+                                layout.reset_to_base();
+                                layout.timeline.anim_player.apply(&mut layout.tree);
                             }
                         }
                     }

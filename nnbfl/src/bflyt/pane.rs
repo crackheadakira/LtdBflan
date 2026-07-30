@@ -180,6 +180,28 @@ pub enum HorizontalPosition {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct TextPosition {
+    pub horizontal: HorizontalPosition,
+    pub vertical: VerticalPosition,
+}
+
+impl BitPackable<u8> for TextPosition {
+    fn decode(raw: u8) -> Self {
+        Self {
+            horizontal: ((raw >> 2) & 0x03).into(),
+            vertical: (raw & 0x03).into(),
+        }
+    }
+
+    fn encode(&self) -> u8 {
+        let h: u8 = self.horizontal.into();
+        let v: u8 = self.vertical.into();
+
+        (h << 2) | (v & 0x03)
+    }
+}
+
 #[derive(
     Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, FromPrimitive, IntoPrimitive, Default,
 )]
@@ -366,7 +388,7 @@ pub struct TextBoxPane {
     pub text_length: u16,
     pub material_index: u16,
     pub font_index: u16,
-    pub text_origin: u8,
+    pub text_origin: TextPosition,
     pub text_alignment: TextAlignment,
     pub text_flags: TextPaneFlags,
 
@@ -403,7 +425,7 @@ impl ReadWriteable for TextBoxPane {
         let text_length = cursor.read_u16()?;
         let material_index = cursor.read_u16()?;
         let font_index = cursor.read_u16()?;
-        let text_origin = cursor.read_u8()?;
+        let text_origin = TextPosition::decode(cursor.read_u8()?);
         let text_alignment = cursor.read_u8()?.into();
         let text_flags = TextPaneFlags::decode(cursor.read_u16()?);
         let italic_tilt = cursor.read_f32()?;
@@ -514,7 +536,7 @@ impl ReadWriteable for TextBoxPane {
         writer.write_u16(self.text_length);
         writer.write_u16(self.material_index);
         writer.write_u16(self.font_index);
-        writer.write_u8(self.text_origin);
+        writer.write_u8(self.text_origin.encode());
         writer.write_u8(self.text_alignment.into());
         writer.write_u16(self.text_flags.encode());
         writer.write_f32(self.italic_tilt);

@@ -266,6 +266,13 @@ pub struct MaterialPaneData<'a> {
     pub texture_uvs: &'a [TextureUv],
 }
 
+pub struct GlyphQuadOverride<'a> {
+    pub texture_name: &'a str,
+
+    /// Per-corner UVs into the atlas, ordered [TL, TR, BL, BR].
+    pub uvs: [[f32; 2]; 4],
+}
+
 impl TexturedQuad {
     pub fn derive_from_material(
         pane_data: MaterialPaneData,
@@ -275,12 +282,17 @@ impl TexturedQuad {
         corners: [[f32; 2]; 4],
         is_visible: bool,
         pane_idx: usize,
+        glyph_override: Option<GlyphQuadOverride<'_>>,
     ) -> Option<Self> {
         puffin::profile_function!();
         let tex_map = mat.tex_maps.first();
-        let tex_name = tex_map.map(|m| m.texture_name.trim_end()).unwrap_or("");
+        let tex_name = glyph_override
+            .as_ref()
+            .map(|g| g.texture_name)
+            .unwrap_or_else(|| tex_map.map(|m| m.texture_name.trim_end()).unwrap_or(""));
 
-        if tex_name.is_empty()
+        if glyph_override.is_none()
+            && tex_name.is_empty()
             && mat.blend_mode.is_none()
             && mat.alpha_compare.is_none()
             && mat.tev_combiners.is_empty()
@@ -290,7 +302,19 @@ impl TexturedQuad {
         }
 
         let base_uvs = PaneNode::compute_uvs(pane_data.texture_uvs);
-        let uvs = PaneNode::apply_srt_to_uvs(base_uvs, &mat.tex_srts);
+        let mut uvs = PaneNode::apply_srt_to_uvs(base_uvs, &mat.tex_srts);
+
+        if let Some(glyph) = &glyph_override {
+            for corner in 0..4 {
+                uvs[corner][0] = glyph.uvs[corner];
+            }
+        }
+
+        let texture_count = if glyph_override.is_some() {
+            (mat.tex_maps.len().min(3) as u32).max(1)
+        } else {
+            mat.tex_maps.len().min(3) as u32
+        };
 
         let sampler_0 = WgpuSamplerSettings::from_tex_map(mat.tex_maps.first());
         let sampler_1 = WgpuSamplerSettings::from_tex_map(mat.tex_maps.get(1));
@@ -305,8 +329,6 @@ impl TexturedQuad {
 
         let texture_name1 = get_name(1);
         let texture_name2 = get_name(2);
-
-        let texture_count = mat.tex_maps.len().min(3) as u32;
 
         let mut tex_gen_flags = [0u32; 3];
         for (flag, coord_gen) in tex_gen_flags
@@ -491,13 +513,13 @@ impl TexturedQuad {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum PaneQuadData {
-    Plain(Quad),
-    Textured(Box<TexturedQuad>),
+#[derive(Debug)]
+pub enum PaneQuadData<'a> {
+    Plain(&'a Quad),
+    Textured(&'a mut TexturedQuad),
 }
 
-impl PaneQuadData {
+impl<'a> PaneQuadData<'a> {
     pub fn pane_idx(&self) -> usize {
         match self {
             PaneQuadData::Plain(q) => q.pane_idx,
@@ -596,6 +618,8 @@ pub struct PaneRenderer {
     placeholder_sampler: wgpu::Sampler,
 
     batches: Vec<Batch>,
+
+    quad_lookup: HashMap<(usize, usize), usize>,
 }
 
 impl PaneRenderer {
@@ -755,6 +779,7 @@ impl PaneRenderer {
             placeholder_view,
             placeholder_sampler,
             batches: Vec::new(),
+            quad_lookup: HashMap::new(),
         }
     }
 
@@ -828,6 +853,7 @@ impl PaneRenderer {
     ) {
         puffin::profile_function!();
         self.batches.clear();
+        self.quad_lookup.clear();
 
         for data in ordered {
             let key = Self::batch_key_for(data);
@@ -1116,6 +1142,18 @@ impl PaneRenderer {
                 }
             }
         }
+
+        self.quad_lookup = ordered
+            .iter()
+            .enumerate()
+            .map(|(idx, d)| {
+                let piece_id = match d {
+                    PaneQuadData::Plain(_) => usize::MAX,
+                    PaneQuadData::Textured(tq) => tq.piece_id,
+                };
+                ((d.pane_idx(), piece_id), idx)
+            })
+            .collect();
     }
 
     pub fn update_selection(
@@ -1135,17 +1173,6 @@ impl PaneRenderer {
             }
         }
 
-        let quad_lookup: HashMap<(usize, usize), &PaneQuadData> = ordered
-            .iter()
-            .map(|d| {
-                let piece_id = match d {
-                    PaneQuadData::Plain(_) => usize::MAX,
-                    PaneQuadData::Textured(tq) => tq.piece_id,
-                };
-                ((d.pane_idx(), piece_id), d)
-            })
-            .collect();
-
         for batch in &mut self.batches {
             let mut dirty = false;
 
@@ -1156,10 +1183,12 @@ impl PaneRenderer {
                 }
 
                 let lookup_key = (pane_idx, if piece_id == 0 { usize::MAX } else { piece_id });
-                let Some(data) = quad_lookup
+                let Some(data) = self
+                    .quad_lookup
                     .get(&lookup_key)
                     .copied()
-                    .or_else(|| quad_lookup.get(&(pane_idx, piece_id)).copied())
+                    .or_else(|| self.quad_lookup.get(&(pane_idx, piece_id)).copied())
+                    .map(|idx| &ordered[idx])
                 else {
                     continue;
                 };
@@ -1217,14 +1246,6 @@ impl PaneRenderer {
     ) {
         puffin::profile_function!();
 
-        let textured_lookup: HashMap<(usize, usize), &TexturedQuad> = ordered
-            .iter()
-            .filter_map(|d| match d {
-                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.piece_id), &**tq)),
-                _ => None,
-            })
-            .collect();
-
         for batch in &mut self.batches {
             let BatchKey::Textured {
                 texture_name,
@@ -1239,7 +1260,11 @@ impl PaneRenderer {
                 continue;
             };
 
-            let Some(tq) = textured_lookup.get(&piece_key) else {
+            let Some(data_idx) = self.quad_lookup.get(&piece_key) else {
+                continue;
+            };
+
+            let PaneQuadData::Textured(tq) = &ordered[*data_idx] else {
                 continue;
             };
 
@@ -1349,13 +1374,6 @@ impl PaneRenderer {
         layout_h: f32,
     ) {
         puffin::profile_function!();
-        let mut textured_lookup: HashMap<(usize, usize), &mut TexturedQuad> = ordered
-            .iter_mut()
-            .filter_map(|d| match d {
-                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.piece_id), &mut **tq)),
-                _ => None,
-            })
-            .collect();
 
         for batch in &self.batches {
             if !matches!(batch.key, BatchKey::Textured { .. }) {
@@ -1366,7 +1384,11 @@ impl PaneRenderer {
                 continue;
             };
 
-            let Some(tq) = textured_lookup.get_mut(&first_key) else {
+            let Some(data_idx) = self.quad_lookup.get(&first_key) else {
+                continue;
+            };
+
+            let PaneQuadData::Textured(tq) = &mut ordered[*data_idx] else {
                 continue;
             };
 
@@ -1506,27 +1528,14 @@ impl PaneRenderer {
         flags: PaneVisibilityFlags,
     ) {
         puffin::profile_function!();
-        let quad_lookup: HashMap<(usize, usize), &PaneQuadData> = ordered
-            .iter()
-            .map(|d| {
-                let piece_id = match d {
-                    PaneQuadData::Plain(_) => usize::MAX,
-                    PaneQuadData::Textured(tq) => tq.piece_id,
-                };
-                ((d.pane_idx(), piece_id), d)
-            })
-            .collect();
 
         for batch in &mut self.batches {
             let mut dirty = false;
 
             for (batch_quad_idx, &piece_key) in batch.piece_keys.iter().enumerate() {
                 let base = batch_quad_idx * 4;
-                if base + 3 >= batch.vertices.len() {
-                    break;
-                }
 
-                let Some(data) = quad_lookup.get(&piece_key) else {
+                let Some(data) = self.quad_lookup.get(&piece_key).map(|idx| &ordered[*idx]) else {
                     continue;
                 };
 
@@ -1560,13 +1569,6 @@ impl PaneRenderer {
         hidden_panes: &HashSet<usize>,
     ) {
         puffin::profile_function!();
-        let textured_lookup: HashMap<(usize, usize), &TexturedQuad> = ordered
-            .iter()
-            .filter_map(|d| match d {
-                PaneQuadData::Textured(tq) => Some(((tq.pane_idx, tq.piece_id), &**tq)),
-                _ => None,
-            })
-            .collect();
 
         for batch in &mut self.batches {
             if !matches!(batch.key, BatchKey::Textured { .. }) {
@@ -1577,7 +1579,11 @@ impl PaneRenderer {
                 continue;
             };
 
-            let Some(tq) = textured_lookup.get(&first_key) else {
+            let Some(data_idx) = self.quad_lookup.get(&first_key) else {
+                continue;
+            };
+
+            let PaneQuadData::Textured(tq) = &ordered[*data_idx] else {
                 continue;
             };
 

@@ -3,7 +3,11 @@ use std::collections::HashSet;
 use egui_ltreeview::{Action, NodeBuilder, TreeViewBuilder, TreeViewSettings, TreeViewState};
 use nnbfl::bflyt::file::BflytSection;
 
-use crate::{LayoutData, bflyt_view::BflytView, pane_tree::PaneNode, ui::general::UiAction};
+use crate::{
+    LayoutData,
+    pane_tree::{PaneNode, PaneTree},
+    ui::general::UiAction,
+};
 
 #[derive(Default)]
 pub struct TreeView {
@@ -44,7 +48,7 @@ impl TreeView {
                                 ..Default::default()
                             })
                             .show_state(ui, &mut self.tree_state, |builder| {
-                                for root in layout.view.tree.roots.iter() {
+                                for root in layout.tree.roots.iter() {
                                     Self::draw_pane_node(root, builder, &mut self.hidden_panes);
                                 }
                             });
@@ -56,16 +60,15 @@ impl TreeView {
                             }
 
                             Action::Drag(drag) => {
-                                if !Self::is_valid_move(&layout.view, drag) {
+                                if !Self::is_valid_move(&layout.tree, drag) {
                                     drag.remove_drop_marker(ui);
                                 }
                             }
 
                             Action::Move(drag) => {
                                 if let Some(source_idx) = drag.source.first().copied()
-                                    && Self::is_valid_move(&layout.view, drag)
+                                    && Self::is_valid_move(&layout.tree, drag)
                                     && let Some((new_parent, position)) = layout
-                                        .view
                                         .tree
                                         .resolve_drop_position(drag.target, &drag.position)
                                 {
@@ -88,7 +91,7 @@ impl TreeView {
         out_action
     }
 
-    fn is_valid_move(view: &BflytView, drag: &egui_ltreeview::DragAndDrop<usize>) -> bool {
+    fn is_valid_move(pane_tree: &PaneTree, drag: &egui_ltreeview::DragAndDrop<usize>) -> bool {
         let Some(&source_idx) = drag.source.first() else {
             return false;
         };
@@ -97,21 +100,20 @@ impl TreeView {
             return false;
         }
 
-        if view
-            .tree
+        if pane_tree
             .find_by_idx(source_idx)
             .is_some_and(|n| n.parts_source.is_some())
         {
             return false;
         }
 
-        let Some((new_parent, _)) = view.tree.resolve_drop_position(drag.target, &drag.position)
+        let Some((new_parent, _)) = pane_tree.resolve_drop_position(drag.target, &drag.position)
         else {
             return false;
         };
 
         if let Some(target_parent) = new_parent
-            && view.tree.is_ancestor_or_self(target_parent, source_idx)
+            && pane_tree.is_ancestor_or_self(target_parent, source_idx)
         {
             return false;
         }

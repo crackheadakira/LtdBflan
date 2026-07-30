@@ -146,7 +146,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         ctx.layout_tabs.active_timeline_mut(),
     );
 
-    if let Some(layout) = ctx.layout_tabs.active_mut() {
+    /*if let Some(layout) = ctx.layout_tabs.active_mut() {
         let viewport_rect = ui.content_rect();
         let painter = ui.painter().with_clip_rect(viewport_rect);
 
@@ -259,13 +259,10 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                 painter.galley(final_pos, galley, egui::Color32::WHITE);
             }
         }
-    }
+    }*/
 
     if let Some(layout) = ctx.layout_tabs.active()
-        && let Some(node) = layout
-            .view
-            .tree
-            .find_by_idx(ctx.ui_state.context_menu.pane_idx)
+        && let Some(node) = layout.tree.find_by_idx(ctx.ui_state.context_menu.pane_idx)
     {
         let state = ContextMenuState {
             node,
@@ -344,13 +341,11 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                     ctx.ui_state.group_editor.is_editor_visible = true;
                 }
 
-                if layout.view.tree.material_list.is_some()
-                    && ui.button("Material Editor").clicked()
-                {
+                if layout.tree.material_list.is_some() && ui.button("Material Editor").clicked() {
                     ctx.ui_state.material_editor.is_editor_visible = true;
                 }
 
-                if layout.view.tree.main_bntx.is_some() && ui.button("Texture Editor").clicked() {
+                if layout.tree.main_bntx.is_some() && ui.button("Texture Editor").clicked() {
                     ctx.ui_state.texture_editor.is_editor_visible = true;
                 }
 
@@ -383,7 +378,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
 
                 for (idx, layout) in ctx.layout_tabs.items.iter().enumerate() {
                     let is_selected = idx == ctx.layout_tabs.active_index;
-                    let file_name = &layout.view.file_name;
+                    let file_name = &layout.file_name;
 
                     ui.push_id(idx, |ui| {
                         ui.horizontal(|ui| {
@@ -496,7 +491,7 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                             ui.vertical(|ui| {
                                 if let Some(idx) = ctx.ui_state.pane_tree_view.selected_pane {
                                     let changed = {
-                                        if let Some(node) = layout.view.tree.find_by_idx_mut(idx) {
+                                        if let Some(node) = layout.tree.find_by_idx_mut(idx) {
                                             draw_pane_properties(ui, node)
                                         } else {
                                             false
@@ -504,11 +499,11 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                                     };
 
                                     if changed {
-                                        if let Some(node) = layout.view.tree.find_by_idx_mut(idx) {
+                                        if let Some(node) = layout.tree.find_by_idx_mut(idx) {
                                             node.mark_transform_dirty();
                                         }
 
-                                        layout.view.tree.recompute_dirty();
+                                        layout.tree.recompute_dirty();
                                     }
                                 } else {
                                     ui.centered_and_justified(|ui| {
@@ -670,14 +665,14 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
             });
     };
 
-    if let Some(layout) = ctx.layout_tabs.active_mut() {
-        if let Some(material_list) = layout.view.tree.material_list.as_mut() {
+    if let Some(layout) = ctx.layout_tabs.items.get_mut(ctx.layout_tabs.active_index) {
+        if let Some(material_list) = layout.tree.material_list.as_mut() {
             let changed = ctx.ui_state.material_editor.draw_with(ui, material_list);
 
             // TODO: clean this up perchance?
 
             if changed {
-                layout.view.tree.for_each_mut(|node| {
+                layout.tree.for_each_mut(|node| {
                     let mut is_dirty = false;
 
                     for tq in all_quads_mut(node) {
@@ -696,18 +691,20 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
         }
 
         if let Some(idx) = ctx.ui_state.pane_tree_view.selected_pane
-            && let Some(node) = layout.view.tree.find_by_idx_mut(idx)
+            && let Some(node) = layout.tree.find_by_idx_mut(idx)
         {
             ctx.ui_state.pane_editor.draw_with(ui, node);
         }
 
-        ctx.ui_state
-            .texture_editor
-            .draw_with(ui, layout.view.tree.main_bntx.as_ref());
+        ctx.ui_state.texture_editor.draw_with(
+            ui,
+            (
+                layout.tree.main_bntx.as_ref(),
+                &ctx.layout_tabs.glyphs.atlas,
+            ),
+        );
 
-        ctx.ui_state
-            .group_editor
-            .draw_with(ui, &mut layout.view.tree);
+        ctx.ui_state.group_editor.draw_with(ui, &mut layout.tree);
     }
 
     if let Some(timeline) = ctx.layout_tabs.active_timeline_mut() {
