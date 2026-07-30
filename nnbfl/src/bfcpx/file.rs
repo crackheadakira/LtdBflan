@@ -2,13 +2,13 @@ use num_enum::{FromPrimitive, IntoPrimitive};
 use serde::{Deserialize, Serialize};
 
 use crate::core::{
-    BitPackable, Cursor, FileReadWriteable, FormatError, Placeholder32, ReadWriteable,
+    BitPackable, Cursor, Endianness, FileReadWriteable, FormatError, Placeholder32, ReadWriteable,
     VersionFormat, Writer, tchar_code32,
 };
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Bfcpx {
-    pub endianness: u16,
+    pub endianness: Endianness,
     pub version: VersionFormat,
     pub description: BfcpxDescription,
 }
@@ -28,7 +28,7 @@ impl ReadWriteable for Bfcpx {
             });
         }
 
-        let endianness = cursor.read_u16()?;
+        let endianness = Endianness::from_u16(cursor.read_u16()?)?;
         let header_size = cursor.read_u16()?;
         let version = VersionFormat::parse(cursor)?;
         cursor.version = version;
@@ -62,7 +62,7 @@ impl ReadWriteable for Bfcpx {
 
         writer.mark("File header");
         writer.write_bytes(b"FCPX");
-        writer.write_u16(self.endianness);
+        writer.write_u16(self.endianness.to_u16());
         let header_size = writer.write_placeholder_u16();
         self.version.write(writer);
 

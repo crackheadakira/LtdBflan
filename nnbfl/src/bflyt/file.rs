@@ -12,8 +12,8 @@ use crate::{
         pane::{AlignmentPane, Pane, PartsPane, PicturePane, TextBoxPane, WindowPane},
     },
     core::{
-        Cursor, FileReadWriteable, FormatError, ReadWriteable, SectionHeader, SectionMagic,
-        VersionFormat, Writer, tchar_code32,
+        Cursor, Endianness, FileReadWriteable, FormatError, ReadWriteable, SectionHeader,
+        SectionMagic, VersionFormat, Writer, tchar_code32,
     },
     ui2d::userdata::UserDataArray,
 };
@@ -251,7 +251,7 @@ impl BflytSection {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Bflyt {
-    pub endianness: u16,
+    pub endianness: Endianness,
     pub version: VersionFormat,
 
     pub layout: Layout,
@@ -287,7 +287,7 @@ impl ReadWriteable for Bflyt {
             });
         }
 
-        let endianness = cursor.read_u16()?;
+        let endianness = Endianness::from_u16(cursor.read_u16()?)?;
         let header_size = cursor.read_u16()?;
         let version = VersionFormat::parse(cursor)?;
         cursor.version = version;
@@ -526,7 +526,7 @@ impl ReadWriteable for Bflyt {
 
         writer.mark("File header");
         writer.write_bytes(b"FLYT");
-        writer.write_u16(self.endianness);
+        writer.write_u16(self.endianness.to_u16());
         let header_size = writer.write_placeholder_u16();
         self.version.write(writer);
 

@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::core::{Cursor, FileReadWriteable, FormatError, ReadWriteable, Writer, tchar_code32};
+use crate::core::{
+    Cursor, Endianness, FileReadWriteable, FormatError, ReadWriteable, Writer, tchar_code32,
+};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Sarc {
-    pub endianness: u16,
+    pub endianness: Endianness,
     pub version_number: u16,
     pub padding: u16,
     pub hash_multiplier: u32,
@@ -28,7 +30,7 @@ impl ReadWriteable for Sarc {
         }
 
         let _header_size = cursor.read_u16()?;
-        let endianness = cursor.read_u16()?;
+        let endianness = Endianness::from_u16(cursor.read_u16()?)?;
         let _file_size = cursor.read_u32()?;
         let data_start_offset = cursor.read_u32()?;
         let version_number = cursor.read_u16()?;
@@ -187,7 +189,7 @@ impl ReadWriteable for Sarc {
         writer.mark("SARC Header");
         writer.write_u32(tchar_code32(b"SARC"));
         writer.write_u16(0x14);
-        writer.write_u16(self.endianness);
+        writer.write_u16(self.endianness.to_u16());
 
         let total_size_patch = writer.write_placeholder_u32();
         writer.write_u32(absolute_data_start);

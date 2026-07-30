@@ -104,3 +104,30 @@ impl ReadWriteable for VersionFormat {
         writer.write_u8(self.major);
     }
 }
+
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone, Copy)]
+pub enum Endianness {
+    Little,
+    #[default]
+    Big,
+}
+
+impl Endianness {
+    pub const BOM: u16 = 0xFEFF;
+    pub const SWAPPED_BOM: u16 = 0xFFFE;
+
+    pub fn from_u16(value: u16) -> Result<Self, FormatError> {
+        match value {
+            Self::BOM => Ok(Self::Little),
+            Self::SWAPPED_BOM => Ok(Self::Big),
+            other => Err(FormatError::InvalidEndianness(other)),
+        }
+    }
+
+    pub fn to_u16(self) -> u16 {
+        match self {
+            Self::Little => Self::BOM,
+            Self::Big => Self::SWAPPED_BOM,
+        }
+    }
+}

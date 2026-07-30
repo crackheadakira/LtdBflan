@@ -23,7 +23,7 @@ use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use nnbfl::{
     bflan::file::Bflan,
     bflyt::{file::Bflyt, list::Layout},
-    core::{FileReadWriteable, VersionFormat},
+    core::{Endianness, FileReadWriteable, VersionFormat},
     sarc::file::{MagicFiles, Sarc, SarcFile},
     ui2d::types::{Vector2f, Vector3f},
 };
@@ -563,7 +563,7 @@ impl LayoutData {
         };
 
         Bflyt {
-            endianness: 0xFEFF,
+            endianness: Endianness::Little,
             version: self.version,
             layout: layout_header,
             user_data: self.tree.user_data.clone(),

@@ -36,6 +36,11 @@ pub enum FormatError {
     },
 
     #[error(
+        "Invalid endianness was found at the file start, expected either 0xFEFF or 0xFFFE, found 0x{0:04X}"
+    )]
+    InvalidEndianness(u16),
+
+    #[error(
         "Unexpected End-of-File (EOF) at offset 0x{offset:X} (attempted to read {requested_bytes} bytes)"
     )]
     UnexpectedEof {
