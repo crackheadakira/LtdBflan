@@ -3010,8 +3010,7 @@ dependencies = [
 [[package]]
 name = "szs"
 version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bfe1c62478219492094a4ef4d7c0df268848be33551ae8d7ff1a8d0cfa9ad3f"
+source = "git+https://github.com/snailspeed3/RiiStudio/?rev=8af2650ca7d13b3447b5d1712acc5dba5b1024ea#8af2650ca7d13b3447b5d1712acc5dba5b1024ea"
 dependencies = [
  "cc",
  "libc",

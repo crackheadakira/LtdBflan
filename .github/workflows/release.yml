@@ -23,9 +23,9 @@ jobs:
 
         outputs:
             cli_changed: ${{ steps.check-cli.outputs.changed }}
-            cli_tag: v${{ steps.check-cli.outputs.version }}
-            gui_changed: ${{ steps.check-gui.outputs.changed }}
-            gui_tag: v${{ steps.check-gui.outputs.version }}
+            cli_tag: v${{ steps.check-cli.outputs.version }}-cli
+            preview_changed: ${{ steps.check-preview.outputs.changed }}
+            preview_tag: v${{ steps.check-preview.outputs.version }}-preview
             any_changed: ${{ steps.global-check.outputs.any_changed }}
 
         steps:
@@ -57,7 +57,7 @@ jobs:
                     echo "changed=true" >> "$GITHUB_OUTPUT"
                     echo "version=$NEW_VER" >> "$GITHUB_OUTPUT"
 
-                    TAG="nnbfl-v$NEW_VER"
+                    TAG="v${NEW_VER}-cli"
 
                     if ! git rev-parse "$TAG" >/dev/null 2>&1; then
                       git tag "$TAG"
@@ -67,8 +67,8 @@ jobs:
                     echo "changed=false" >> "$GITHUB_OUTPUT"
                   fi
 
-            - name: Check nnbfl-preview (GUI) Version
-              id: check-gui
+            - name: Check nnbfl-preview Version
+              id: check-preview
               shell: bash
               run: |
                   FORCE="${{ github.event.inputs.force }}"
@@ -85,7 +85,7 @@ jobs:
                     echo "changed=true" >> "$GITHUB_OUTPUT"
                     echo "version=$NEW_VER" >> "$GITHUB_OUTPUT"
 
-                    TAG="nnbfl-preview-v$NEW_VER"
+                    TAG="v${NEW_VER}-preview"
 
                     if ! git rev-parse "$TAG" >/dev/null 2>&1; then
                       git tag "$TAG"
@@ -99,7 +99,7 @@ jobs:
               id: global-check
               shell: bash
               run: |
-                  if [[ "${{ steps.check-cli.outputs.changed }}" == "true" || "${{ steps.check-gui.outputs.changed }}" == "true" ]]; then
+                  if [[ "${{ steps.check-cli.outputs.changed }}" == "true" || "${{ steps.check-preview.outputs.changed }}" == "true" ]]; then
                     echo "any_changed=true" >> "$GITHUB_OUTPUT"
                   else
                     echo "any_changed=false" >> "$GITHUB_OUTPUT"
@@ -120,17 +120,17 @@ jobs:
                     - os: ubuntu-latest
                       target: x86_64-unknown-linux-gnu
                       bin-cli: nnbfl
-                      bin-gui: nnbfl-preview
+                      bin-preview: nnbfl-preview
 
                     - os: windows-latest
                       target: x86_64-pc-windows-msvc
                       bin-cli: nnbfl.exe
-                      bin-gui: nnbfl-preview.exe
+                      bin-preview: nnbfl-preview.exe
 
                     - os: macos-latest
                       target: x86_64-apple-darwin
                       bin-cli: nnbfl
-                      bin-gui: nnbfl-preview
+                      bin-preview: nnbfl-preview
 
         steps:
             - name: Checkout Source Code
@@ -146,6 +146,14 @@ jobs:
               with:
                   key: ${{ matrix.job.target }}
 
+            - name: Configure Clang (Windows)
+              if: matrix.job.os == 'windows-latest'
+              shell: pwsh
+              run: |
+                  echo "CXX=clang" >> $env:GITHUB_ENV
+                  echo "CC=clang" >> $env:GITHUB_ENV
+                  clang --version
+
             - name: Build Workspace (Optimized Release)
               run: cargo build --release --workspace --target ${{ matrix.job.target }}
 
@@ -156,12 +164,12 @@ jobs:
                   cd target/${{ matrix.job.target }}/release
                   7z a ../../../nnbfl-cli-${{ needs.check-and-tag.outputs.cli_tag }}-${{ matrix.job.target }}.zip ${{ matrix.job.bin-cli }}
 
-            - name: Package GUI (Windows)
-              if: matrix.job.os == 'windows-latest' && needs.check-and-tag.outputs.gui_changed == 'true'
+            - name: Package Preview (Windows)
+              if: matrix.job.os == 'windows-latest' && needs.check-and-tag.outputs.preview_changed == 'true'
               shell: pwsh
               run: |
                   cd target/${{ matrix.job.target }}/release
-                  7z a ../../../nnbfl-gui-${{ needs.check-and-tag.outputs.gui_tag }}-${{ matrix.job.target }}.zip ${{ matrix.job.bin-gui }}
+                  7z a ../../../nnbfl-preview-${{ needs.check-and-tag.outputs.preview_tag }}-${{ matrix.job.target }}.zip ${{ matrix.job.bin-preview }}
 
             - name: Package CLI (Linux/macOS)
               if: matrix.job.os != 'windows-latest' && needs.check-and-tag.outputs.cli_changed == 'true'
@@ -169,11 +177,11 @@ jobs:
                   cd target/${{ matrix.job.target }}/release
                   tar -czf ../../../nnbfl-cli-${{ needs.check-and-tag.outputs.cli_tag }}-${{ matrix.job.target }}.tar.gz ${{ matrix.job.bin-cli }}
 
-            - name: Package GUI (Linux/macOS)
-              if: matrix.job.os != 'windows-latest' && needs.check-and-tag.outputs.gui_changed == 'true'
+            - name: Package Preview (Linux/macOS)
+              if: matrix.job.os != 'windows-latest' && needs.check-and-tag.outputs.preview_changed == 'true'
               run: |
                   cd target/${{ matrix.job.target }}/release
-                  tar -czf ../../../nnbfl-gui-${{ needs.check-and-tag.outputs.gui_tag }}-${{ matrix.job.target }}.tar.gz ${{ matrix.job.bin-gui }}
+                  tar -czf ../../../nnbfl-preview-${{ needs.check-and-tag.outputs.preview_tag }}-${{ matrix.job.target }}.tar.gz ${{ matrix.job.bin-preview }}
 
             - name: Upload CLI Release
               if: needs.check-and-tag.outputs.cli_changed == 'true'
@@ -185,12 +193,12 @@ jobs:
                       nnbfl-cli-*.zip
                       nnbfl-cli-*.tar.gz
 
-            - name: Upload GUI Release
-              if: needs.check-and-tag.outputs.gui_changed == 'true'
+            - name: Upload Preview Release
+              if: needs.check-and-tag.outputs.preview_changed == 'true'
               uses: softprops/action-gh-release@v2
               with:
-                  tag_name: ${{ needs.check-and-tag.outputs.gui_tag }}
+                  tag_name: ${{ needs.check-and-tag.outputs.preview_tag }}
                   overwrite_files: true
                   files: |
-                      nnbfl-gui-*.zip
-                      nnbfl-gui-*.tar.gz
+                      nnbfl-preview-*.zip
+                      nnbfl-preview-*.tar.gz

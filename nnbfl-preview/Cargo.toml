@@ -23,7 +23,7 @@ rfd = "0.17"
 tomolib = "1.7"
 rayon = "1.12"
 
-szs = "0.3.7"
+szs = { git = "https://github.com/snailspeed3/RiiStudio/", rev = "8af2650ca7d13b3447b5d1712acc5dba5b1024ea", version = "0.3.7" }
 bitflags = "2.13.0"
 puffin = { git = "https://github.com/EmbarkStudios/puffin", package = "puffin" }
 puffin_egui = { git = "https://github.com/EmbarkStudios/puffin", package = "puffin_egui" }
