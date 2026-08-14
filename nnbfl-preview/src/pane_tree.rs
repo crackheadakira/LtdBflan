@@ -683,7 +683,9 @@ impl PaneTree {
                 for tq in &mut node.glyph_quads {
                     out.push(PaneQuadData::Textured(tq));
                 }
-            } else if !node.plain_quad.is_parts_root {
+            }
+
+            if !node.plain_quad.is_parts_root {
                 out.push(PaneQuadData::Plain(&node.plain_quad));
             }
 
@@ -1357,7 +1359,13 @@ impl<'a> Builder<'a> {
             let parent_package_bytes = resolve_nested_package_bytes(&bytes, &entry.nested_path)?;
 
             let mut all_files = Vec::new();
-            extract_all_files_recursive(parent_package_bytes, &mut all_files);
+
+            let file_name = entry
+                .path
+                .file_name()
+                .and_then(|f| Some(f.to_string_lossy().to_string()));
+
+            extract_all_files_recursive(parent_package_bytes, &mut all_files, file_name);
 
             self.active_sarc_key = Some(current_key);
             self.active_all_files = all_files;
@@ -1734,7 +1742,7 @@ fn load_bflyt_from_blarc_dir(blarc_dir: &Path, layout_name: &str) -> Option<Vec<
     bytes = decompress_if_needed(bytes, &filename);
 
     let mut all_files = Vec::new();
-    extract_all_files_recursive(bytes, &mut all_files);
+    extract_all_files_recursive(bytes, &mut all_files, Some(filename.to_string()));
 
     let has_bflyt = all_files
         .iter()

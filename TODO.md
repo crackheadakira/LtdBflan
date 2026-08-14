@@ -29,11 +29,11 @@
 - [ ] Auto-remove orphans?
 - [x] Pane tree view
     - [x] Fix 'draw only pane outlines'
-    - [ ] Fix 'draw pane outlines for textures'
+    - [x] Fix 'draw pane outlines for textures'
     - [ ] Adding new panes
     - [ ] Multi-select panes
     - [ ] Reordering panes
 - [ ] Scissor pane support
 - [ ] Captor pane support? (is this something rendering specific for in-game, or is it also used in bflyts)
 - [ ] Pop-up when loading from a SARC asking for which bflyt file to load
-- [ ] Tab system
+- [x] Tab system

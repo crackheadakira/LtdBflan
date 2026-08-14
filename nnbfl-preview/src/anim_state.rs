@@ -166,8 +166,6 @@ impl AnimInstance {
         pane_tree: &PaneTree,
         hidden_panes: &mut HashSet<usize>,
     ) {
-        hidden_panes.clear();
-
         if self.bflan.anim_tag.groups.is_empty() {
             return;
         }

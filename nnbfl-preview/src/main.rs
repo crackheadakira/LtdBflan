@@ -594,7 +594,7 @@ impl LayoutData {
 
         let bflyt = Bflyt::parse_file(bflyt_bytes).map_err(LoadError::BflytParse)?;
 
-        let (discovered_bntxs, discovered_bflans): (Vec<_>, Vec<_>) = all_files
+        let (discovered_bntxs, discovered_bflans) = all_files
             .into_par_iter()
             .fold(
                 || (Vec::new(), Vec::new()),
@@ -604,9 +604,9 @@ impl LayoutData {
                             Ok(bntx) => bntxs.push(bntx),
                             Err(e) => log::error!("TextureCache: failed to parse BNTX: {e}"),
                         },
-                        MagicFiles::Bflan(_, bytes) => {
+                        MagicFiles::Bflan(file_name, bytes) => {
                             if let Ok(bflan) = Bflan::parse_file(&bytes) {
-                                bflans.push(bflan);
+                                bflans.push((file_name, bflan));
                             }
                         }
                         _ => {}
@@ -624,8 +624,15 @@ impl LayoutData {
             );
 
         let mut timeline = TimelineState::default();
-        for bflan in discovered_bflans {
-            timeline.anim_player.load(bflan);
+        for (file_name, bflan) in discovered_bflans {
+            if file_name
+                .as_ref()
+                .is_some_and(|f| f.contains(&bflyt.layout.name))
+            {
+                timeline.anim_player.load(bflan);
+            } else if file_name.is_none() {
+                timeline.anim_player.load(bflan);
+            }
         }
 
         let anim_names = timeline
@@ -939,7 +946,11 @@ impl App {
         match std::fs::read(path) {
             Ok(bytes) => {
                 let mut detected_files = Vec::new();
-                extract_all_files_recursive(bytes, &mut detected_files);
+                let file_name = path
+                    .file_name()
+                    .and_then(|f| Some(f.to_string_lossy().to_string()));
+
+                extract_all_files_recursive(bytes, &mut detected_files, file_name);
                 self.open_file_from_buffer(detected_files);
             }
 
@@ -1025,6 +1036,7 @@ impl App {
                 &render_quads,
                 &gpu.texture_cache,
                 layout_size,
+                &self.ui_state.visiblity_flags,
             );
 
             if let Some(window) = &self.window {
@@ -1075,6 +1087,7 @@ impl App {
                 &render_quads,
                 &gpu.texture_cache,
                 layout_size,
+                &self.ui_state.visiblity_flags,
             );
 
             if let Some(window) = &self.window {
@@ -1102,6 +1115,7 @@ impl App {
                 &[],
                 &gpu.texture_cache,
                 Vector2f::new(1280.0, 720.0),
+                &self.ui_state.visiblity_flags,
             );
 
             gpu.texture_cache.clear();
@@ -1151,8 +1165,13 @@ impl App {
         let layout_size = layout.tree.layout_size;
         let render_quads = layout.tree.collect_render_quads();
 
-        gpu.pane_renderer
-            .upload_quads(&gpu.device, &render_quads, &gpu.texture_cache, layout_size);
+        gpu.pane_renderer.upload_quads(
+            &gpu.device,
+            &render_quads,
+            &gpu.texture_cache,
+            layout_size,
+            &self.ui_state.visiblity_flags,
+        );
 
         if let Some(w) = &self.window {
             w.request_redraw();
@@ -1166,7 +1185,7 @@ impl App {
         file_bytes = decompress_if_needed(file_bytes, &filename);
 
         let mut all_files = Vec::new();
-        extract_all_files_recursive(file_bytes, &mut all_files);
+        extract_all_files_recursive(file_bytes, &mut all_files, Some(filename.to_string()));
 
         let has_bflyt = all_files
             .iter()
@@ -1187,9 +1206,13 @@ impl App {
     }
 }
 
-pub fn extract_all_files_recursive(data: Vec<u8>, out_files: &mut Vec<MagicFiles>) {
+pub fn extract_all_files_recursive(
+    data: Vec<u8>,
+    out_files: &mut Vec<MagicFiles>,
+    current_file_name: Option<String>,
+) {
     let current_file = SarcFile {
-        name: None,
+        name: current_file_name,
         hash: 0,
         data,
     };
@@ -1199,7 +1222,7 @@ pub fn extract_all_files_recursive(data: Vec<u8>, out_files: &mut Vec<MagicFiles
             let mut decompressed = Vec::new();
 
             if tomolib::formats::zs::decompress(&compressed_data[..], &mut decompressed).is_ok() {
-                extract_all_files_recursive(decompressed, out_files);
+                extract_all_files_recursive(decompressed, out_files, file_name);
             } else {
                 log::error!("Failed to decompress Zstd data for {file_name:?}.");
                 out_files.push(MagicFiles::Unknown(file_name, compressed_data));
@@ -1208,7 +1231,7 @@ pub fn extract_all_files_recursive(data: Vec<u8>, out_files: &mut Vec<MagicFiles
 
         MagicFiles::Yaz0(file_name, compressed_data) => match szs::decode(&compressed_data) {
             Ok(decompressed) => {
-                extract_all_files_recursive(decompressed, out_files);
+                extract_all_files_recursive(decompressed, out_files, file_name);
             }
             Err(err) => {
                 log::error!("Failed to decompress Yaz0 data for {file_name:?}: {err}");
@@ -1219,7 +1242,7 @@ pub fn extract_all_files_recursive(data: Vec<u8>, out_files: &mut Vec<MagicFiles
         MagicFiles::Sarc(file_name, sarc_bytes) => {
             if let Ok(sarc) = Sarc::parse_file(&sarc_bytes) {
                 for file in sarc.files {
-                    extract_all_files_recursive(file.data, out_files);
+                    extract_all_files_recursive(file.data, out_files, file.name);
                 }
             } else {
                 out_files.push(MagicFiles::Sarc(file_name, sarc_bytes));
@@ -1453,10 +1476,15 @@ impl ApplicationHandler for App {
 
                     self.ui_state.reset();
 
+                    let file_name = entry
+                        .path
+                        .file_name()
+                        .and_then(|f| Some(f.to_string_lossy().to_string()));
+
                     match resolved {
                         Some(package_bytes) => {
                             let mut all_files = Vec::new();
-                            extract_all_files_recursive(package_bytes, &mut all_files);
+                            extract_all_files_recursive(package_bytes, &mut all_files, file_name);
 
                             let mut final_files = Vec::new();
                             let mut target_layout = None;

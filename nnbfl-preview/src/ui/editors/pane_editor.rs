@@ -34,6 +34,10 @@ impl DrawUiWith<&mut PaneNode> for PaneEditor {
 
                 ui.separator();
 
+                if let BflytSection::PartsPane(pp) = &mut pane.section {
+                    ui.label(format!("Layout File Name: {}", pp.o_layout_name));
+                }
+
                 ui.horizontal(|ui| {
                     ui.heading("User Data");
 

@@ -851,6 +851,7 @@ impl PaneRenderer {
         ordered: &[PaneQuadData],
         texture_cache: &TextureCache,
         layout_size: Vector2f,
+        flags: &PaneVisibilityFlags,
     ) {
         puffin::profile_function!();
         self.batches.clear();
@@ -865,7 +866,6 @@ impl PaneRenderer {
             };
             let piece_key = (pane_idx, piece_id);
 
-            let flags = PaneVisibilityFlags::default();
             let base_tint = match data {
                 PaneQuadData::Plain(q) => flags.plain_color(q, false),
                 PaneQuadData::Textured(tq) => flags.textured_tint(tq, false),
@@ -1158,12 +1158,9 @@ impl PaneRenderer {
                 break;
             }
 
-            let lookup_key = (pane_idx, if piece_id == 0 { usize::MAX } else { piece_id });
-
             let Some(data) = quad_lookup
-                .get(&lookup_key)
+                .get(&(pane_idx, piece_id))
                 .copied()
-                .or_else(|| quad_lookup.get(&(pane_idx, piece_id)).copied())
                 .and_then(|idx| ordered.get(idx))
             else {
                 continue;
