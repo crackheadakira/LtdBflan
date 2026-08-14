@@ -1475,6 +1475,8 @@ impl<'a> Builder<'a> {
         };
 
         let old_source = self.parts_source.clone();
+        let old_sub_material_list = self.sub_material_list.take();
+
         self.parts_source = Some(layout_name.to_string());
         self.parts_depth += 1;
 
@@ -1490,7 +1492,7 @@ impl<'a> Builder<'a> {
             parent_node.depth + 1,
         );
 
-        self.sub_material_list = None;
+        self.sub_material_list = old_sub_material_list;
 
         for prop in &parts.properties {
             let prop_name = prop.property_name.trim_end_matches('\0');
