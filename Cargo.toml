@@ -1,25 +1,13 @@
-[package]
-name = "nnbfl"
-version = "1.0.5"
-edition = "2024"
-license = "MIT"
-
-authors = ["Morgan Tali"]
-description = "A CLI tool to pack, extract, and test Nintendo Binary File Layout (.bflyt and .bflan) files."
-repository = "https://github.com/crackheadakira/nnbfl"
-homepage = "https://github.com/crackheadakira/nnbfl"
-readme = "README.md"
-categories = ["command-line-utilities", "parser-implementations"]
-keywords = ["nintendo", "bflyt", "bflan", "modding", "cli"]
-
-[dependencies]
-clap = { version = "4.6.1", features = ["derive"] }
-num_enum = "0.7.6"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-thiserror = "2.0.18"
+[workspace]
+members = ["nnbfl", "nnbfl-preview"]
+resolver = "2"
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false

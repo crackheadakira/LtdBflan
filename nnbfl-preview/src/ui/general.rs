@@ -1,0 +1,976 @@
+use egui::Ui;
+use nnbfl::{
+    bflyt::{
+        file::BflytSection,
+        list::Layout,
+        pane::{HorizontalPosition, VerticalPosition},
+        pane::{Pane, TextAlignment},
+    },
+    ui2d::types::{Vector2f, Vector3f},
+};
+
+use crate::{
+    RenderContext,
+    anim_state::all_quads_mut,
+    pane_tree::{DirtyFlags, PaneNode},
+    renderer::textured_quad::PaneQuadData,
+    traits::Displaying,
+    ui::{
+        DrawUi, DrawUiWith,
+        archive_browser::ArchiveBrowser,
+        context_menu::{ContextMenu, ContextMenuAction, ContextMenuState},
+        editors::{GroupEditor, MaterialEditor, PaneEditor, TextureEditor},
+        shortcuts::Shortcuts,
+        tree_view::TreeView,
+    },
+};
+
+pub const SUPPORTED_SARC_EXTENSIONS: &[&str] = &[
+    "blarc",
+    "sarc",
+    "arc",
+    "Nin_NX_NVN",
+    "blarc.zs",
+    "sarc.zs",
+    "Nin_NX_NVN.zs",
+];
+
+#[derive(Default)]
+pub struct UiState {
+    pub error_message: Option<String>,
+    pub pending_action: Option<UiAction>,
+    pub visiblity_flags: PaneVisibilityFlags,
+    pub anim_names: Vec<String>,
+    pub pending_play_anim: Option<usize>,
+    pub sidebar_tab: SidebarTab,
+    pub right_sidebar_tab: SidebarRightTab,
+
+    pub pane_tree_view: TreeView,
+    pub context_menu: ContextMenu,
+    pub archive_browser: ArchiveBrowser,
+    pub shortcuts_window: Shortcuts,
+
+    pub material_editor: MaterialEditor,
+    pub pane_editor: PaneEditor,
+    pub group_editor: GroupEditor,
+    pub texture_editor: TextureEditor,
+    pub show_statistics_window: bool,
+    pub enable_puffin: bool,
+}
+
+impl UiState {
+    pub fn reset(&mut self) {
+        self.pane_tree_view.hidden_panes.clear();
+        self.pane_tree_view.selected_pane = None;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PaneVisibilityFlags {
+    /// Clips panes to fit within root pane.
+    pub clip_to_root: bool,
+
+    /// Hide every plain (non-texture) quad.
+    pub only_textured: bool,
+
+    /// Hide every textured quad (draw only outlines).
+    pub no_textured: bool,
+
+    /// Show the plain outline on top of panes that have a texture.
+    pub quad_for_textured: bool,
+
+    /// Where to stop the shader for debugging purposes.
+    pub active_debug_stage: u32,
+}
+
+impl PaneVisibilityFlags {
+    pub fn plain_color(&self, q: &crate::renderer::quad::Quad, hidden: bool) -> [f32; 4] {
+        if hidden || self.only_textured || (q.has_textured && !self.quad_for_textured) {
+            [0.0; 4]
+        } else {
+            q.color
+        }
+    }
+
+    pub fn textured_tint(
+        &self,
+        tq: &crate::renderer::textured_quad::TexturedQuad,
+        hidden: bool,
+    ) -> [f32; 4] {
+        if hidden || self.no_textured {
+            [0.0; 4]
+        } else {
+            tq.tint
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarTab {
+    #[default]
+    Panes,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarRightTab {
+    #[default]
+    Properties,
+    Animations,
+}
+
+pub enum UiAction {
+    LoadFile,
+    SetBlarcDir,
+    StartArchiveScan,
+    CancelArchiveScan,
+    LoadArchiveEntry(crate::archive_browser::ArchiveEntry),
+    SaveFile,
+
+    SwitchActiveTab,
+    PurgeUnusedTexturesAndSwitch(bool),
+
+    DeletePane(usize),
+    DuplicatePane(usize),
+
+    MovePane {
+        source_idx: usize,
+        new_parent: Option<usize>,
+        position: usize,
+    },
+
+    Undo,
+    Redo,
+}
+
+pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h: f32) {
+    puffin::profile_function!();
+    crate::keybinds::handle(
+        ui.ctx(),
+        ctx.ui_state,
+        ctx.layout_tabs.active_timeline_mut(),
+    );
+
+    /*if let Some(layout) = ctx.layout_tabs.active_mut() {
+        let viewport_rect = ui.content_rect();
+        let painter = ui.painter().with_clip_rect(viewport_rect);
+
+        for node in layout.view.tree.iter() {
+            let i = node.pane_idx;
+
+            if let BflytSection::TextBoxPane(text_box) = &node.section
+                && !ctx.ui_state.pane_tree_view.hidden_panes.contains(&i)
+                && node.visible
+            {
+                let display_text = text_box.text.as_deref().unwrap_or("");
+                if display_text.is_empty() {
+                    return;
+                }
+
+                let tl = node.plain_quad.corners[0];
+                let br = node.plain_quad.corners[3];
+                let center_x = (tl[0] + br[0]) * 0.5;
+                let center_y = (tl[1] + br[1]) * 0.5;
+
+                let screen_pos =
+                    ctx.camera
+                        .world_to_screen([center_x, center_y], screen_w, screen_h);
+
+                let active_zoom = ctx.camera.zoom.min(1.0);
+
+                let pane_width_scaled = text_box.base.size.x * active_zoom;
+                let pane_height_scaled = text_box.base.size.y * active_zoom;
+
+                let base_font_size = (text_box.font_size.x * active_zoom).clamp(16.0, 128.0);
+                let mut font_size = base_font_size;
+
+                if pane_width_scaled > 0.0 && pane_height_scaled > 0.0 {
+                    let approx_char_width = font_size * 0.55;
+                    let approx_total_width =
+                        display_text.chars().count() as f32 * approx_char_width;
+
+                    if approx_total_width > pane_width_scaled {
+                        let shrink_factor = pane_width_scaled / approx_total_width;
+                        font_size = (font_size * shrink_factor).max(12.0);
+                    }
+                }
+
+                let font_id = egui::FontId::proportional(font_size);
+
+                let galley = ui.fonts_mut(|f| {
+                    f.layout(
+                        display_text.to_string(),
+                        font_id,
+                        egui::Color32::WHITE,
+                        pane_width_scaled,
+                    )
+                });
+
+                let egui_align = match text_box.text_alignment {
+                    TextAlignment::Left => egui::Align2::LEFT_CENTER,
+                    TextAlignment::Right => egui::Align2::RIGHT_CENTER,
+                    TextAlignment::Center => egui::Align2::CENTER_CENTER,
+                    TextAlignment::Synchronous => match (
+                        text_box.base.position.position_x,
+                        text_box.base.position.position_y,
+                    ) {
+                        (HorizontalPosition::Left, VerticalPosition::Top) => egui::Align2::LEFT_TOP,
+                        (HorizontalPosition::Left, VerticalPosition::Center) => {
+                            egui::Align2::LEFT_CENTER
+                        }
+                        (HorizontalPosition::Left, VerticalPosition::Bottom) => {
+                            egui::Align2::LEFT_BOTTOM
+                        }
+
+                        (HorizontalPosition::Center, VerticalPosition::Top) => {
+                            egui::Align2::CENTER_TOP
+                        }
+                        (HorizontalPosition::Center, VerticalPosition::Center) => {
+                            egui::Align2::CENTER_CENTER
+                        }
+                        (HorizontalPosition::Center, VerticalPosition::Bottom) => {
+                            egui::Align2::CENTER_BOTTOM
+                        }
+
+                        (HorizontalPosition::Right, VerticalPosition::Top) => {
+                            egui::Align2::RIGHT_TOP
+                        }
+                        (HorizontalPosition::Right, VerticalPosition::Center) => {
+                            egui::Align2::RIGHT_CENTER
+                        }
+                        (HorizontalPosition::Right, VerticalPosition::Bottom) => {
+                            egui::Align2::RIGHT_BOTTOM
+                        }
+                    },
+                };
+
+                let final_pos = egui_align
+                    .align_size_within_rect(
+                        galley.size(),
+                        egui::Rect::from_center_size(
+                            screen_pos,
+                            egui::vec2(pane_width_scaled, pane_height_scaled),
+                        ),
+                    )
+                    .min;
+
+                let shadow_offset = (font_size * 0.08).max(1.5);
+                painter.galley_with_override_text_color(
+                    egui::pos2(final_pos.x + shadow_offset, final_pos.y + shadow_offset),
+                    galley.clone(),
+                    egui::Color32::from_black_alpha(220),
+                );
+
+                painter.galley(final_pos, galley, egui::Color32::WHITE);
+            }
+        }
+    }*/
+
+    if let Some(layout) = ctx.layout_tabs.active()
+        && let Some(node) = layout.tree.find_by_idx(ctx.ui_state.context_menu.pane_idx)
+    {
+        let state = ContextMenuState {
+            node,
+            is_hidden: ctx
+                .ui_state
+                .pane_tree_view
+                .hidden_panes
+                .contains(&ctx.ui_state.context_menu.pane_idx),
+        };
+
+        if let Some(action) = ctx.ui_state.context_menu.draw_with(ui, state) {
+            match action {
+                ContextMenuAction::HidePane(pane_idx) => {
+                    ctx.ui_state.pane_tree_view.hidden_panes.insert(pane_idx);
+                }
+                ContextMenuAction::ShowPane(pane_idx) => {
+                    ctx.ui_state.pane_tree_view.hidden_panes.remove(&pane_idx);
+                }
+                ContextMenuAction::Action(ui_action) => {
+                    ctx.ui_state.pending_action = Some(ui_action);
+                }
+            };
+        }
+    };
+
+    egui::Panel::top("menu_bar").show(ui, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
+            ui.menu_button("File", |ui| {
+                if ui.button("Load File...").clicked() {
+                    ctx.ui_state.pending_action = Some(UiAction::LoadFile);
+
+                    ui.close();
+                }
+
+                if ui.button("Set Layout Folder...").clicked() {
+                    ctx.ui_state.pending_action = Some(UiAction::SetBlarcDir);
+                    ui.close();
+                }
+
+                if ui.button("Save File As...").clicked() {
+                    ctx.ui_state.pending_action = Some(UiAction::SaveFile);
+                    ui.close();
+                }
+            });
+
+            if ui.button("Browse Archives...").clicked() {
+                ctx.ui_state.archive_browser.is_visible = true;
+            }
+
+            if let Some(layout) = ctx.layout_tabs.active() {
+                ui.menu_button("Shader Pass", |ui| {
+                    let stages = [
+                        (0, "Disabled"),
+                        (1, "1. Layer 0 Raw Texture"),
+                        (2, "2. Layer 1 Raw Texture"),
+                        (3, "3. Layer 2 Raw Texture"),
+                        (4, "4. Layer 0 UV"),
+                        (5, "5. Layer 1 UV"),
+                        (6, "6. Indirect Raw Vector Offset"),
+                        (7, "7. Indirect Displaced UV Coordinates"),
+                        (8, "8. Indirect Isolated Sample Output"),
+                        (9, "9. Composite Layer Alpha (Grayscale)"),
+                    ];
+
+                    for (stage_idx, label) in stages {
+                        if ui
+                            .radio_value(
+                                &mut ctx.ui_state.visiblity_flags.active_debug_stage,
+                                stage_idx,
+                                label,
+                            )
+                            .clicked()
+                        {
+                            ui.close();
+                        }
+                    }
+                });
+
+                if ui.button("Group Editor").clicked() {
+                    ctx.ui_state.group_editor.is_editor_visible = true;
+                }
+
+                if layout.tree.material_list.is_some() && ui.button("Material Editor").clicked() {
+                    ctx.ui_state.material_editor.is_editor_visible = true;
+                }
+
+                if layout.tree.main_bntx.is_some() && ui.button("Texture Editor").clicked() {
+                    ctx.ui_state.texture_editor.is_editor_visible = true;
+                }
+
+                if ctx.ui_state.pane_tree_view.selected_pane.is_some()
+                    && ui.button("Pane Editor").clicked()
+                {
+                    ctx.ui_state.pane_editor.is_editor_visible = true;
+                };
+
+                if ui.button("Statistics").clicked() {
+                    ctx.ui_state.show_statistics_window = true;
+                }
+            }
+
+            ui.menu_button("Help", |ui| {
+                if ui.button("Keyboard Shortcuts").clicked() {
+                    ctx.ui_state.shortcuts_window.is_visible = true;
+                    ui.close();
+                }
+            });
+
+            if ui.button("Profiling").clicked() {
+                ctx.ui_state.enable_puffin = !ctx.ui_state.enable_puffin;
+                puffin::set_scopes_on(ctx.ui_state.enable_puffin);
+            }
+        })
+    });
+
+    if !ctx.layout_tabs.items.is_empty() {
+        egui::Panel::top("tab_bar").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let mut tab_to_close = None;
+                let mut tab_to_select = None;
+
+                for (idx, layout) in ctx.layout_tabs.items.iter().enumerate() {
+                    let is_selected = idx == ctx.layout_tabs.active_index;
+                    let file_name = &layout.file_name;
+
+                    ui.push_id(idx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+
+                            if ui.selectable_label(is_selected, file_name).clicked() && !is_selected
+                            {
+                                tab_to_select = Some(idx);
+                            }
+
+                            if ui.small_button("x").clicked() {
+                                tab_to_close = Some(idx);
+                            }
+                        });
+                    });
+
+                    ui.separator();
+                }
+
+                if let Some(new_idx) = tab_to_select {
+                    ctx.layout_tabs.active_index = new_idx;
+                    ctx.ui_state.pending_action = Some(UiAction::SwitchActiveTab);
+                }
+
+                if let Some(close_idx) = tab_to_close {
+                    let closed_active = close_idx == ctx.layout_tabs.active_index;
+
+                    ctx.layout_tabs.items.remove(close_idx);
+
+                    if ctx.layout_tabs.items.is_empty() {
+                        ctx.layout_tabs.active_index = 0;
+                    } else if ctx.layout_tabs.active_index >= ctx.layout_tabs.items.len() {
+                        ctx.layout_tabs.active_index = ctx.layout_tabs.items.len() - 1;
+                    }
+
+                    ctx.ui_state.pending_action =
+                        Some(UiAction::PurgeUnusedTexturesAndSwitch(closed_active));
+                }
+            });
+        });
+    }
+
+    egui::Panel::left("pane_tree")
+        .default_size(240.0)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(
+                    &mut ctx.ui_state.sidebar_tab,
+                    SidebarTab::Panes,
+                    "Pane Tree",
+                );
+            });
+            ui.separator();
+
+            match ctx.ui_state.sidebar_tab {
+                SidebarTab::Panes => {
+                    ui.heading("Pane Tree");
+                    ui.checkbox(
+                        &mut ctx.ui_state.visiblity_flags.clip_to_root,
+                        "Clip to root pane",
+                    );
+                    ui.checkbox(
+                        &mut ctx.ui_state.visiblity_flags.only_textured,
+                        "Draw only textures",
+                    );
+                    ui.checkbox(
+                        &mut ctx.ui_state.visiblity_flags.quad_for_textured,
+                        "Draw pane outlines for textures",
+                    );
+                    ui.checkbox(
+                        &mut ctx.ui_state.visiblity_flags.no_textured,
+                        "Draw only pane outlines",
+                    );
+
+                    ui.separator();
+
+                    if let Some(ui_action) = ctx
+                        .ui_state
+                        .pane_tree_view
+                        .show(ui, ctx.layout_tabs.active_mut())
+                    {
+                        ctx.ui_state.pending_action = Some(ui_action);
+                    }
+                }
+            }
+        });
+
+    if ctx.layout_tabs.active().is_some() {
+        egui::Panel::right("right_control_panel")
+            .default_size(300.0)
+            .resizable(true)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut ctx.ui_state.right_sidebar_tab,
+                        SidebarRightTab::Properties,
+                        "Properties",
+                    );
+
+                    if ctx.layout_tabs.active_timeline().is_some() {
+                        ui.selectable_value(
+                            &mut ctx.ui_state.right_sidebar_tab,
+                            SidebarRightTab::Animations,
+                            "Animations",
+                        );
+                    }
+                });
+                ui.separator();
+
+                match ctx.ui_state.right_sidebar_tab {
+                    SidebarRightTab::Properties => {
+                        if let Some(layout) = ctx.layout_tabs.active_mut() {
+                            ui.vertical(|ui| {
+                                if let Some(idx) = ctx.ui_state.pane_tree_view.selected_pane {
+                                    let changed = {
+                                        if let Some(node) = layout.tree.find_by_idx_mut(idx) {
+                                            draw_pane_properties(ui, node)
+                                        } else {
+                                            false
+                                        }
+                                    };
+
+                                    if changed {
+                                        if let Some(node) = layout.tree.find_by_idx_mut(idx) {
+                                            node.mark_transform_dirty();
+                                        }
+
+                                        layout.tree.recompute_dirty();
+                                    }
+                                } else {
+                                    ui.centered_and_justified(|ui| {
+                                        ui.label("Select a pane in the tree to inspect it.");
+                                    });
+                                }
+                            });
+                        } else {
+                            ui.label("No .bflyt file loaded");
+                        }
+                    }
+                    SidebarRightTab::Animations => {
+                        ui.vertical(|ui| {
+                            ui.heading("Animations");
+                            if let Some(timeline) = ctx.layout_tabs.active_timeline_mut() {
+                                ui.horizontal(|ui| {
+                                    if timeline.anim_player.is_playing() {
+                                        ui.label(
+                                            egui::RichText::new("Playing")
+                                                .color(egui::Color32::GREEN)
+                                                .strong(),
+                                        );
+                                    } else if timeline.anim_player.active.is_some() {
+                                        ui.label(
+                                            egui::RichText::new("Paused")
+                                                .color(egui::Color32::GOLD),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            egui::RichText::new("Idle").color(egui::Color32::GRAY),
+                                        );
+                                    }
+                                });
+
+                                ui.checkbox(
+                                    &mut timeline.anim_player.limit_to_group,
+                                    "Hide non-group panes",
+                                );
+
+                                ui.separator();
+
+                                if let Some(idx) = timeline.anim_player.active
+                                    && let Some(anim) = timeline.anim_player.anims.get_mut(idx)
+                                {
+                                    ui.group(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(egui::RichText::new(&anim.name).strong());
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    ui.small(format!(
+                                                        "F: {:.1} / {:.0}",
+                                                        anim.frame,
+                                                        anim.frame_count()
+                                                    ));
+                                                },
+                                            );
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                            let play_toggle =
+                                                if anim.playing { "Pause" } else { "Play" };
+                                            if ui.button(play_toggle).clicked() {
+                                                anim.playing = !anim.playing;
+                                                anim.autoplay = !anim.autoplay;
+                                            }
+
+                                            if ui.button("Stop").clicked() {
+                                                anim.frame = 0.0;
+                                                anim.playing = false;
+                                                anim.autoplay = false;
+                                            }
+
+                                            if ui.button("Loop").clicked() {
+                                                anim.toggle_looping();
+                                                anim.frame = 0.0;
+                                                anim.playing = true;
+                                            }
+                                        });
+
+                                        let max_frame = anim.frame_count();
+                                        let mut temporary_frame = anim.frame;
+                                        let slider_res = ui.add(
+                                            egui::Slider::new(
+                                                &mut temporary_frame,
+                                                0.0..=max_frame,
+                                            )
+                                            .show_value(false)
+                                            .trailing_fill(true),
+                                        );
+
+                                        if slider_res.changed() {
+                                            anim.frame = temporary_frame;
+                                            if slider_res.dragged() {
+                                                anim.playing = false;
+                                            }
+                                        }
+
+                                        if slider_res.drag_stopped() && anim.autoplay {
+                                            anim.playing = true;
+                                        }
+                                    });
+                                }
+
+                                ui.add_space(8.0);
+
+                                if !ctx.ui_state.anim_names.is_empty() {
+                                    ui.weak(format!(
+                                        "{} total animations",
+                                        ctx.ui_state.anim_names.len()
+                                    ));
+
+                                    let row_height = ui.text_style_height(&egui::TextStyle::Body)
+                                        + ui.spacing().button_padding.y * 2.0;
+
+                                    egui::ScrollArea::vertical()
+                                        .id_salt("anim_selection_grid")
+                                        .auto_shrink(false)
+                                        .show_rows(
+                                            ui,
+                                            row_height,
+                                            ctx.ui_state.anim_names.len(),
+                                            |ui, row_range| {
+                                                for idx in row_range {
+                                                    let name = ctx.ui_state.anim_names[idx].clone();
+
+                                                    let is_active =
+                                                        timeline.anim_player.active == Some(idx);
+
+                                                    if ui
+                                                        .selectable_label(is_active, name)
+                                                        .clicked()
+                                                    {
+                                                        ctx.ui_state.pending_play_anim = Some(idx);
+                                                    }
+                                                }
+                                            },
+                                        );
+                                } else {
+                                    ui.label("No animations found.");
+                                }
+                            }
+                        });
+                    }
+                }
+            });
+    }
+
+    if let Some(err) = ctx.ui_state.error_message.to_owned() {
+        egui::Window::new("Error")
+            .collapsible(false)
+            .resizable(false)
+            .show(ui, |ui| {
+                ui.colored_label(egui::Color32::RED, err);
+
+                if ui.button("Close").clicked() {
+                    ctx.ui_state.error_message = None;
+                }
+            });
+    };
+
+    if let Some(layout) = ctx.layout_tabs.items.get_mut(ctx.layout_tabs.active_index) {
+        if let Some(material_list) = layout.tree.material_list.as_mut() {
+            let changed = ctx.ui_state.material_editor.draw_with(ui, material_list);
+
+            // TODO: clean this up perchance?
+
+            if changed {
+                layout.tree.for_each_mut(|node| {
+                    let mut is_dirty = false;
+
+                    for tq in all_quads_mut(node) {
+                        if tq.material_idx as usize
+                            == ctx.ui_state.material_editor.selected_material
+                        {
+                            is_dirty = true;
+                        }
+                    }
+
+                    if is_dirty {
+                        node.dirty.insert(DirtyFlags::MATERIAL);
+                    }
+                });
+            }
+        }
+
+        if let Some(idx) = ctx.ui_state.pane_tree_view.selected_pane
+            && let Some(node) = layout.tree.find_by_idx_mut(idx)
+        {
+            ctx.ui_state.pane_editor.draw_with(ui, node);
+        }
+
+        ctx.ui_state.texture_editor.draw_with(
+            ui,
+            (
+                layout.tree.main_bntx.as_ref(),
+                &ctx.layout_tabs.glyphs.atlas,
+            ),
+        );
+
+        ctx.ui_state.group_editor.draw_with(ui, &mut layout.tree);
+    }
+
+    if let Some(timeline) = ctx.layout_tabs.active_timeline_mut() {
+        timeline.draw(ui);
+    }
+
+    if let Some(action) = ctx.ui_state.archive_browser.draw(ui) {
+        ctx.ui_state.pending_action = Some(action);
+    };
+
+    ctx.ui_state.shortcuts_window.draw(ui);
+    if ctx.ui_state.enable_puffin {
+        puffin_egui::profiler_window(ui.ctx());
+    }
+
+    if let Some(layout) = ctx.layout_tabs.active_mut() {
+        egui::Window::new("Statistics")
+            .collapsible(false)
+            .resizable(true)
+            .open(&mut ctx.ui_state.show_statistics_window)
+            .show(ui, |ui| {
+                ui.label(format!("Total Panes: {}", layout.tree.max_pane_idx + 1));
+
+                let total_textured = layout
+                    .tree
+                    .collect_render_quads()
+                    .iter()
+                    .filter(|p| matches!(p, PaneQuadData::Textured(_)))
+                    .count();
+
+                ui.label(format!("Total Rendered Textured Panes: {total_textured}"));
+            });
+    }
+}
+
+fn draw_pane_properties(ui: &mut Ui, pane: &mut PaneNode) -> bool {
+    let mut changed = false;
+    egui::ScrollArea::vertical()
+        .id_salt("pane_properties_scroll")
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            ui.heading("Core Properties");
+            ui.add_space(4.0);
+
+            egui::Grid::new("pane_info_core")
+                .num_columns(2)
+                .striped(true)
+                .spacing([12.0, 4.0])
+                .show(ui, |ui| {
+                    draw_string(ui, "Name", &pane.label);
+                    draw_string(ui, "Kind", &pane.kind);
+                    draw_prop_f32(ui, "World X", pane.world_pos.x);
+                    draw_prop_f32(ui, "World Y", pane.world_pos.y);
+                    draw_prop_f32(ui, "Width", pane.world_size.x);
+                    draw_prop_f32(ui, "Height", pane.world_size.y);
+                    draw_prop(ui, "Depth", pane.depth);
+                    draw_prop(ui, "Visible", pane.visible);
+                    draw_prop(ui, "Pane Index", pane.pane_idx);
+                    if let Some(source) = &pane.parts_source {
+                        draw_string(ui, "Parts Source", source);
+                    }
+                });
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+            ui.heading("Transform");
+            ui.add_space(4.0);
+
+            if let Some(base) = pane.section.get_base_pane_mut() {
+                egui::Grid::new("pane_transform_grid")
+                    .num_columns(2)
+                    .striped(true)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label("Translate X");
+                        changed |= ui
+                            .add(egui::DragValue::new(&mut base.translation.x).speed(0.5))
+                            .changed();
+                        ui.end_row();
+
+                        ui.label("Translate Y");
+                        changed |= ui
+                            .add(egui::DragValue::new(&mut base.translation.y).speed(0.5))
+                            .changed();
+                        ui.end_row();
+
+                        ui.label("Translate Z");
+                        changed |= ui
+                            .add(egui::DragValue::new(&mut base.translation.z).speed(0.5))
+                            .changed();
+                        ui.end_row();
+
+                        ui.label("Rotate X");
+                        changed |= ui
+                            .add(egui::DragValue::new(&mut base.rotation.x).speed(0.1))
+                            .changed();
+                        ui.end_row();
+
+                        ui.label("Rotate Y");
+                        changed |= ui
+                            .add(egui::DragValue::new(&mut base.rotation.y).speed(0.1))
+                            .changed();
+                        ui.end_row();
+
+                        ui.label("Rotate Z");
+                        changed |= ui
+                            .add(egui::DragValue::new(&mut base.rotation.z).speed(0.1))
+                            .changed();
+                        ui.end_row();
+
+                        ui.label("Scale X");
+                        changed |= ui
+                            .add(egui::DragValue::new(&mut base.scale.x).speed(0.01))
+                            .changed();
+                        ui.end_row();
+
+                        ui.label("Scale Y");
+                        if ui
+                            .add(egui::DragValue::new(&mut base.scale.y).speed(0.01))
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label("Size X");
+                        changed |= ui
+                            .add(egui::DragValue::new(&mut base.size.x).speed(0.5))
+                            .changed();
+                        ui.end_row();
+
+                        ui.label("Size Y");
+                        changed |= ui
+                            .add(egui::DragValue::new(&mut base.size.y).speed(0.5))
+                            .changed();
+                        ui.end_row();
+                    });
+            }
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+            ui.heading("Section Details");
+            ui.add_space(4.0);
+
+            match &pane.section {
+                BflytSection::Layout(layout) => {
+                    egui::Grid::new("bflyt_layout_grid")
+                        .num_columns(2)
+                        .striped(true)
+                        .spacing([12.0, 4.0])
+                        .show(ui, |ui| {
+                            draw_layout_section(ui, layout);
+                        });
+                }
+                BflytSection::Pane(pane_detail) => {
+                    egui::Grid::new("bflyt_pane_grid")
+                        .num_columns(2)
+                        .striped(true)
+                        .spacing([12.0, 4.0])
+                        .show(ui, |ui| {
+                            draw_pane_section(ui, pane_detail);
+                        });
+                }
+                _ => {
+                    ui.weak("Section details not yet editable for this type.");
+                }
+            }
+        });
+
+    changed
+}
+
+fn draw_layout_section(ui: &mut Ui, layout: &Layout) {
+    draw_string(ui, "Name", &layout.name);
+    draw_prop(ui, "Centered", layout.is_centered);
+    draw_prop_f32(ui, "Width", layout.width);
+    draw_prop_f32(ui, "Height", layout.height);
+    draw_prop_f32(ui, "Parts Width", layout.parts_width);
+    draw_prop_f32(ui, "Parts Height", layout.parts_height);
+}
+
+fn draw_pane_section(ui: &mut Ui, pane: &Pane) {
+    draw_string(ui, "Name", &pane.pane_name);
+    draw_prop_debug(ui, "Position X", pane.position.position_x);
+    draw_prop_debug(ui, "Position Y", pane.position.position_y);
+    draw_prop_debug(
+        ui,
+        "Parent Relative Position X",
+        pane.position.parent_relative_position_x,
+    );
+    draw_prop_debug(
+        ui,
+        "Parent Relative Position Y",
+        pane.position.parent_relative_position_y,
+    );
+
+    draw_vector_3f(ui, "Translation", pane.translation);
+    draw_vector_3f(ui, "Rotation", pane.rotation);
+    draw_vector_2f(ui, "Scale", pane.scale);
+    draw_vector_2f(ui, "Size", pane.size);
+
+    draw_prop(ui, "Alpha", pane.alpha);
+    draw_prop(ui, "Influenced Alpha", pane.pane_flags.influenced_alpha);
+    draw_prop(ui, "Visible", pane.pane_flags.is_visible);
+
+    draw_prop(ui, "Extended User Data", pane.flag_ex.is_ext_user_data);
+    draw_prop(ui, "No Scale By Parts", pane.flag_ex.is_no_scale_by_parts);
+    draw_prop(
+        ui,
+        "Scale Size By Parts Root",
+        pane.flag_ex.is_scale_size_by_parts_root,
+    );
+}
+
+fn draw_vector_2f(ui: &mut Ui, label: &str, vector: Vector2f) {
+    ui.strong(label);
+    ui.label(format!("({:.2}, {:.2})", vector.x, vector.y));
+    ui.end_row();
+}
+
+fn draw_vector_3f(ui: &mut Ui, label: &str, vector: Vector3f) {
+    ui.strong(label);
+    ui.label(format!(
+        "({:.2}, {:.2}, {:.2})",
+        vector.x, vector.y, vector.z
+    ));
+    ui.end_row();
+}
+
+fn draw_prop(ui: &mut Ui, label: &str, value: impl std::fmt::Display) {
+    ui.strong(label);
+    ui.label(value.to_string());
+    ui.end_row();
+}
+
+fn draw_prop_debug(ui: &mut Ui, label: &str, value: impl std::fmt::Debug) {
+    ui.strong(label);
+    ui.label(format!("{:?}", value));
+    ui.end_row();
+}
+
+fn draw_string(ui: &mut Ui, label: &str, value: &str) {
+    ui.strong(label);
+    ui.label(value);
+    ui.end_row();
+}
+
+fn draw_prop_f32(ui: &mut Ui, label: &str, value: f32) {
+    ui.strong(label);
+    ui.label(format!("{:.2}", value));
+    ui.end_row();
+}

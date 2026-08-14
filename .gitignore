@@ -2,5 +2,7 @@
 anim*/
 *.bflan
 *.bflyt
+*.bfcpx
 *.json
 .vscode
+*.*arc
