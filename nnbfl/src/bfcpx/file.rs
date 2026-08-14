@@ -334,9 +334,17 @@ impl ReadWriteable for CharRange {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct BfcpxFontFlags {
+    /// Ignore the proportional alternate width feature in OpenType fonts when rendering.
     pub is_ignore_proportional_alternate_width: bool,
+
+    /// Delete the bearings to left & right of glyph, bearing offset is then specified by [`BfcpxFont::bearing_x`].
     pub is_override_bearing_x: bool,
+
+    /// Force text to be rendered as monospaced, character width is specified by [`BfcpxFont::override_char_width`].
     pub is_override_char_width: bool,
+
+    /// Exclude this font from line height calculation.
+    pub is_exclude_from_height_calculation: bool,
 }
 
 impl BitPackable<u8> for BfcpxFontFlags {
@@ -345,6 +353,7 @@ impl BitPackable<u8> for BfcpxFontFlags {
             is_ignore_proportional_alternate_width: (raw & 0x01) != 0,
             is_override_bearing_x: ((raw >> 1) & 0x01) != 0,
             is_override_char_width: ((raw >> 2) & 0x01) != 0,
+            is_exclude_from_height_calculation: ((raw >> 4) & 0x01) != 0,
         }
     }
 
@@ -352,15 +361,19 @@ impl BitPackable<u8> for BfcpxFontFlags {
         let mut raw = 0u8;
 
         if self.is_ignore_proportional_alternate_width {
-            raw |= 0b001;
+            raw |= 0b0001;
         }
 
         if self.is_override_bearing_x {
-            raw |= 0b010;
+            raw |= 0b0010;
         }
 
         if self.is_override_char_width {
-            raw |= 0b100;
+            raw |= 0b0100;
+        }
+
+        if self.is_exclude_from_height_calculation {
+            raw |= 0b1000;
         }
 
         raw
@@ -369,13 +382,13 @@ impl BitPackable<u8> for BfcpxFontFlags {
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct BfcpxFont {
-    pub bold_weight: f32,
-    pub width_scale: f32,
-    pub font_face_id: u32,
-    pub outline_width: u8,
     pub flags: BfcpxFontFlags,
-    pub baseline_offset: u16,
+    pub bold_weight: f32,
+    pub outline_width: u8,
+    pub width_scale: f32,
     pub height_scale: f32,
+    pub ttc_font_idx: u32,
+    pub baseline_offset: u16,
     pub bearing_x: u16,
     pub override_char_width: u16,
     pub ascent: u16,
@@ -387,7 +400,7 @@ impl BfcpxFont {
     pub fn write_header(&self, writer: &mut Writer) -> (Placeholder32, Placeholder32) {
         writer.write_f32(self.bold_weight);
         writer.write_f32(self.width_scale);
-        writer.write_u32(self.font_face_id);
+        writer.write_u32(self.ttc_font_idx);
 
         let name_offset_pos = writer.write_placeholder_u32();
 
@@ -412,7 +425,7 @@ impl BfcpxFont {
 
         let bold_weight = cursor.read_f32()?;
         let width_scale = cursor.read_f32()?;
-        let font_face_id = cursor.read_u32()?;
+        let ttc_font_idx = cursor.read_u32()?;
 
         let name_offset = cursor.read_u32()?;
         let outline_width = cursor.read_u8()?;
@@ -444,7 +457,7 @@ impl BfcpxFont {
         Ok(Self {
             bold_weight,
             width_scale,
-            font_face_id,
+            ttc_font_idx,
             outline_width,
             flags,
             baseline_offset,

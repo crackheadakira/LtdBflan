@@ -13,6 +13,7 @@ use crate::{
     RenderContext,
     anim_state::all_quads_mut,
     pane_tree::{DirtyFlags, PaneNode},
+    renderer::textured_quad::PaneQuadData,
     traits::Displaying,
     ui::{
         DrawUi, DrawUiWith,
@@ -53,6 +54,7 @@ pub struct UiState {
     pub pane_editor: PaneEditor,
     pub group_editor: GroupEditor,
     pub texture_editor: TextureEditor,
+    pub show_statistics_window: bool,
     pub enable_puffin: bool,
 }
 
@@ -125,7 +127,7 @@ pub enum UiAction {
     SaveFile,
 
     SwitchActiveTab,
-    PurgeUnusedTexturesAndSwitch,
+    PurgeUnusedTexturesAndSwitch(bool),
 
     DeletePane(usize),
     DuplicatePane(usize),
@@ -360,6 +362,10 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                 {
                     ctx.ui_state.pane_editor.is_editor_visible = true;
                 };
+
+                if ui.button("Statistics").clicked() {
+                    ctx.ui_state.show_statistics_window = true;
+                }
             }
 
             ui.menu_button("Help", |ui| {
@@ -390,8 +396,8 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 2.0;
 
-                            let response = ui.selectable_label(is_selected, file_name);
-                            if response.clicked() && !is_selected {
+                            if ui.selectable_label(is_selected, file_name).clicked() && !is_selected
+                            {
                                 tab_to_select = Some(idx);
                             }
 
@@ -410,6 +416,8 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                 }
 
                 if let Some(close_idx) = tab_to_close {
+                    let closed_active = close_idx == ctx.layout_tabs.active_index;
+
                     ctx.layout_tabs.items.remove(close_idx);
 
                     if ctx.layout_tabs.items.is_empty() {
@@ -418,7 +426,8 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
                         ctx.layout_tabs.active_index = ctx.layout_tabs.items.len() - 1;
                     }
 
-                    ctx.ui_state.pending_action = Some(UiAction::PurgeUnusedTexturesAndSwitch);
+                    ctx.ui_state.pending_action =
+                        Some(UiAction::PurgeUnusedTexturesAndSwitch(closed_active));
                 }
             });
         });
@@ -724,6 +733,25 @@ pub fn draw_ui(ui: &mut Ui, ctx: &mut RenderContext<'_>, screen_w: f32, screen_h
     ctx.ui_state.shortcuts_window.draw(ui);
     if ctx.ui_state.enable_puffin {
         puffin_egui::profiler_window(ui.ctx());
+    }
+
+    if let Some(layout) = ctx.layout_tabs.active_mut() {
+        egui::Window::new("Statistics")
+            .collapsible(false)
+            .resizable(true)
+            .open(&mut ctx.ui_state.show_statistics_window)
+            .show(ui, |ui| {
+                ui.label(format!("Total Panes: {}", layout.tree.max_pane_idx + 1));
+
+                let total_textured = layout
+                    .tree
+                    .collect_render_quads()
+                    .iter()
+                    .filter(|p| matches!(p, PaneQuadData::Textured(_)))
+                    .count();
+
+                ui.label(format!("Total Rendered Textured Panes: {total_textured}"));
+            });
     }
 }
 

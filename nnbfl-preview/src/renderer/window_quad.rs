@@ -593,6 +593,7 @@ pub fn derive_from_window(
             win.flag.window_kind,
             effective_flip,
             mat.tex_maps.len(),
+            win.frames.len(),
         );
 
         let frame_colors = if win.flag.use_vertex_color_for_all_window {
@@ -711,6 +712,7 @@ pub fn calculate_scaled_frame_uvs(
     window_kind: WindowKind,
     flip_mode: TextureFlip,
     texture_maps_count: usize,
+    frames_len: usize,
 ) -> Vec<TextureUv> {
     let mut frame_uvs = flipped_plain_uvs(texture_maps_count, TextureFlip::None);
 
@@ -721,15 +723,19 @@ pub fn calculate_scaled_frame_uvs(
 
     if window_kind == WindowKind::Around {
         for uv_set in &mut frame_uvs {
-            let (anchor_u, anchor_v) = match kind {
-                FrameKind::TopLeft => (0.0, 0.0),
-                FrameKind::Top => (0.5, 0.0),
-                FrameKind::TopRight => (1.0, 0.0),
-                FrameKind::Left => (0.0, 0.5),
-                FrameKind::Right => (1.0, 0.5),
-                FrameKind::BottomLeft => (0.0, 1.0),
-                FrameKind::Bottom => (0.5, 1.0),
-                FrameKind::BottomRight => (1.0, 1.0),
+            let (anchor_u, anchor_v) = if frames_len == 1 {
+                (0.0, 0.0)
+            } else {
+                match kind {
+                    FrameKind::TopLeft => (0.0, 0.0),
+                    FrameKind::Top => (0.5, 0.0),
+                    FrameKind::TopRight => (1.0, 0.0),
+                    FrameKind::Left => (0.0, 0.5),
+                    FrameKind::Right => (1.0, 0.5),
+                    FrameKind::BottomLeft => (0.0, 1.0),
+                    FrameKind::Bottom => (0.5, 1.0),
+                    FrameKind::BottomRight => (1.0, 1.0),
+                }
             };
 
             apply_anchored_scale(uv_set, u_scale, v_scale, anchor_u, anchor_v);

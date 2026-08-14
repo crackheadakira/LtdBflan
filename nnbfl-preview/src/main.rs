@@ -587,7 +587,7 @@ impl LayoutData {
         let bflyt_bytes = all_files
             .iter()
             .find_map(|file| match file {
-                MagicFiles::Bflyt(bytes) => Some(bytes),
+                MagicFiles::Bflyt(_, bytes) => Some(bytes),
                 _ => None,
             })
             .ok_or(LoadError::NoBflytFound)?;
@@ -600,11 +600,11 @@ impl LayoutData {
                 || (Vec::new(), Vec::new()),
                 |(mut bntxs, mut bflans), magic_file| {
                     match magic_file {
-                        MagicFiles::Bntx(bytes) => match Bntx::parse(&bytes) {
+                        MagicFiles::Bntx(_, bytes) => match Bntx::parse(&bytes) {
                             Ok(bntx) => bntxs.push(bntx),
                             Err(e) => log::error!("TextureCache: failed to parse BNTX: {e}"),
                         },
-                        MagicFiles::Bflan(bytes) => {
+                        MagicFiles::Bflan(_, bytes) => {
                             if let Ok(bflan) = Bflan::parse_file(&bytes) {
                                 bflans.push(bflan);
                             }
@@ -1049,6 +1049,7 @@ impl App {
 
     fn switch_active_tab(&mut self) {
         self.ui_state.anim_names = self.tabs.active_anim_names();
+        self.ui_state.pane_tree_view.selected_pane = None;
 
         if let Some(gpu) = &mut self.gpu {
             self.tabs
@@ -1167,7 +1168,9 @@ impl App {
         let mut all_files = Vec::new();
         extract_all_files_recursive(file_bytes, &mut all_files);
 
-        let has_bflyt = all_files.iter().any(|f| matches!(f, MagicFiles::Bflyt(_)));
+        let has_bflyt = all_files
+            .iter()
+            .any(|f| matches!(f, MagicFiles::Bflyt(_, _)));
         if !has_bflyt {
             return None;
         }
@@ -1192,34 +1195,34 @@ pub fn extract_all_files_recursive(data: Vec<u8>, out_files: &mut Vec<MagicFiles
     };
 
     match current_file.match_by_magic() {
-        MagicFiles::Zstd(compressed_data) => {
+        MagicFiles::Zstd(file_name, compressed_data) => {
             let mut decompressed = Vec::new();
 
             if tomolib::formats::zs::decompress(&compressed_data[..], &mut decompressed).is_ok() {
                 extract_all_files_recursive(decompressed, out_files);
             } else {
-                log::error!("Failed to decompress Zstd data.");
-                out_files.push(MagicFiles::Unknown(compressed_data));
+                log::error!("Failed to decompress Zstd data for {file_name:?}.");
+                out_files.push(MagicFiles::Unknown(file_name, compressed_data));
             }
         }
 
-        MagicFiles::Yaz0(compressed_data) => match szs::decode(&compressed_data) {
+        MagicFiles::Yaz0(file_name, compressed_data) => match szs::decode(&compressed_data) {
             Ok(decompressed) => {
                 extract_all_files_recursive(decompressed, out_files);
             }
             Err(err) => {
-                log::error!("Failed to decompress Yaz0 data: {err}");
-                out_files.push(MagicFiles::Unknown(compressed_data));
+                log::error!("Failed to decompress Yaz0 data for {file_name:?}: {err}");
+                out_files.push(MagicFiles::Unknown(file_name, compressed_data));
             }
         },
 
-        MagicFiles::Sarc(sarc_bytes) => {
+        MagicFiles::Sarc(file_name, sarc_bytes) => {
             if let Ok(sarc) = Sarc::parse_file(&sarc_bytes) {
                 for file in sarc.files {
                     extract_all_files_recursive(file.data, out_files);
                 }
             } else {
-                out_files.push(MagicFiles::Sarc(sarc_bytes));
+                out_files.push(MagicFiles::Sarc(file_name, sarc_bytes));
             }
         }
 
@@ -1355,9 +1358,12 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                UiAction::PurgeUnusedTexturesAndSwitch => {
+                UiAction::PurgeUnusedTexturesAndSwitch(switch_tab) => {
                     self.purge_unused_textures();
-                    self.switch_active_tab();
+
+                    if switch_tab {
+                        self.switch_active_tab();
+                    }
 
                     if let Some(w) = &self.window {
                         w.request_redraw();
@@ -1456,7 +1462,8 @@ impl ApplicationHandler for App {
                             let mut target_layout = None;
 
                             for (idx, file) in all_files.into_iter().enumerate() {
-                                if matches!(file, MagicFiles::Bflyt(_)) && idx == entry.file_idx {
+                                if matches!(file, MagicFiles::Bflyt(_, _)) && idx == entry.file_idx
+                                {
                                     target_layout = Some(file);
                                 } else {
                                     final_files.push(file);

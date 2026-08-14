@@ -1063,7 +1063,7 @@ impl PaneRenderer {
                         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("pane_detailed_mat_buf"),
                             contents: bytemuck::bytes_of(&rep_quad.detailed_combiner_material),
-                            usage: wgpu::BufferUsages::UNIFORM,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                         });
 
                     let view1 = rep_quad
@@ -1493,38 +1493,48 @@ impl PaneRenderer {
             });
         }
 
-        {
+        let dirty_batches: Vec<&mut Batch> = {
             puffin::profile_scope!("second_pass");
-            self.batches.par_iter_mut().for_each(|batch| {
-                let mut dirty = false;
 
-                dirty |= Self::update_anim(&self.quad_lookup, batch, ordered, hidden_panes, flags);
+            self.batches
+                .par_iter_mut()
+                .filter_map(|batch| {
+                    let mut dirty = false;
 
-                Self::update_texture_pattern(
-                    batch,
-                    device,
-                    ordered,
-                    texture_cache,
-                    &self.quad_lookup,
-                    &self.placeholder_view,
-                    &self.texture_bgl,
-                );
+                    dirty |=
+                        Self::update_anim(&self.quad_lookup, batch, ordered, hidden_panes, flags);
 
-                dirty |= Self::update_selection(
-                    batch,
-                    &self.quad_lookup,
-                    ordered,
-                    selected_idx,
-                    hidden_panes,
-                    flags,
-                );
+                    Self::update_texture_pattern(
+                        batch,
+                        device,
+                        ordered,
+                        texture_cache,
+                        &self.quad_lookup,
+                        &self.placeholder_view,
+                        &self.texture_bgl,
+                    );
 
-                Self::flush_mat_buffers(batch, &self.quad_lookup, queue, ordered, hidden_panes);
+                    dirty |= Self::update_selection(
+                        batch,
+                        &self.quad_lookup,
+                        ordered,
+                        selected_idx,
+                        hidden_panes,
+                        flags,
+                    );
 
-                if dirty && let Some(vb) = &batch.vertex_buffer {
-                    queue.write_buffer(vb, 0, bytemuck::cast_slice(&batch.vertices));
-                }
-            });
+                    Self::flush_mat_buffers(batch, &self.quad_lookup, queue, ordered, hidden_panes);
+
+                    if dirty { Some(batch) } else { None }
+                })
+                .collect()
+        };
+
+        puffin::profile_scope!("upload_buffers");
+        for batch in dirty_batches {
+            if let Some(vb) = &batch.vertex_buffer {
+                queue.write_buffer(vb, 0, bytemuck::cast_slice(&batch.vertices));
+            }
         }
     }
 

@@ -270,41 +270,41 @@ impl SarcFile {
 
 #[derive(Clone)]
 pub enum MagicFiles {
-    Bflyt(Vec<u8>),
-    Bflan(Vec<u8>),
-    Bntx(Vec<u8>),
-    Bfcpx(Vec<u8>),
-    Msbp(Vec<u8>),
-    Msbt(Vec<u8>),
-    Sarc(Vec<u8>),
-    Yaz0(Vec<u8>),
-    Zstd(Vec<u8>),
-    Unknown(Vec<u8>),
+    Bflyt(Option<String>, Vec<u8>),
+    Bflan(Option<String>, Vec<u8>),
+    Bntx(Option<String>, Vec<u8>),
+    Bfcpx(Option<String>, Vec<u8>),
+    Msbp(Option<String>, Vec<u8>),
+    Msbt(Option<String>, Vec<u8>),
+    Sarc(Option<String>, Vec<u8>),
+    Yaz0(Option<String>, Vec<u8>),
+    Zstd(Option<String>, Vec<u8>),
+    Unknown(Option<String>, Vec<u8>),
 }
 
 impl SarcFile {
     pub fn match_by_magic(self) -> MagicFiles {
         if self.data.len() < 4 {
-            return MagicFiles::Unknown(self.data);
+            return MagicFiles::Unknown(self.name, self.data);
         }
 
         if self.data.len() >= 8 {
             match &self.data[0..8] {
-                b"MsgPrjBn" => return MagicFiles::Msbp(self.data),
-                b"MsgStdBn" => return MagicFiles::Msbt(self.data),
+                b"MsgPrjBn" => return MagicFiles::Msbp(self.name, self.data),
+                b"MsgStdBn" => return MagicFiles::Msbt(self.name, self.data),
                 _ => {}
             }
         }
 
         match &self.data[0..4] {
-            b"FLYT" => MagicFiles::Bflyt(self.data),
-            b"FLAN" => MagicFiles::Bflan(self.data),
-            b"FCPX" => MagicFiles::Bfcpx(self.data),
-            b"BNTX" => MagicFiles::Bntx(self.data),
-            b"SARC" => MagicFiles::Sarc(self.data),
-            b"Yaz0" => MagicFiles::Yaz0(self.data),
-            [0x28, 0xB5, 0x2F, 0xFD] => MagicFiles::Zstd(self.data),
-            _ => MagicFiles::Unknown(self.data),
+            b"FLYT" => MagicFiles::Bflyt(self.name, self.data),
+            b"FLAN" => MagicFiles::Bflan(self.name, self.data),
+            b"FCPX" => MagicFiles::Bfcpx(self.name, self.data),
+            b"BNTX" => MagicFiles::Bntx(self.name, self.data),
+            b"SARC" => MagicFiles::Sarc(self.name, self.data),
+            b"Yaz0" => MagicFiles::Yaz0(self.name, self.data),
+            [0x28, 0xB5, 0x2F, 0xFD] => MagicFiles::Zstd(self.name, self.data),
+            _ => MagicFiles::Unknown(self.name, self.data),
         }
     }
 }

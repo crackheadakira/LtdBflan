@@ -339,7 +339,7 @@ fn walk_sarc_for_packages(
         data: data.to_vec(),
     };
 
-    let MagicFiles::Sarc(sarc_bytes) = probe.match_by_magic() else {
+    let MagicFiles::Sarc(_, sarc_bytes) = probe.match_by_magic() else {
         return;
     };
 

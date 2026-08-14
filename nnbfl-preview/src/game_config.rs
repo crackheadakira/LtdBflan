@@ -238,12 +238,12 @@ impl TomodachiLife {
             other => format!("Font_{}.Nin_NX_NVN", other.code_str()),
         };
 
-        let path = self.romfs_path.join(&folder_name);
+        let path = self.general_font_folder_path().join(&folder_name);
 
         if path.exists() {
             path
         } else {
-            self.romfs_path.join("Font.Nin_NX_NVN")
+            self.general_font_folder_path().join("Font.Nin_NX_NVN")
         }
     }
 }
@@ -251,10 +251,6 @@ impl TomodachiLife {
 impl GameConfig for TomodachiLife {
     fn romfs_path(&self) -> &Path {
         &self.romfs_path
-    }
-
-    fn general_font_folder_path(&self) -> PathBuf {
-        self.localized_font_root(Language::USen)
     }
 
     fn fcpx_folder_path(&self, lang: Language) -> PathBuf {
@@ -276,7 +272,7 @@ impl GameConfig for TomodachiLife {
         } else {
             self.localized_font_root(Language::USen)
                 .join("fcpx")
-                .join(format!("{name_clean}.bfcpx",))
+                .join(format!("{name_clean}.bfcpx"))
         }
     }
 }

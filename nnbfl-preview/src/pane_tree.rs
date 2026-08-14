@@ -405,6 +405,7 @@ impl PaneNode {
                                 win.flag.window_kind,
                                 effective_flip,
                                 tq.standard_material.texture_count as usize,
+                                win.frames.len(),
                             );
 
                             let base_uvs = Self::compute_uvs(&texture_uvs);
@@ -1364,15 +1365,18 @@ impl<'a> Builder<'a> {
         }
 
         let target_bflyt = match self.active_all_files.get(entry.file_idx)? {
-            MagicFiles::Bflyt(b) => b.clone(),
+            MagicFiles::Bflyt(_, b) => b.clone(),
             _ => return None,
         };
 
-        let mut final_files = vec![MagicFiles::Bflyt(target_bflyt)];
+        let mut final_files = vec![MagicFiles::Bflyt(
+            Some(layout_name.to_string()),
+            target_bflyt,
+        )];
 
         if !self.active_sarc_bntxs_parsed {
             for file in &self.active_all_files {
-                if !matches!(file, MagicFiles::Bflyt(_)) {
+                if !matches!(file, MagicFiles::Bflyt(_, _)) {
                     final_files.push(file.clone());
                 }
             }
@@ -1408,8 +1412,7 @@ impl<'a> Builder<'a> {
 
             if let Some(assets) = assets {
                 let bflyt_res = assets.iter().find_map(|f| {
-                    if let MagicFiles::Bflyt(bytes) = f {
-                        puffin::profile_scope!("parts_parse_bflyt");
+                    if let MagicFiles::Bflyt(_, bytes) = f {
                         Bflyt::parse_file(bytes).ok()
                     } else {
                         None
@@ -1424,7 +1427,7 @@ impl<'a> Builder<'a> {
                     let parsed_bntxs: Vec<_> = assets
                         .par_iter()
                         .filter_map(|asset| {
-                            if let MagicFiles::Bntx(bntx_data) = asset {
+                            if let MagicFiles::Bntx(_, bntx_data) = asset {
                                 match Bntx::parse(bntx_data) {
                                     Ok(bntx) => Some(bntx),
                                     Err(e) => {
@@ -1733,7 +1736,9 @@ fn load_bflyt_from_blarc_dir(blarc_dir: &Path, layout_name: &str) -> Option<Vec<
     let mut all_files = Vec::new();
     extract_all_files_recursive(bytes, &mut all_files);
 
-    let has_bflyt = all_files.iter().any(|f| matches!(f, MagicFiles::Bflyt(_)));
+    let has_bflyt = all_files
+        .iter()
+        .any(|f| matches!(f, MagicFiles::Bflyt(_, _)));
     if !has_bflyt {
         return None;
     }
