@@ -1,6 +1,20 @@
 # nnbfl
 
-nnbfl (Nintendo Binary File Layout) is a serializer & deserializer for .bflan & .bflyt files, tested with Tomodachi Life Living The Dream & Animal Crossing New Horizons.
+nnbfl (Nintendo Binary File Layout) is a serializer & deserializer for .bflan & .bflyt files.
+Tested with:
+
+- Tomodachi Life Living The Dream
+- Animal Crossing New Horizons
+- Mario Kart 8
+- Super Smash Bros. Ultimate
+- The Legend of Zelda: Tears of the Kingdom
+
+## Supported formats
+
+- .bflan
+- .bflyt
+- .bfcpx
+- .bfttf / .bfotf
 
 # Usage
 
